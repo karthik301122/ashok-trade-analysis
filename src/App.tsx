@@ -7,6 +7,8 @@ import { RotationClock } from './components/RotationClock'
 import { SectorAnalytics } from './components/SectorAnalytics'
 import { IndustryAnalytics } from './components/IndustryAnalytics'
 import { BreadthAnalysis } from './components/BreadthAnalysis'
+import { AltAssetsPanel } from './components/AltAssetsPanel'
+import { COMMODITIES, CRYPTO } from './data/altAssets'
 import { buildMarketSnapshot } from './lib/market'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
 import type { MarketSnapshot } from './data/types'
@@ -192,6 +194,22 @@ export default function App() {
                   {view === 'rotation-clock' && <RotationClock snapshot={snapshot} />}
                   {view === 'sector-analytics' && <SectorAnalytics snapshot={snapshot} />}
                   {view === 'industry-analytics' && <IndustryAnalytics snapshot={snapshot} />}
+                  {view === 'commodities' && (
+                    <AltAssetsPanel
+                      title="Commodities Desk"
+                      subtitle="Live futures / spot proxies — gold, silver, copper, oil, ags, AUD"
+                      assets={COMMODITIES}
+                      benchmarkYahoo="GC=F"
+                    />
+                  )}
+                  {view === 'crypto' && (
+                    <AltAssetsPanel
+                      title="Crypto Desk"
+                      subtitle="Major coins with mood / cycle / returns vs BTC"
+                      assets={CRYPTO}
+                      benchmarkYahoo="BTC-USD"
+                    />
+                  )}
                 </div>
               </div>
             )}

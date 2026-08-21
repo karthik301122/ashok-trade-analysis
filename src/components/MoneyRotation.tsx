@@ -58,9 +58,10 @@ export function MoneyRotation({ snapshot }: Props) {
       </div>
 
       <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-100">
-        <strong>What is Sector Rotation?</strong> Think of the ASX like a school cafeteria — big money
-        (super funds, institutions) moves from one sector table to another. Green = money flowing in.
-        Red = money flowing out. Beat {snapshot.benchmark} = outperforming.
+        <strong>How this estimate works:</strong> we do <em>not</em> have direct super-fund / FII order-flow
+        data. Money Rotation ranks industries by <strong>price return vs {snapshot.benchmark}</strong> over the
+        selected window (3M / 1M / 1W). Outperforming the index = treated as capital flowing IN; lagging = OUT.
+        It is a relative-strength proxy, not broker-reported flows.
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">

@@ -26,16 +26,18 @@ export function asxDataPlugin() {
           // GET /api/series/CBA?from=2023-01-01
           if (url.pathname.startsWith('/api/series/')) {
             const ticker = decodeURIComponent(url.pathname.replace('/api/series/', '')).toUpperCase()
-            if (!ticker || !/^[A-Z0-9.^]{1,12}$/.test(ticker)) {
+            if (!ticker || !/^[A-Z0-9.^=\-]{1,20}$/.test(ticker)) {
               return sendJson(res, 400, { error: 'Invalid ticker' })
             }
             const from = url.searchParams.get('from') || '2023-01-01'
-            const data =
-              ticker === '^AXJO' || ticker === 'XJO' || ticker === 'ASX200'
-                ? await fetchAsx200(from)
-                : ticker.includes('.')
-                  ? await fetchChartCloses(ticker, from)
-                  : await fetchAsxTicker(ticker, from)
+            const isIndex = ticker === '^AXJO' || ticker === 'XJO' || ticker === 'ASX200'
+            const isRawYahoo =
+              ticker.includes('=') || ticker.includes('-') || ticker.includes('.')
+            const data = isIndex
+              ? await fetchAsx200(from)
+              : isRawYahoo
+                ? await fetchChartCloses(ticker, from)
+                : await fetchAsxTicker(ticker, from)
             if (!data) return sendJson(res, 404, { error: 'No series', ticker })
             return sendJson(res, 200, data)
           }

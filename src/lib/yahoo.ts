@@ -40,8 +40,8 @@ export async function fetchYahooSeries(
   symbol: string,
   _range = '2y',
 ): Promise<SeriesResult | null> {
-  // Accept CBA.AX, ^AXJO, or bare CBA
-  const ticker = symbol.replace(/\.AX$/i, '')
+  // Keep futures/crypto symbols intact (GC=F, BTC-USD). Only strip .AX for ASX equities.
+  const ticker = /\.AX$/i.test(symbol) ? symbol.replace(/\.AX$/i, '') : symbol
   const from = '2023-01-01'
   const url = `/api/series/${encodeURIComponent(ticker)}?from=${from}`
   try {

@@ -17,16 +17,17 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/series/:ticker', async (req, res) => {
   try {
     const ticker = decodeURIComponent(req.params.ticker).toUpperCase()
-    if (!ticker || !/^[A-Z0-9.^]{1,12}$/.test(ticker)) {
+    if (!ticker || !/^[A-Z0-9.^=\-]{1,20}$/.test(ticker)) {
       return res.status(400).json({ error: 'Invalid ticker' })
     }
     const from = typeof req.query.from === 'string' ? req.query.from : '2023-01-01'
-    const data =
-      ticker === '^AXJO' || ticker === 'XJO' || ticker === 'ASX200'
-        ? await fetchAsx200(from)
-        : ticker.includes('.')
-          ? await fetchChartCloses(ticker, from)
-          : await fetchAsxTicker(ticker, from)
+    const isIndex = ticker === '^AXJO' || ticker === 'XJO' || ticker === 'ASX200'
+    const isRawYahoo = ticker.includes('=') || ticker.includes('-') || ticker.includes('.')
+    const data = isIndex
+      ? await fetchAsx200(from)
+      : isRawYahoo
+        ? await fetchChartCloses(ticker, from)
+        : await fetchAsxTicker(ticker, from)
     if (!data) return res.status(404).json({ error: 'No series', ticker })
     return res.json(data)
   } catch (err) {

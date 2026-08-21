@@ -34,17 +34,23 @@ export function SectorTable({ snapshot }: Props) {
         .filter((i) => i.stocks.length > 0)
     }
     if (query.trim()) {
-      const q = query.toLowerCase()
-      list = list.filter(
-        (i) =>
-          i.name.toLowerCase().includes(q) ||
-          i.stocks.some(
+      const q = query.toLowerCase().trim()
+      list = list
+        .map((i) => {
+          const industryHit = i.name.toLowerCase().includes(q) || i.sector.toLowerCase().includes(q)
+          const matchedStocks = i.stocks.filter(
             (s) => s.ticker.toLowerCase().includes(q) || s.name.toLowerCase().includes(q),
-          ),
-      )
+          )
+          if (industryHit) return i
+          if (matchedStocks.length) return { ...i, stocks: matchedStocks }
+          return null
+        })
+        .filter((i): i is IndustryMetrics => i != null)
     }
     return list
   }, [snapshot.industries, sectorFilter, moodFilter, starOnly, query])
+
+  const searching = query.trim().length > 0
 
   const toggle = (name: string) => {
     setExpanded((prev) => {
@@ -237,12 +243,19 @@ export function SectorTable({ snapshot }: Props) {
               <IndustryRows
                 key={ind.name}
                 ind={ind}
-                open={expanded.has(ind.name) || stocksOnly || starOnly}
+                open={expanded.has(ind.name) || stocksOnly || starOnly || searching}
                 onToggle={() => toggle(ind.name)}
                 benchmark={snapshot.benchmark}
                 stocksOnly={stocksOnly || starOnly}
               />
             ))}
+            {!industries.length && (
+              <tr>
+                <td colSpan={15} className="px-4 py-10 text-center text-sm text-[var(--color-ink-soft)]">
+                  No sectors/stocks match “{query}”
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
