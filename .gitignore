@@ -13,7 +13,7 @@ dist-ssr
 *.local
 
 # Local probe / download scratch (universe JSON lives in src/data)
-data/
+/data/
 
 # Editor directories and files
 .vscode/*
