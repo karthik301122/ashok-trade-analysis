@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Copy } from 'lucide-react'
 import type { MarketSnapshot } from '../data/types'
 import {
   UNIVERSES,
@@ -13,6 +14,7 @@ import { MetricRows } from './breadth/MetricRows'
 import { ChartsTab } from './breadth/ChartsTab'
 import { HowToReadTab } from './breadth/HowToReadTab'
 import { SeasonalityTab } from './breadth/SeasonalityTab'
+import { copyTickersToTradingView } from '../lib/tradingview'
 
 type Props = { snapshot: MarketSnapshot }
 type TabId = 'sma' | 'rsi' | 'rsvol' | 'charts' | 'howto' | 'seasonality'
@@ -29,9 +31,20 @@ const TABS: { id: TabId; label: string }[] = [
 export function BreadthAnalysis({ snapshot }: Props) {
   const [universeId, setUniverseId] = useState<UniverseId>('asx200')
   const [tab, setTab] = useState<TabId>('sma')
+  const [copied, setCopied] = useState(false)
+  const [listOpen, setListOpen] = useState(false)
 
   const bundle = useMemo(() => computeBreadth(snapshot, universeId), [snapshot, universeId])
   const universeLabel = UNIVERSES.find((u) => u.id === universeId)?.label ?? universeId
+
+  const copyUniverse = async () => {
+    const tickers = bundle.stocks.map((s) => s.ticker)
+    const ok = await copyTickersToTradingView(tickers)
+    if (ok) {
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -43,12 +56,33 @@ export function BreadthAnalysis({ snapshot }: Props) {
           <p className="text-sm text-[var(--color-ink-soft)]">
             {universeLabel} · {bundle.stocks.length} stocks · {snapshot.asOf}
           </p>
+          <p className="mt-1 max-w-xl text-xs text-[var(--color-ink-soft)]">
+            Mid Cap = weight ranks 201–500 (proxy, not the official MidCap index). Use Copy list to
+            compare with your watchlist.
+          </p>
         </div>
-        <span
-          className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${badgeClass(bundle.overall)}`}
-        >
-          {sentimentLabel(bundle.overall)} · {universeLabel}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={copyUniverse}
+            className="inline-flex items-center gap-1.5 rounded-lg border-2 border-amber-500 bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-950 hover:bg-amber-200 dark:border-amber-400 dark:bg-amber-950/70 dark:text-amber-100"
+          >
+            <Copy size={14} />
+            {copied ? 'Copied!' : `Copy ${universeLabel} list`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setListOpen((v) => !v)}
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--color-ink-soft)] hover:border-sky-300"
+          >
+            {listOpen ? 'Hide tickers' : 'Show tickers'}
+          </button>
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${badgeClass(bundle.overall)}`}
+          >
+            {sentimentLabel(bundle.overall)} · {universeLabel}
+          </span>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -67,6 +101,17 @@ export function BreadthAnalysis({ snapshot }: Props) {
           </button>
         ))}
       </div>
+
+      {listOpen && (
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <p className="mb-2 text-xs font-semibold text-[var(--color-ink-soft)]">
+            {universeLabel} tickers ({bundle.stocks.length}) — ranked by weight
+          </p>
+          <div className="max-h-64 overflow-auto font-mono text-[11px] leading-relaxed break-all">
+            {bundle.stocks.map((s) => s.ticker).join(', ')}
+          </div>
+        </div>
+      )}
 
       <BreadthGauges gauges={bundle.gauges} />
 
