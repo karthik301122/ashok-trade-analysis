@@ -9,15 +9,20 @@ import { IndustryAnalytics } from './components/IndustryAnalytics'
 import { BreadthAnalysis } from './components/BreadthAnalysis'
 import { AltAssetsPanel } from './components/AltAssetsPanel'
 import { VolumeScan } from './components/VolumeScan'
+import { LoginPage } from './components/LoginPage'
 import { COMMODITIES, CRYPTO } from './data/altAssets'
 import { buildMarketSnapshot } from './lib/market'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
+import { fetchAuthMe, logout as apiLogout } from './lib/auth'
 import type { MarketSnapshot } from './data/types'
 import { ASX_UNIVERSE_COUNT } from './data/universe'
 import { RefreshCw } from 'lucide-react'
 
 export default function App() {
   const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark')
+  const [authChecking, setAuthChecking] = useState(true)
+  const [authRequired, setAuthRequired] = useState(false)
+  const [user, setUser] = useState<string | null>(null)
   const [page, setPage] = useState<'sector' | 'breadth'>('sector')
   const [view, setView] = useState<ViewId>('sector-table')
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null)
@@ -30,11 +35,26 @@ export default function App() {
   )
   const [live, setLive] = useState(true)
   const abortRef = useRef<AbortController | null>(null)
+  const startedLoad = useRef(false)
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
     localStorage.setItem('theme', dark ? 'dark' : 'light')
   }, [dark])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const me = await fetchAuthMe()
+      if (cancelled) return
+      setAuthRequired(me.authRequired)
+      setUser(me.user)
+      setAuthChecking(false)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const load = useCallback(async (forceRefresh = false) => {
     abortRef.current?.abort()
@@ -55,7 +75,6 @@ export default function App() {
           setSnapshot(partial)
           setMeta({ fromCache: false, loaded, failed })
           setLive(true)
-          // Keep backfilling=true until full run finishes
           setLoading(false)
         },
       })
@@ -68,11 +87,12 @@ export default function App() {
       const msg = e instanceof Error ? e.message : 'Failed to load live data'
       if (msg === 'Aborted') return
       setError(msg)
-      if (!snapshot) {
-        setSnapshot(buildMarketSnapshot())
+      setSnapshot((prev) => {
+        if (prev) return prev
         setLive(false)
         setMeta(null)
-      }
+        return buildMarketSnapshot()
+      })
     } finally {
       if (!ac.signal.aborted) {
         setLoading(false)
@@ -80,13 +100,33 @@ export default function App() {
         setProgress(null)
       }
     }
-  }, [snapshot])
+  }, [])
+
+  const canUseApp = !authChecking && (!authRequired || Boolean(user))
 
   useEffect(() => {
+    if (!canUseApp || startedLoad.current) return
+    startedLoad.current = true
     void load(false)
     return () => abortRef.current?.abort()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [canUseApp, load])
+
+  const handleLogin = (u: string) => {
+    startedLoad.current = false
+    setUser(u)
+  }
+
+  const handleLogout = async () => {
+    abortRef.current?.abort()
+    await apiLogout()
+    setUser(null)
+    setSnapshot(null)
+    setMeta(null)
+    setError(null)
+    setLoading(false)
+    setBackfilling(false)
+    startedLoad.current = false
+  }
 
   const pct =
     progress && progress.total
@@ -109,10 +149,24 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[var(--color-muted)] text-[var(--color-ink)]">
-      <Header dark={dark} onToggleDark={() => setDark((d) => !d)} page={page} onPage={setPage} />
+      <Header
+        dark={dark}
+        onToggleDark={() => setDark((d) => !d)}
+        page={page}
+        onPage={setPage}
+        user={user}
+        onLogout={authRequired ? handleLogout : undefined}
+      />
 
       <main className="mx-auto max-w-[1600px] px-4 py-5">
-        {loading && !snapshot ? (
+        {authChecking ? (
+          <div className="mx-auto mt-16 max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-sm">
+            <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-teal-200 border-t-teal-600" />
+            <p className="text-sm text-[var(--color-ink-soft)]">Checking session…</p>
+          </div>
+        ) : authRequired && !user ? (
+          <LoginPage onSuccess={handleLogin} />
+        ) : loading && !snapshot ? (
           <div className="mx-auto mt-16 max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-sm">
             <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-teal-200 border-t-teal-600" />
             <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold">

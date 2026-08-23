@@ -3,10 +3,14 @@
  * Much better small-cap coverage than the public Yahoo chart HTTP proxy.
  */
 import { fetchAsx200, fetchAsxTicker, fetchChartCloses } from './yf.mjs'
+import { authEnabled, handleAuthApi, requireAuthOrSend } from './auth.mjs'
 
-function sendJson(res, status, body) {
+function sendJson(res, status, body, extraHeaders = {}) {
   res.statusCode = status
   res.setHeader('Content-Type', 'application/json')
+  for (const [k, v] of Object.entries(extraHeaders)) {
+    res.setHeader(k, v)
+  }
   res.end(JSON.stringify(body))
 }
 
@@ -23,8 +27,14 @@ export function asxDataPlugin() {
           const url = readUrl(req)
           if (!url.pathname.startsWith('/api/')) return next()
 
+          const send = (status, body, headers) => sendJson(res, status, body, headers)
+
+          const authHandled = await handleAuthApi(req, res, send)
+          if (authHandled !== false) return
+
           // GET /api/series/CBA?from=2023-01-01
           if (url.pathname.startsWith('/api/series/')) {
+            if (requireAuthOrSend(req, send)) return
             const ticker = decodeURIComponent(url.pathname.replace('/api/series/', '')).toUpperCase()
             if (!ticker || !/^[A-Z0-9.^=\-]{1,20}$/.test(ticker)) {
               return sendJson(res, 400, { error: 'Invalid ticker' })
@@ -44,7 +54,11 @@ export function asxDataPlugin() {
 
           // GET /api/health
           if (url.pathname === '/api/health') {
-            return sendJson(res, 200, { ok: true, provider: 'yahoo-finance2' })
+            return sendJson(res, 200, {
+              ok: true,
+              provider: 'yahoo-finance2',
+              authRequired: authEnabled(),
+            })
           }
 
           return next()

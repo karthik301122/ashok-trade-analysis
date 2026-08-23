@@ -33,9 +33,49 @@ git push -u origin main
 ### 3. Share the link
 When deploy finishes, Render gives a URL like:
 
-`https://asx-sector-intelligence.onrender.com`
+`https://ashoktrades.onrender.com`
 
 Open that on any phone/laptop — no Cursor needed.
+
+---
+
+## Login (required for private access)
+
+Auth is **off** until both env vars are set. With them set, the site shows a login page and `/api/series` requires a session cookie.
+
+### 1. Create password hashes (never put plain passwords in git)
+
+```powershell
+cd C:\Users\karth\OneDrive\Desktop\ashokwork
+node scripts/hash-password.mjs "choose-a-strong-password"
+```
+
+Copy the `$2b$10$...` hash it prints.
+
+### 2. Set Render environment variables
+
+In Render → your web service → **Environment**:
+
+| Key | Example |
+|-----|---------|
+| `AUTH_SECRET` | long random string (e.g. from a password manager) |
+| `AUTH_USERS` | `ashok:$2b$10$....,karthik:$2b$10$....` |
+
+Format for `AUTH_USERS`: comma-separated `username:bcryptHash` pairs (usernames are case-insensitive).
+
+### 3. Redeploy
+
+Save env vars and trigger a deploy (or push a commit). After deploy, open the site — you should see **Sign in**.
+
+### Local testing with auth
+
+```powershell
+$env:AUTH_SECRET = "dev-secret-change-me"
+$env:AUTH_USERS = "ashok:<paste-hash-here>"
+npm run dev
+```
+
+Without these vars, local/prod stays open (no login) for convenience.
 
 ---
 

@@ -50,7 +50,7 @@ export async function fetchYahooSeries(
   const from = '2023-01-01'
   const url = `/api/series/${encodeURIComponent(ticker)}?from=${from}`
   try {
-    const res = await fetch(url)
+    const res = await fetch(url, { credentials: 'include' })
     if (!res.ok) return null
     const json = await res.json()
     if (!json?.closes?.length) return null

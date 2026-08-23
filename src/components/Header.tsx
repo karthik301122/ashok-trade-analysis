@@ -1,13 +1,24 @@
-import { Moon, Sun, User } from 'lucide-react'
+import { LogOut, Moon, Sun, User } from 'lucide-react'
 
 type Props = {
   dark: boolean
   onToggleDark: () => void
   page: 'sector' | 'breadth'
   onPage: (p: 'sector' | 'breadth') => void
+  user?: string | null
+  onLogout?: () => void
 }
 
-export function Header({ dark, onToggleDark, page, onPage }: Props) {
+export function Header({ dark, onToggleDark, page, onPage, user, onLogout }: Props) {
+  const initials = user
+    ? user
+        .split(/[.\s_-]+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((p) => p[0]?.toUpperCase() ?? '')
+        .join('') || user.slice(0, 2).toUpperCase()
+    : 'AB'
+
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-6 px-4">
@@ -57,12 +68,24 @@ export function Header({ dark, onToggleDark, page, onPage }: Props) {
           >
             {dark ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-          <div className="flex items-center gap-2 rounded-full border border-[var(--color-border)] py-1 pl-1 pr-3">
+          <div className="flex items-center gap-2 rounded-full border border-[var(--color-border)] py-1 pl-1 pr-2 sm:pr-3">
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-700 text-xs font-semibold text-white">
-              AB
+              {initials}
             </span>
-            <span className="hidden text-sm sm:inline">Ashok Bhimaraju</span>
+            <span className="hidden max-w-[140px] truncate text-sm sm:inline">
+              {user || 'Ashok Bhimaraju'}
+            </span>
             <User size={14} className="text-[var(--color-ink-soft)] sm:hidden" />
+            {onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                title="Sign out"
+                className="ml-0.5 rounded-full p-1.5 text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)] hover:text-[var(--color-ink)]"
+              >
+                <LogOut size={14} />
+              </button>
+            )}
           </div>
         </div>
       </div>
