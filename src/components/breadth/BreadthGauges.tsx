@@ -43,7 +43,7 @@ function Gauge({ pct }: { pct: number }) {
 
 export function BreadthGauges({ gauges }: { gauges: GaugeMetric[] }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       {gauges.map((g) => (
         <div
           key={g.id}

@@ -76,6 +76,8 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
     Oversold: h.rsiOs[i],
     Neutral: h.rsiNeutral[i],
   }))
+  const rsSeries = h.dates.map((d, i) => ({ d, v: h.rs50[i] }))
+  const rvolSeries = h.dates.map((d, i) => ({ d, v: h.rvol15[i] }))
 
   const thrustNow = h.thrust.at(-1) ?? 0.5
   const advNow = bundle.advancing
@@ -226,6 +228,50 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <Line type="monotone" dataKey="Overbought" stroke="#7c3aed" dot={false} strokeWidth={2} />
             <Line type="monotone" dataKey="Oversold" stroke="#ef4444" dot={false} strokeWidth={2} />
             <Line type="monotone" dataKey="Neutral" stroke="#f59e0b" dot={false} strokeWidth={2} />
+          </LineChart>
+        </ResponsiveContainer>
+      </ChartCard>
+
+      <ChartCard
+        title="% Stocks with RS ≥ 50"
+        subtitle={`Relative strength vs ASX200 · avg RS ${bundle.avgRs}`}
+        means="Share of names outperforming the index on our RS score. Rising % = leadership broadening beyond a few megacaps."
+        reading={`${bundle.pctRs50}% have RS ≥ 50 · ${bundle.pctRs70}% are strong leaders (RS ≥ 70).`}
+        action={
+          bundle.pctRs50 < 40
+            ? 'Leadership is narrow — prefer high-RS names; fade weak relative underperformers.'
+            : 'RS breadth is healthy — dips in strong-RS names are more constructive.'
+        }
+      >
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={rsSeries}>
+            <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+            <XAxis dataKey="d" tick={{ fontSize: 10 }} />
+            <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+            <Tooltip />
+            <Line type="monotone" dataKey="v" name="RS ≥ 50" stroke="#0d9488" dot={false} strokeWidth={2} />
+          </LineChart>
+        </ResponsiveContainer>
+      </ChartCard>
+
+      <ChartCard
+        title="% Stocks with RVOL ≥ 1.5×"
+        subtitle={`Unusual volume vs 20-day average · avg RVOL ${bundle.avgRvol}×`}
+        means="How many names are trading hotter than normal. Spikes often mark breakouts, news, or distribution."
+        reading={`${bundle.pctRvol15}% at ≥1.5× · ${bundle.pctRvol20}% at ≥2× · ${bundle.pctRvol30}% at ≥3×.`}
+        action={
+          bundle.pctRvol15 > 30
+            ? 'Volume is elevated across the board — confirm with price direction before chasing.'
+            : 'Quiet tape — breakouts with rising RVOL stand out more.'
+        }
+      >
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={rvolSeries}>
+            <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+            <XAxis dataKey="d" tick={{ fontSize: 10 }} />
+            <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+            <Tooltip />
+            <Line type="monotone" dataKey="v" name="RVOL ≥ 1.5×" stroke="#ca8a04" dot={false} strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
       </ChartCard>

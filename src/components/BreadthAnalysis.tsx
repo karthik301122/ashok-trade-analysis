@@ -15,11 +15,12 @@ import { HowToReadTab } from './breadth/HowToReadTab'
 import { SeasonalityTab } from './breadth/SeasonalityTab'
 
 type Props = { snapshot: MarketSnapshot }
-type TabId = 'sma' | 'rsi' | 'charts' | 'howto' | 'seasonality'
+type TabId = 'sma' | 'rsi' | 'rsvol' | 'charts' | 'howto' | 'seasonality'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'sma', label: 'SMA Breadth' },
   { id: 'rsi', label: 'RSI Breadth' },
+  { id: 'rsvol', label: 'RS / Volume' },
   { id: 'charts', label: 'Charts' },
   { id: 'howto', label: 'How to Read' },
   { id: 'seasonality', label: 'Seasonality' },
@@ -105,6 +106,13 @@ export function BreadthAnalysis({ snapshot }: Props) {
           title={`RSI breadth · ${universeLabel}`}
           blurb="Share of stocks with RSI above thresholds. RSI ≥ 50 = positive momentum; ≥ 60 stronger; ≥ 70 overbought stretch."
           rows={bundle.rsiRows}
+        />
+      )}
+      {tab === 'rsvol' && (
+        <MetricRows
+          title={`Relative strength & volume · ${universeLabel}`}
+          blurb={`RS vs ASX200 (avg RS ${bundle.avgRs}). RVOL = today ÷ 20-day average volume (avg ${bundle.avgRvol}×).`}
+          rows={bundle.rsVolRows}
         />
       )}
       {tab === 'charts' && <ChartsTab bundle={bundle} />}

@@ -23,6 +23,14 @@ export function HowToReadTab() {
             'Share of stocks with RSI(14) above 50 (positive momentum), 60 (strong), or 70 (overbought). Oversold clusters can mark washouts; crowded overbought readings warn of pullback risk.',
           ],
           [
+            'RS breadth',
+            'Relative strength vs ASX200. % with RS ≥ 50 means more names are beating the index. Rising RS breadth = leadership broadening; falling = index may be carried by a few heavyweights.',
+          ],
+          [
+            'Relative volume (RVOL)',
+            'Today’s volume ÷ 20-day average. % of stocks ≥ 1.5× / 2× / 3× shows how widespread unusual activity is. High RVOL with rising prices often marks accumulation; with falling prices can mark distribution.',
+          ],
+          [
             'Advances vs declines',
             'Daily count of stocks up vs down. Prefer advances leading before trusting a bounce. A-D summation tracks the cumulative gap.',
           ],

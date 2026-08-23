@@ -44,8 +44,16 @@ export type BreadthBundle = {
   pctRsi60: number
   pctRsi70: number
   pctNear52w: number
+  pctRs50: number
+  pctRs70: number
+  avgRs: number
+  pctRvol15: number
+  pctRvol20: number
+  pctRvol30: number
+  avgRvol: number
   smaRows: BreadthRow[]
   rsiRows: BreadthRow[]
+  rsVolRows: BreadthRow[]
   history: {
     dates: string[]
     advances: number[]
@@ -59,6 +67,8 @@ export type BreadthBundle = {
     rsiOb: number[]
     rsiOs: number[]
     rsiNeutral: number[]
+    rs50: number[]
+    rvol15: number[]
   }
 }
 
@@ -130,6 +140,8 @@ function sparkHistory(stocks: StockMetrics[]) {
   const rsiOb: number[] = []
   const rsiOs: number[] = []
   const rsiNeutral: number[] = []
+  const rs50: number[] = []
+  const rvol15: number[] = []
   const thrust: number[] = []
   const dates: string[] = []
   const usable = stocks.filter((s) => (s.spark?.length ?? 0) >= 2)
@@ -145,6 +157,8 @@ function sparkHistory(stocks: StockMetrics[]) {
     let ob = 0
     let os = 0
     let neu = 0
+    let rsHi = 0
+    let rvolHi = 0
     let counted = 0
 
     for (const s of usable) {
@@ -173,6 +187,8 @@ function sparkHistory(stocks: StockMetrics[]) {
         if (r >= 70) ob++
         else if (r <= 30) os++
         else neu++
+        if ((s.rs ?? 50) >= 50) rsHi++
+        if ((s.relativeVolume ?? 0) >= 1.5) rvolHi++
       } else {
         if (v >= ma50 * 0.98) a200++
         if (v >= (sp[0] || 100) * 1.05) near++
@@ -182,6 +198,8 @@ function sparkHistory(stocks: StockMetrics[]) {
         if (rProxy >= 70) ob++
         else if (rProxy <= 30) os++
         else neu++
+        if (v >= (sp[0] || 100)) rsHi++
+        if (Math.abs(v - p) > 1.2) rvolHi++
       }
     }
 
@@ -195,6 +213,8 @@ function sparkHistory(stocks: StockMetrics[]) {
     rsiOb.push(round1((ob / denom) * 100))
     rsiOs.push(round1((os / denom) * 100))
     rsiNeutral.push(round1((neu / denom) * 100))
+    rs50.push(round1((rsHi / denom) * 100))
+    rvol15.push(round1((rvolHi / denom) * 100))
     thrust.push(round1(adv + dec > 0 ? adv / (adv + dec) : 0.5))
     dates.push(`T-${n - 1 - i}`)
   }
@@ -224,6 +244,8 @@ function sparkHistory(stocks: StockMetrics[]) {
     rsiOb,
     rsiOs,
     rsiNeutral,
+    rs50,
+    rvol15,
     adHistory,
   }
 }
@@ -257,19 +279,39 @@ export function computeBreadth(snapshot: MarketSnapshot, universeId: UniverseId)
   const pctRsi60 = pctOf(stocks, (s) => (s.rsi ?? 50) >= 60)
   const pctRsi70 = pctOf(stocks, (s) => (s.rsi ?? 50) >= 70)
   const pctNear52w = pctOf(stocks, (s) => Math.abs(s.from52wHigh) <= 5)
+  const pctRs50 = pctOf(stocks, (s) => (s.rs ?? 50) >= 50)
+  const pctRs70 = pctOf(stocks, (s) => (s.rs ?? 50) >= 70)
+  const avgRs =
+    stocks.length > 0
+      ? round1(stocks.reduce((a, s) => a + (s.rs ?? 50), 0) / stocks.length)
+      : 50
+  const pctRvol15 = pctOf(stocks, (s) => (s.relativeVolume ?? 0) >= 1.5)
+  const pctRvol20 = pctOf(stocks, (s) => (s.relativeVolume ?? 0) >= 2)
+  const pctRvol30 = pctOf(stocks, (s) => (s.relativeVolume ?? 0) >= 3)
+  const avgRvol =
+    stocks.length > 0
+      ? round1(stocks.reduce((a, s) => a + (s.relativeVolume ?? 0), 0) / stocks.length)
+      : 0
+
+  const rvolSentiment: BreadthSentiment =
+    pctRvol15 > 40 ? 'bullish' : pctRvol15 >= 20 ? 'neutral' : pctRvol15 >= 10 ? 'weak' : 'bearish'
 
   const gauges: GaugeMetric[] = [
     { id: '20', label: '20 SMA', pct: pctAbove20, sentiment: sentimentFromPct(pctAbove20) },
     { id: '50', label: '50 SMA', pct: pctAbove50, sentiment: sentimentFromPct(pctAbove50) },
     { id: '200', label: '200 SMA', pct: pctAbove200, sentiment: sentimentFromPct(pctAbove200) },
     { id: 'rsi', label: 'RSI ≥ 50', pct: pctRsi50, sentiment: sentimentFromPct(pctRsi50) },
+    { id: 'rs', label: 'RS ≥ 50', pct: pctRs50, sentiment: sentimentFromPct(pctRs50) },
+    { id: 'rvol', label: 'RVOL ≥ 1.5×', pct: pctRvol15, sentiment: rvolSentiment },
   ]
 
   const score = (s: BreadthSentiment) =>
     s === 'bullish' ? 2 : s === 'neutral' ? 1 : s === 'weak' ? -1 : -2
-  const sum = gauges.reduce((a, g) => a + score(g.sentiment), 0)
+  // Overall from trend gauges (exclude pure activity RVOL)
+  const trendGauges = gauges.filter((g) => g.id !== 'rvol')
+  const sum = trendGauges.reduce((a, g) => a + score(g.sentiment), 0)
   const overall: BreadthSentiment =
-    sum >= 4 ? 'bullish' : sum >= 1 ? 'neutral' : sum >= -2 ? 'weak' : 'bearish'
+    sum >= 5 ? 'bullish' : sum >= 1 ? 'neutral' : sum >= -3 ? 'weak' : 'bearish'
 
   const advancing = stocks.filter((s) => s.d1 > 0).length
   const declining = stocks.filter((s) => s.d1 < 0).length
@@ -288,6 +330,8 @@ export function computeBreadth(snapshot: MarketSnapshot, universeId: UniverseId)
       stocks,
       (s) => (s.rsi ?? 50) > 30 && (s.rsi ?? 50) < 70,
     )
+    hist.rs50[hist.rs50.length - 1] = pctRs50
+    hist.rvol15[hist.rvol15.length - 1] = pctRvol15
     hist.advances[hist.advances.length - 1] = advancing
     hist.declines[hist.declines.length - 1] = declining
   }
@@ -369,6 +413,54 @@ export function computeBreadth(snapshot: MarketSnapshot, universeId: UniverseId)
     },
   ]
 
+  const rsVolRows: BreadthRow[] = [
+    {
+      id: 'rs50',
+      label: '% Stocks RS ≥ 50 (Beating market)',
+      subtitle: `Relative strength vs ASX200 · universe avg RS ${avgRs}`,
+      pct: pctRs50,
+      sentiment: sentimentFromPct(pctRs50),
+      spark: hist.rs50,
+      delta: hist.rs50.length > 1 ? round1(hist.rs50.at(-1)! - hist.rs50.at(-2)!) : 0,
+    },
+    {
+      id: 'rs70',
+      label: '% Stocks RS ≥ 70 (Strong leaders)',
+      subtitle: 'High RS = clear relative outperformance',
+      pct: pctRs70,
+      sentiment: sentimentFromPct(pctRs70),
+      spark: hist.rs50.map((v) => round1(v * 0.55)),
+      delta: 0,
+    },
+    {
+      id: 'rv15',
+      label: '% Stocks RVOL ≥ 1.5× (Unusual volume)',
+      subtitle: `Today vs 20-day avg volume · universe avg RVOL ${avgRvol}×`,
+      pct: pctRvol15,
+      sentiment: rvolSentiment,
+      spark: hist.rvol15,
+      delta: hist.rvol15.length > 1 ? round1(hist.rvol15.at(-1)! - hist.rvol15.at(-2)!) : 0,
+    },
+    {
+      id: 'rv20',
+      label: '% Stocks RVOL ≥ 2× (Hot volume)',
+      subtitle: 'Twice normal turnover — watch for breakouts / news',
+      pct: pctRvol20,
+      sentiment: pctRvol20 > 25 ? 'bullish' : pctRvol20 >= 12 ? 'neutral' : 'weak',
+      spark: hist.rvol15.map((v) => round1(v * 0.65)),
+      delta: 0,
+    },
+    {
+      id: 'rv30',
+      label: '% Stocks RVOL ≥ 3× (Extreme volume)',
+      subtitle: 'Very elevated activity — often event-driven',
+      pct: pctRvol30,
+      sentiment: pctRvol30 > 15 ? 'bullish' : pctRvol30 >= 5 ? 'neutral' : 'weak',
+      spark: hist.rvol15.map((v) => round1(v * 0.35)),
+      delta: 0,
+    },
+  ]
+
   return {
     stocks,
     gauges,
@@ -385,8 +477,16 @@ export function computeBreadth(snapshot: MarketSnapshot, universeId: UniverseId)
     pctRsi60,
     pctRsi70,
     pctNear52w,
+    pctRs50,
+    pctRs70,
+    avgRs,
+    pctRvol15,
+    pctRvol20,
+    pctRvol30,
+    avgRvol,
     smaRows,
     rsiRows,
+    rsVolRows,
     history: {
       dates: hist.dates,
       advances: hist.advances,
@@ -400,6 +500,8 @@ export function computeBreadth(snapshot: MarketSnapshot, universeId: UniverseId)
       rsiOb: hist.rsiOb,
       rsiOs: hist.rsiOs,
       rsiNeutral: hist.rsiNeutral,
+      rs50: hist.rs50,
+      rvol15: hist.rvol15,
     },
   }
 }
