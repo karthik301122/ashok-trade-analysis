@@ -27,6 +27,8 @@ export type CachedPerf = {
   above20ma: boolean
   rs: number
   spark: number[]
+  /** Wilder-style RSI(14), 0–100 */
+  rsi?: number
   volume?: number
   avgVolume20?: number
   relativeVolume?: number
@@ -111,7 +113,31 @@ export function ema(values: number[], period: number): number | null {
   return e
 }
 
-const CACHE_KEY = 'asx-live-perf-v5-volume'
+/** Wilder RSI(14). Returns null if not enough bars. */
+export function rsi(values: number[], period = 14): number | null {
+  if (values.length < period + 1) return null
+  let avgGain = 0
+  let avgLoss = 0
+  for (let i = 1; i <= period; i++) {
+    const d = values[i] - values[i - 1]
+    if (d >= 0) avgGain += d
+    else avgLoss -= d
+  }
+  avgGain /= period
+  avgLoss /= period
+  for (let i = period + 1; i < values.length; i++) {
+    const d = values[i] - values[i - 1]
+    const gain = d > 0 ? d : 0
+    const loss = d < 0 ? -d : 0
+    avgGain = (avgGain * (period - 1) + gain) / period
+    avgLoss = (avgLoss * (period - 1) + loss) / period
+  }
+  if (avgLoss === 0) return 100
+  const rs = avgGain / avgLoss
+  return Math.round((100 - 100 / (1 + rs)) * 10) / 10
+}
+
+const CACHE_KEY = 'asx-live-perf-v6-rsi'
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000 // 6 hours
 
 export type PerfCache = {

@@ -1,79 +1,117 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { MarketSnapshot } from '../data/types'
+import {
+  UNIVERSES,
+  type UniverseId,
+  computeBreadth,
+  badgeClass,
+  sentimentLabel,
+} from './breadth/breadthMath'
+import { BreadthGauges } from './breadth/BreadthGauges'
+import { ADSummation } from './breadth/ADSummation'
+import { MetricRows } from './breadth/MetricRows'
+import { ChartsTab } from './breadth/ChartsTab'
+import { HowToReadTab } from './breadth/HowToReadTab'
+import { SeasonalityTab } from './breadth/SeasonalityTab'
 
 type Props = { snapshot: MarketSnapshot }
+type TabId = 'sma' | 'rsi' | 'charts' | 'howto' | 'seasonality'
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'sma', label: 'SMA Breadth' },
+  { id: 'rsi', label: 'RSI Breadth' },
+  { id: 'charts', label: 'Charts' },
+  { id: 'howto', label: 'How to Read' },
+  { id: 'seasonality', label: 'Seasonality' },
+]
 
 export function BreadthAnalysis({ snapshot }: Props) {
-  const advancing = snapshot.stocks.filter((s) => s.m1 > 0).length
-  const declining = snapshot.stocks.filter((s) => s.m1 < 0).length
-  const unchanged = snapshot.stocks.length - advancing - declining
-  const above200 = snapshot.stocks.filter((s) => s.above200ma).length
-  const above50 = snapshot.stocks.filter((s) => s.above50ma).length
-  const pct = (n: number) => ((n / snapshot.stocks.length) * 100).toFixed(1)
+  const [universeId, setUniverseId] = useState<UniverseId>('asx200')
+  const [tab, setTab] = useState<TabId>('sma')
 
-  const bySector = useMemo(() => {
-    return snapshot.sectors.map((s) => ({
-      name: s.name,
-      pctAbove200: s.pctAbove200ma,
-      bullishStocks: s.stocks.filter((x) => x.mood === 'bullish').length,
-      total: s.stocks.length,
-    }))
-  }, [snapshot.sectors])
+  const bundle = useMemo(() => computeBreadth(snapshot, universeId), [snapshot, universeId])
+  const universeLabel = UNIVERSES.find((u) => u.id === universeId)?.label ?? universeId
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold tracking-tight">
-          Market Breadth Analysis
-        </h1>
-        <p className="text-sm text-[var(--color-ink-soft)]">
-          {snapshot.stocks.length} ASX stocks · Benchmark {snapshot.benchmark} · {snapshot.asOf}
-        </p>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold tracking-tight">
+            Market Breadth Analysis
+          </h1>
+          <p className="text-sm text-[var(--color-ink-soft)]">
+            {universeLabel} · {bundle.stocks.length} stocks · {snapshot.asOf}
+          </p>
+        </div>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${badgeClass(bundle.overall)}`}
+        >
+          {sentimentLabel(bundle.overall)} · {universeLabel}
+        </span>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          ['Advancing (1M)', advancing, 'text-emerald-600'],
-          ['Declining (1M)', declining, 'text-rose-600'],
-          ['Unchanged', unchanged, 'text-amber-600'],
-          ['Above 200 MA', `${pct(above200)}%`, 'text-teal-700'],
-        ].map(([label, value, cls]) => (
-          <div
-            key={label as string}
-            className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+      <div className="flex flex-wrap gap-2">
+        {UNIVERSES.map((u) => (
+          <button
+            key={u.id}
+            type="button"
+            onClick={() => setUniverseId(u.id)}
+            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+              universeId === u.id
+                ? 'border-sky-500 bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200'
+                : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-ink-soft)] hover:border-sky-300'
+            }`}
           >
-            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">
-              {label}
-            </div>
-            <div className={`mt-1 text-3xl font-bold tabular-nums ${cls}`}>{value}</div>
-          </div>
+            {u.label}
+          </button>
         ))}
       </div>
 
-      <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-        <h3 className="mb-3 text-sm font-semibold">Breadth by sector — % stocks above 200 MA</h3>
-        <div className="space-y-2">
-          {bySector.map((s) => (
-            <div key={s.name} className="flex items-center gap-3 text-xs">
-              <span className="w-44 truncate font-medium">{s.name}</span>
-              <div className="h-4 flex-1 rounded bg-[var(--color-muted)]">
-                <div
-                  className="h-full rounded bg-teal-500"
-                  style={{ width: `${s.pctAbove200}%` }}
-                />
-              </div>
-              <span className="w-12 text-right font-bold">{s.pctAbove200.toFixed(0)}%</span>
-              <span className="w-20 text-right text-[var(--color-ink-soft)]">
-                {s.bullishStocks}/{s.total} bull
-              </span>
-            </div>
-          ))}
-        </div>
-        <p className="mt-4 text-xs text-[var(--color-ink-soft)]">
-          Above 50 MA: {pct(above50)}% of universe · Industry mood mix drives the Market Mood bar on
-          Sector Intelligence.
-        </p>
+      <BreadthGauges gauges={bundle.gauges} />
+
+      <ADSummation
+        adNet={bundle.adNet}
+        adHistory={bundle.adHistory}
+        advancing={bundle.advancing}
+        declining={bundle.declining}
+      />
+
+      <div className="flex flex-wrap gap-1.5">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wide transition ${
+              tab === t.id
+                ? 'bg-teal-800 text-white dark:bg-teal-700'
+                : 'border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-ink-soft)] hover:border-teal-400'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
+
+      {tab === 'sma' && (
+        <MetricRows
+          title={`Moving average breadth · ${universeLabel}`}
+          blurb="% of stocks above key SMAs. Rising participation supports durable rallies; falling breadth warns of narrow leadership."
+          rows={bundle.smaRows}
+        />
+      )}
+      {tab === 'rsi' && (
+        <MetricRows
+          title={`RSI breadth · ${universeLabel}`}
+          blurb="Share of stocks with RSI above thresholds. RSI ≥ 50 = positive momentum; ≥ 60 stronger; ≥ 70 overbought stretch."
+          rows={bundle.rsiRows}
+        />
+      )}
+      {tab === 'charts' && <ChartsTab bundle={bundle} />}
+      {tab === 'howto' && <HowToReadTab />}
+      {tab === 'seasonality' && (
+        <SeasonalityTab snapshot={snapshot} bundle={bundle} universeId={universeId} />
+      )}
     </div>
   )
 }

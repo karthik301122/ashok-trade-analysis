@@ -41,6 +41,8 @@ export interface StockMetrics extends StockRaw, PerfBundle {
   relativeVolume: number
   /** volume * last price (AUD turnover proxy) */
   dollarVolume: number
+  /** RSI(14) 0–100; 50 if unknown */
+  rsi: number
 }
 
 export interface IndustryMetrics {

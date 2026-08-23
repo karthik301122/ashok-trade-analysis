@@ -227,6 +227,7 @@ export function buildMarketSnapshot(asOf = new Date()): MarketSnapshot {
       avgVolume20,
       relativeVolume,
       dollarVolume,
+      rsi: Math.round(30 + rnd(seed, 4) * 55 + (perf.m1 > 0 ? 8 : -5)),
     }
   })
 

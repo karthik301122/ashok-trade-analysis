@@ -15,6 +15,7 @@ import {
   loadPerfCache,
   mapPool,
   returnOver,
+  rsi,
   savePerfCache,
   sma,
   type SeriesResult,
@@ -75,6 +76,7 @@ function seriesToCachedPerf(series: SeriesResult, indexM3: number): CachedPerf {
     avgVolume20: Math.round(avgVolume20),
     relativeVolume: round1(relativeVolume),
     dollarVolume: Math.round(dollarVolume),
+    rsi: rsi(closes, 14) ?? 50,
   }
 }
 
@@ -128,6 +130,7 @@ export function assembleSnapshotFromPerfs(
       avgVolume20: perfCached.avgVolume20 ?? 0,
       relativeVolume: perfCached.relativeVolume ?? 0,
       dollarVolume: perfCached.dollarVolume ?? 0,
+      rsi: perfCached.rsi ?? 50,
     })
   }
 
