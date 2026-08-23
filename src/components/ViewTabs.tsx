@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { BarChart3, Bitcoin, Clock3, Coins, LayoutList, RefreshCw, Table2 } from 'lucide-react'
+import { BarChart3, Bitcoin, Clock3, Coins, LayoutList, RefreshCw, Table2, Volume2 } from 'lucide-react'
 
 export type ViewId =
   | 'sector-table'
@@ -7,6 +7,7 @@ export type ViewId =
   | 'rotation-clock'
   | 'sector-analytics'
   | 'industry-analytics'
+  | 'volume-scan'
   | 'commodities'
   | 'crypto'
 
@@ -16,6 +17,7 @@ const VIEWS: { id: ViewId; label: string; icon: ReactNode }[] = [
   { id: 'rotation-clock', label: 'Rotation Clock', icon: <Clock3 size={14} /> },
   { id: 'sector-analytics', label: 'Sector Analytics', icon: <BarChart3 size={14} /> },
   { id: 'industry-analytics', label: 'Industry Analytics', icon: <LayoutList size={14} /> },
+  { id: 'volume-scan', label: 'Volume Scan', icon: <Volume2 size={14} /> },
   { id: 'commodities', label: 'Commodities', icon: <Coins size={14} /> },
   { id: 'crypto', label: 'Crypto', icon: <Bitcoin size={14} /> },
 ]

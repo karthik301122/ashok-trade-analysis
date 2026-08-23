@@ -33,6 +33,14 @@ export interface StockMetrics extends StockRaw, PerfBundle {
   vsIndex: { w1: boolean; m1: boolean; m3: boolean }
   star: boolean
   score: number
+  /** Last session share volume */
+  volume: number
+  /** 20-day average share volume */
+  avgVolume20: number
+  /** volume / avgVolume20 */
+  relativeVolume: number
+  /** volume * last price (AUD turnover proxy) */
+  dollarVolume: number
 }
 
 export interface IndustryMetrics {

@@ -25,6 +25,7 @@ export async function fetchChartCloses(symbol, period1 = '2023-01-01') {
       const closes = quotes.map((q) => ({
         t: Math.floor(new Date(q.date).getTime() / 1000),
         c: Number(q.close),
+        v: Number.isFinite(q.volume) ? Number(q.volume) : 0,
       }))
       const last = closes[closes.length - 1].c
       const yearAgo = closes[closes.length - 1].t - 365 * 24 * 3600

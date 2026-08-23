@@ -17,3 +17,14 @@ export function formatVsIndex(value: number, benchmark: string, period = '3M'): 
   if (value >= 0) return `+${value.toFixed(1)}% vs ${benchmark} ${period}`
   return `${value.toFixed(1)}% vs ${benchmark} ${period}`
 }
+
+/** Compact share / dollar volume (e.g. 1.2M, $45.3M) */
+export function formatVolume(n: number, asMoney = false): string {
+  const abs = Math.abs(n)
+  const sign = n < 0 ? '-' : ''
+  const prefix = asMoney ? '$' : ''
+  if (abs >= 1_000_000_000) return `${sign}${prefix}${(abs / 1_000_000_000).toFixed(2)}B`
+  if (abs >= 1_000_000) return `${sign}${prefix}${(abs / 1_000_000).toFixed(2)}M`
+  if (abs >= 1_000) return `${sign}${prefix}${(abs / 1_000).toFixed(1)}K`
+  return `${sign}${prefix}${Math.round(abs).toLocaleString()}`
+}

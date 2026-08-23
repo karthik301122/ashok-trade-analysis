@@ -203,6 +203,13 @@ export function buildMarketSnapshot(asOf = new Date()): MarketSnapshot {
     const vsIndex3m = round1(perf.m3 - benchmarkPerf.m3)
     const cycle = classifyCycle(perf, vsIndex3m)
     const mood = classifyMood(perf, vsIndex3m)
+    const seed = hash(s.ticker + '|vol')
+    // Demo proxy: larger weight → higher typical turnover
+    const avgVolume20 = Math.round((80_000 + s.weight * 2_400_000) * (0.6 + rnd(seed, 1) * 1.2))
+    const relativeVolume = round1(0.5 + rnd(seed, 2) * 2.8)
+    const volume = Math.round(avgVolume20 * relativeVolume)
+    const priceProxy = 0.5 + rnd(seed, 3) * 80
+    const dollarVolume = Math.round(volume * priceProxy)
     return {
       ...s,
       ...perf,
@@ -216,6 +223,10 @@ export function buildMarketSnapshot(asOf = new Date()): MarketSnapshot {
       },
       star: false,
       score: perf.rs,
+      volume,
+      avgVolume20,
+      relativeVolume,
+      dollarVolume,
     }
   })
 

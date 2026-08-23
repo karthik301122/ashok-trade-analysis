@@ -1,6 +1,7 @@
 export type PriceBar = {
   t: number
   c: number
+  v?: number
 }
 
 export type SeriesResult = {
@@ -26,6 +27,10 @@ export type CachedPerf = {
   above20ma: boolean
   rs: number
   spark: number[]
+  volume?: number
+  avgVolume20?: number
+  relativeVolume?: number
+  dollarVolume?: number
 }
 
 function sleep(ms: number) {
@@ -106,7 +111,7 @@ export function ema(values: number[], period: number): number | null {
   return e
 }
 
-const CACHE_KEY = 'asx-live-perf-v4-yf2'
+const CACHE_KEY = 'asx-live-perf-v5-volume'
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000 // 6 hours
 
 export type PerfCache = {

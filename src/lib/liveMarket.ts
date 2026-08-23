@@ -24,6 +24,7 @@ const INDEX_SYMBOL = '^AXJO'
 
 function seriesToCachedPerf(series: SeriesResult, indexM3: number): CachedPerf {
   const closes = series.closes.map((b) => b.c)
+  const vols = series.closes.map((b) => (typeof b.v === 'number' && Number.isFinite(b.v) ? b.v : 0))
   const last = closes[closes.length - 1]
 
   const d1 = returnOver(series.closes, 1) ?? 0
@@ -48,6 +49,13 @@ function seriesToCachedPerf(series: SeriesResult, indexM3: number): CachedPerf {
   const base = sparkSrc[0] || last
   const spark = sparkSrc.map((c) => round1((c / base) * 100))
 
+  const volume = vols[vols.length - 1] || 0
+  const lookback = vols.slice(-21, -1) // prior 20 sessions (exclude today)
+  const avgVolume20 =
+    lookback.length > 0 ? lookback.reduce((a, b) => a + b, 0) / lookback.length : volume
+  const relativeVolume = avgVolume20 > 0 ? volume / avgVolume20 : 0
+  const dollarVolume = volume * last
+
   return {
     d1: round1(d1),
     w1: round1(w1),
@@ -63,11 +71,30 @@ function seriesToCachedPerf(series: SeriesResult, indexM3: number): CachedPerf {
     above20ma: ma20 != null ? last > ma20 : false,
     rs,
     spark: spark.length ? spark : [100],
+    volume: Math.round(volume),
+    avgVolume20: Math.round(avgVolume20),
+    relativeVolume: round1(relativeVolume),
+    dollarVolume: Math.round(dollarVolume),
   }
 }
 
 function toPerfBundle(p: CachedPerf): PerfBundle {
-  return { ...p }
+  return {
+    d1: p.d1,
+    w1: p.w1,
+    m1: p.m1,
+    m3: p.m3,
+    m6: p.m6,
+    y1: p.y1,
+    y5: p.y5,
+    from52wHigh: p.from52wHigh,
+    above200ma: p.above200ma,
+    above50ma: p.above50ma,
+    above21ema: p.above21ema,
+    above20ma: p.above20ma,
+    rs: p.rs,
+    spark: p.spark,
+  }
 }
 
 export function assembleSnapshotFromPerfs(
@@ -97,6 +124,10 @@ export function assembleSnapshotFromPerfs(
       },
       star: false,
       score: perf.rs,
+      volume: perfCached.volume ?? 0,
+      avgVolume20: perfCached.avgVolume20 ?? 0,
+      relativeVolume: perfCached.relativeVolume ?? 0,
+      dollarVolume: perfCached.dollarVolume ?? 0,
     })
   }
 

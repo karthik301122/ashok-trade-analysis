@@ -17,11 +17,24 @@ export function SectorTable({ snapshot }: Props) {
   const [stocksOnly, setStocksOnly] = useState(false)
   const [copied, setCopied] = useState(false)
   const [copiedStars, setCopiedStars] = useState(false)
+  const [copiedSectorStars, setCopiedSectorStars] = useState<string | null>(null)
+  const [copiedIndustry, setCopiedIndustry] = useState<string | null>(null)
 
   const starCount = useMemo(
     () => snapshot.stocks.filter((s) => s.star).length,
     [snapshot.stocks],
   )
+
+  const sectorStarCounts = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const s of snapshot.stocks) {
+      if (!s.star) continue
+      const list = map.get(s.sector) ?? []
+      list.push(s.ticker)
+      map.set(s.sector, list)
+    }
+    return map
+  }, [snapshot.stocks])
 
   const sectors = snapshot.sectors
   const industries = useMemo(() => {
@@ -83,23 +96,72 @@ export function SectorTable({ snapshot }: Props) {
     }
   }
 
+  const copySectorStars = async (sectorName: string) => {
+    const tickers = sectorStarCounts.get(sectorName) ?? []
+    if (!tickers.length) return
+    const ok = await copyTickersToTradingView(tickers)
+    if (ok) {
+      setCopiedSectorStars(sectorName)
+      setTimeout(() => setCopiedSectorStars(null), 1600)
+    }
+  }
+
+  const copyIndustryStars = async (industryName: string, tickers: string[]) => {
+    if (!tickers.length) return
+    const ok = await copyTickersToTradingView(tickers)
+    if (ok) {
+      setCopiedIndustry(industryName)
+      setTimeout(() => setCopiedIndustry(null), 1600)
+    }
+  }
+
+  const selectedSectorStars = sectorFilter ? (sectorStarCounts.get(sectorFilter) ?? []) : []
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-1.5">
-        {sectors.map((s) => (
-          <button
-            key={s.name}
-            type="button"
-            onClick={() => setSectorFilter(sectorFilter === s.name ? null : s.name)}
-            className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-              sectorFilter === s.name
-                ? 'border-sky-500 bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200'
-                : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-ink-soft)] hover:border-sky-300'
-            }`}
-          >
-            {s.name}
-          </button>
-        ))}
+        {sectors.map((s) => {
+          const sectorStars = sectorStarCounts.get(s.name) ?? []
+          const active = sectorFilter === s.name
+          return (
+            <div
+              key={s.name}
+              className={`inline-flex items-center overflow-hidden rounded-full border ${
+                active
+                  ? 'border-sky-500 bg-sky-100 dark:border-sky-400 dark:bg-sky-950'
+                  : 'border-[var(--color-border)] bg-[var(--color-surface)]'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setSectorFilter(active ? null : s.name)}
+                className={`px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                  active
+                    ? 'text-sky-800 dark:text-sky-200'
+                    : 'text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]'
+                }`}
+              >
+                {s.name}
+                {sectorStars.length > 0 && (
+                  <span className="ml-1.5 inline-flex items-center gap-0.5 normal-case text-amber-600">
+                    <Star size={10} className="fill-amber-400 text-amber-400" />
+                    {sectorStars.length}
+                  </span>
+                )}
+              </button>
+              {sectorStars.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => copySectorStars(s.name)}
+                  className="border-l border-inherit px-2 py-1 text-[10px] font-bold text-amber-800 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-950/50"
+                  title={`Copy ${sectorStars.length} star stocks in ${s.name}`}
+                >
+                  {copiedSectorStars === s.name ? '✓' : 'Copy'}
+                </button>
+              )}
+            </div>
+          )
+        })}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -193,6 +255,20 @@ export function SectorTable({ snapshot }: Props) {
             <Star size={13} className="fill-amber-500 text-amber-500" />
             {copiedStars ? 'Copied!' : `Copy ${starCount} star stocks`}
           </button>
+          {sectorFilter && (
+            <button
+              type="button"
+              onClick={() => copySectorStars(sectorFilter)}
+              disabled={selectedSectorStars.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 disabled:opacity-40 dark:bg-amber-950/40 dark:text-amber-200"
+              title={`Star stocks in ${sectorFilter} only`}
+            >
+              <Star size={13} className="fill-amber-500 text-amber-500" />
+              {copiedSectorStars === sectorFilter
+                ? 'Copied!'
+                : `Copy ${selectedSectorStars.length} stars · ${sectorFilter}`}
+            </button>
+          )}
           <button
             type="button"
             onClick={copyAll}
@@ -230,7 +306,7 @@ export function SectorTable({ snapshot }: Props) {
                 '1YR',
                 '5YR',
                 `VS ${snapshot.benchmark}`,
-                'Score vs Sector (S) & Index (I)',
+                'Copy stars',
               ].map((h) => (
                 <th key={h} className="whitespace-nowrap px-2 py-2.5 font-semibold">
                   {h}
@@ -247,6 +323,13 @@ export function SectorTable({ snapshot }: Props) {
                 onToggle={() => toggle(ind.name)}
                 benchmark={snapshot.benchmark}
                 stocksOnly={stocksOnly || starOnly}
+                onCopyStars={() =>
+                  copyIndustryStars(
+                    ind.name,
+                    ind.stocks.filter((s) => s.star).map((s) => s.ticker),
+                  )
+                }
+                starsCopied={copiedIndustry === ind.name}
               />
             ))}
             {!industries.length && (
@@ -298,12 +381,16 @@ function IndustryRows({
   onToggle,
   benchmark,
   stocksOnly,
+  onCopyStars,
+  starsCopied,
 }: {
   ind: IndustryMetrics
   open: boolean
   onToggle: () => void
   benchmark: string
   stocksOnly: boolean
+  onCopyStars: () => void
+  starsCopied: boolean
 }) {
   const cycle = CYCLE_LABEL[ind.cycle]
   const mood = MOOD_LABEL[ind.mood]
@@ -317,17 +404,32 @@ function IndustryRows({
           onClick={onToggle}
         >
           <td className="px-2 py-2.5">
-            <div className="flex items-center gap-1.5 font-semibold">
-              {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              {ind.name}
+            <div className="flex flex-wrap items-center gap-1.5 font-semibold">
+              {open ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />}
+              <span>{ind.name}</span>
               {ind.starCount > 0 && (
-                <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-600">
+                <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-600">
                   <Star size={11} className="fill-amber-400 text-amber-400" />
                   {ind.starCount}
                 </span>
               )}
             </div>
-            <div className="pl-5 text-[10px] text-[var(--color-ink-soft)]">{ind.sector}</div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-5">
+              <span className="text-[10px] text-[var(--color-ink-soft)]">{ind.sector}</span>
+              {ind.starCount > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCopyStars()
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md border-2 border-amber-500 bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-950 hover:bg-amber-200 dark:border-amber-400 dark:bg-amber-950/70 dark:text-amber-100"
+                >
+                  <Copy size={12} />
+                  {starsCopied ? 'Copied!' : `Copy ${ind.starCount} stars`}
+                </button>
+              )}
+            </div>
           </td>
           <td className="px-2 tabular-nums">{ind.weight.toFixed(1)}%</td>
           <td className="px-2">
@@ -356,7 +458,20 @@ function IndustryRows({
           <td className={`px-2 text-[11px] font-semibold ${ind.vsIndex3m >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
             {formatVsIndex(ind.vsIndex3m, benchmark)}
           </td>
-          <td className="px-2 text-[var(--color-ink-soft)]">—</td>
+          <td className="px-2" onClick={(e) => e.stopPropagation()}>
+            {ind.starCount > 0 ? (
+              <button
+                type="button"
+                onClick={onCopyStars}
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border-2 border-amber-500 bg-amber-100 px-2.5 py-1.5 text-[11px] font-bold text-amber-950 hover:bg-amber-200 dark:border-amber-400 dark:bg-amber-950/70 dark:text-amber-100"
+              >
+                <Star size={12} className="fill-amber-500 text-amber-500" />
+                {starsCopied ? 'Copied!' : `Copy ${ind.starCount}`}
+              </button>
+            ) : (
+              <span className="text-[var(--color-ink-soft)]">—</span>
+            )}
+          </td>
         </tr>
       )}
       {open &&

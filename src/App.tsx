@@ -8,6 +8,7 @@ import { SectorAnalytics } from './components/SectorAnalytics'
 import { IndustryAnalytics } from './components/IndustryAnalytics'
 import { BreadthAnalysis } from './components/BreadthAnalysis'
 import { AltAssetsPanel } from './components/AltAssetsPanel'
+import { VolumeScan } from './components/VolumeScan'
 import { COMMODITIES, CRYPTO } from './data/altAssets'
 import { buildMarketSnapshot } from './lib/market'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
@@ -194,6 +195,7 @@ export default function App() {
                   {view === 'rotation-clock' && <RotationClock snapshot={snapshot} />}
                   {view === 'sector-analytics' && <SectorAnalytics snapshot={snapshot} />}
                   {view === 'industry-analytics' && <IndustryAnalytics snapshot={snapshot} />}
+                  {view === 'volume-scan' && <VolumeScan snapshot={snapshot} />}
                   {view === 'commodities' && (
                     <AltAssetsPanel
                       title="Commodities Desk"
