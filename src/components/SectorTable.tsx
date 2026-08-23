@@ -296,6 +296,8 @@ export function SectorTable({ snapshot }: Props) {
                 'Weight',
                 'Mood',
                 'Cycle',
+                'RS',
+                'RV',
                 'Trend',
                 '52W',
                 '1D',
@@ -334,7 +336,7 @@ export function SectorTable({ snapshot }: Props) {
             ))}
             {!industries.length && (
               <tr>
-                <td colSpan={15} className="px-4 py-10 text-center text-sm text-[var(--color-ink-soft)]">
+                <td colSpan={17} className="px-4 py-10 text-center text-sm text-[var(--color-ink-soft)]">
                   No sectors/stocks match “{query}”
                 </td>
               </tr>
@@ -437,18 +439,24 @@ function IndustryRows({
               {mood.label}
             </span>
           </td>
-          <td className="px-2">
-            <div
-              className="inline-flex flex-col rounded-md px-2 py-0.5 text-[10px] font-bold text-white"
-              style={{ background: cycle.color }}
-            >
-              {cycle.short}
-              <span className="font-medium opacity-90">{cycle.action}</span>
-            </div>
-          </td>
-          <td className="px-2">
-            <Sparkline values={p.spark} positive={p.m3 >= 0} />
-          </td>
+            <td className="px-2">
+              <div
+                className="inline-flex flex-col rounded-md px-2 py-0.5 text-[10px] font-bold text-white"
+                style={{ background: cycle.color }}
+              >
+                {cycle.short}
+                <span className="font-medium opacity-90">{cycle.action}</span>
+              </div>
+            </td>
+            <td className="px-2 font-semibold tabular-nums">{Math.round(ind.avgRs)}</td>
+            <td className="px-2 tabular-nums text-[var(--color-ink-soft)]">
+              {ind.stocks.length
+                ? `${(ind.stocks.reduce((a, s) => a + (s.relativeVolume ?? 0), 0) / ind.stocks.length).toFixed(1)}×`
+                : '—'}
+            </td>
+            <td className="px-2">
+              <Sparkline values={p.spark} positive={p.m3 >= 0} />
+            </td>
           <td className={`px-2 tabular-nums ${perfCellClass(p.from52wHigh)}`}>{formatPct(p.from52wHigh)}</td>
           {[p.d1, p.w1, p.m1, p.m3, p.m6, p.y1, p.y5].map((v, i) => (
             <td key={i} className={`px-2 tabular-nums font-medium ${perfCellClass(v)}`}>
@@ -497,6 +505,18 @@ function IndustryRows({
               >
                 {CYCLE_LABEL[s.cycle].short}
               </span>
+            </td>
+            <td
+              className={`px-2 font-bold tabular-nums ${(s.rs ?? 0) >= 50 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600'}`}
+            >
+              {Math.round(s.rs ?? 0)}
+            </td>
+            <td
+              className={`px-2 font-semibold tabular-nums ${
+                (s.relativeVolume ?? 0) >= 1.5 ? 'text-amber-700 dark:text-amber-300' : ''
+              }`}
+            >
+              {(s.relativeVolume ?? 0).toFixed(1)}×
             </td>
             <td className="px-2">
               <Sparkline values={s.spark} positive={s.m3 >= 0} />
