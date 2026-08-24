@@ -11,6 +11,7 @@ type Props = { snapshot: MarketSnapshot }
 export function SectorTable({ snapshot }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [sectorFilter, setSectorFilter] = useState<string | null>(null)
+  const [industryFilter, setIndustryFilter] = useState<string | null>(null)
   const [moodFilter, setMoodFilter] = useState<Mood | 'all'>('all')
   const [starOnly, setStarOnly] = useState(false)
   const [query, setQuery] = useState('')
@@ -37,9 +38,19 @@ export function SectorTable({ snapshot }: Props) {
   }, [snapshot.stocks])
 
   const sectors = snapshot.sectors
+
+  const industriesInSector = useMemo(() => {
+    if (!sectorFilter) return []
+    return snapshot.industries
+      .filter((i) => i.sector === sectorFilter)
+      .slice()
+      .sort((a, b) => b.weight - a.weight)
+  }, [snapshot.industries, sectorFilter])
+
   const industries = useMemo(() => {
     let list = snapshot.industries
     if (sectorFilter) list = list.filter((i) => i.sector === sectorFilter)
+    if (industryFilter) list = list.filter((i) => i.name === industryFilter)
     if (moodFilter !== 'all') list = list.filter((i) => i.mood === moodFilter)
     if (starOnly) {
       list = list
@@ -61,9 +72,18 @@ export function SectorTable({ snapshot }: Props) {
         .filter((i): i is IndustryMetrics => i != null)
     }
     return list
-  }, [snapshot.industries, sectorFilter, moodFilter, starOnly, query])
+  }, [snapshot.industries, sectorFilter, industryFilter, moodFilter, starOnly, query])
 
-  const searching = query.trim().length > 0
+  const searching = query.trim().length > 0 || Boolean(industryFilter)
+
+  const selectSector = (name: string | null) => {
+    setSectorFilter(name)
+    setIndustryFilter(null)
+    if (name) {
+      const names = snapshot.industries.filter((i) => i.sector === name).map((i) => i.name)
+      setExpanded(new Set(names))
+    }
+  }
 
   const toggle = (name: string) => {
     setExpanded((prev) => {
@@ -134,7 +154,7 @@ export function SectorTable({ snapshot }: Props) {
             >
               <button
                 type="button"
-                onClick={() => setSectorFilter(active ? null : s.name)}
+                onClick={() => selectSector(active ? null : s.name)}
                 className={`px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
                   active
                     ? 'text-sky-800 dark:text-sky-200'
@@ -163,6 +183,48 @@ export function SectorTable({ snapshot }: Props) {
           )
         })}
       </div>
+
+      {sectorFilter && industriesInSector.length > 0 && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-50/80 p-3 dark:bg-amber-950/30">
+          <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-amber-900 dark:text-amber-200">
+            {sectorFilter} · pick a category ({industriesInSector.length})
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIndustryFilter(null)}
+              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                !industryFilter
+                  ? 'border-amber-600 bg-amber-200 text-amber-950 dark:bg-amber-800 dark:text-amber-50'
+                  : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-ink-soft)]'
+              }`}
+            >
+              All categories
+            </button>
+            {industriesInSector.map((ind) => {
+              const active = industryFilter === ind.name
+              return (
+                <button
+                  key={ind.name}
+                  type="button"
+                  onClick={() => {
+                    setIndustryFilter(active ? null : ind.name)
+                    setExpanded(new Set([ind.name]))
+                  }}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                    active
+                      ? 'border-amber-600 bg-amber-200 text-amber-950 dark:bg-amber-800 dark:text-amber-50'
+                      : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-ink)] hover:border-amber-400'
+                  }`}
+                >
+                  {ind.name}
+                  <span className="ml-1 text-[var(--color-ink-soft)]">({ind.stocks.length})</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         {(
