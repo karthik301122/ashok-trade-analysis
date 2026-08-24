@@ -1,4 +1,5 @@
 import fs from 'fs'
+import { classifyMineral } from './mineral-industries.mjs'
 
 const official = fs.readFileSync('data/asx-official.csv', 'utf8')
 const london = fs.readFileSync('data/asx-london.csv', 'utf8')
@@ -74,6 +75,14 @@ const total = rows.reduce((s, r) => s + r.weight, 0) || 1
 for (const r of rows) {
   r.weight = Math.round((r.weight / total) * 100000) / 1000
   if (r.weight <= 0) r.weight = 0.001
+}
+
+for (const r of rows) {
+  const next = classifyMineral(r)
+  if (next) {
+    r.sector = next.sector
+    r.industry = next.industry
+  }
 }
 
 rows.sort((a, b) => b.weight - a.weight || a.ticker.localeCompare(b.ticker))
