@@ -71,6 +71,7 @@ const INDUSTRY_BIAS: Record<string, number> = {
   'Iron Ore': 2,
   'Diversified Miners': 3,
   'Industrial Materials': 1,
+  'Specialty Metals': 4,
   'Other Mining': 2,
   Restaurants: 9,
   'Electronics/Appliance Stores': 7,

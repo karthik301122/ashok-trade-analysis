@@ -1,6 +1,7 @@
 /**
- * Commodity industry labels for ASX Non-Energy Minerals (and uranium).
- * Priority: curated ticker map → name keywords → industrial → other mining.
+ * Commodity industries for ASX miners — exactly one industry per stock.
+ * Priority: industrial → diversified → uranium → lithium → rare earths →
+ * copper → silver → nickel → iron → specialty → gold → Other Mining.
  */
 
 export const MINERAL_INDUSTRIES = {
@@ -14,274 +15,476 @@ export const MINERAL_INDUSTRIES = {
   IRON: 'Iron Ore',
   DIVERSIFIED: 'Diversified Miners',
   INDUSTRIAL: 'Industrial Materials',
+  SPECIALTY: 'Specialty Metals',
   OTHER: 'Other Mining',
 }
 
-/** Highest-confidence overrides (ticker → industry). Checked first. */
-const BY_TICKER = {
-  // Diversified majors
-  BHP: MINERAL_INDUSTRIES.DIVERSIFIED,
-  RIO: MINERAL_INDUSTRIES.DIVERSIFIED,
-  S32: MINERAL_INDUSTRIES.DIVERSIFIED,
-  ATM: MINERAL_INDUSTRIES.DIVERSIFIED,
+const I = MINERAL_INDUSTRIES
+const NEM = 'Non-Energy Minerals'
 
-  // Iron ore
-  FMG: MINERAL_INDUSTRIES.IRON,
-  CIA: MINERAL_INDUSTRIES.IRON,
-  MGX: MINERAL_INDUSTRIES.IRON,
-  GRR: MINERAL_INDUSTRIES.IRON,
-  RHI: MINERAL_INDUSTRIES.IRON,
-  BCK: MINERAL_INDUSTRIES.IRON,
-  FEX: MINERAL_INDUSTRIES.IRON,
-
-  // Gold producers / developers (common ASX)
-  NEM: MINERAL_INDUSTRIES.GOLD,
-  NST: MINERAL_INDUSTRIES.GOLD,
-  EVN: MINERAL_INDUSTRIES.GOLD,
-  PRU: MINERAL_INDUSTRIES.GOLD,
-  RRL: MINERAL_INDUSTRIES.GOLD,
-  RMS: MINERAL_INDUSTRIES.GOLD,
-  GMD: MINERAL_INDUSTRIES.GOLD,
-  CMM: MINERAL_INDUSTRIES.GOLD,
-  VAU: MINERAL_INDUSTRIES.GOLD,
-  DEG: MINERAL_INDUSTRIES.GOLD,
-  WGX: MINERAL_INDUSTRIES.GOLD,
-  EMR: MINERAL_INDUSTRIES.GOLD,
-  WAF: MINERAL_INDUSTRIES.GOLD,
-  GOR: MINERAL_INDUSTRIES.GOLD,
-  OBM: MINERAL_INDUSTRIES.GOLD,
-  RSG: MINERAL_INDUSTRIES.GOLD,
-  RED: MINERAL_INDUSTRIES.GOLD,
-  BGL: MINERAL_INDUSTRIES.GOLD,
-  ALK: MINERAL_INDUSTRIES.GOLD,
-  CYL: MINERAL_INDUSTRIES.GOLD,
-  SX2: MINERAL_INDUSTRIES.GOLD,
-  SXG: MINERAL_INDUSTRIES.GOLD,
-  SLR: MINERAL_INDUSTRIES.GOLD,
-  KCN: MINERAL_INDUSTRIES.GOLD,
-  PNR: MINERAL_INDUSTRIES.GOLD,
-  SBM: MINERAL_INDUSTRIES.GOLD,
-  PDI: MINERAL_INDUSTRIES.GOLD,
-  BC8: MINERAL_INDUSTRIES.GOLD,
-  WIA: MINERAL_INDUSTRIES.GOLD,
-  TCG: MINERAL_INDUSTRIES.GOLD,
-  AUC: MINERAL_INDUSTRIES.GOLD,
-  BCN: MINERAL_INDUSTRIES.GOLD,
-  SPR: MINERAL_INDUSTRIES.GOLD,
-  SSR: MINERAL_INDUSTRIES.GOLD,
-  OGC: MINERAL_INDUSTRIES.GOLD,
-  AGG: MINERAL_INDUSTRIES.GOLD,
-  DPM: MINERAL_INDUSTRIES.GOLD,
-  RXR: MINERAL_INDUSTRIES.GOLD,
-  MEK: MINERAL_INDUSTRIES.GOLD,
-  SMI: MINERAL_INDUSTRIES.GOLD,
-  BGD: MINERAL_INDUSTRIES.GOLD,
-  HRZ: MINERAL_INDUSTRIES.GOLD,
-  STN: MINERAL_INDUSTRIES.GOLD,
-  TBR: MINERAL_INDUSTRIES.GOLD,
-  FML: MINERAL_INDUSTRIES.GOLD,
-  CEL: MINERAL_INDUSTRIES.GOLD,
-  A1G: MINERAL_INDUSTRIES.GOLD,
-  GG8: MINERAL_INDUSTRIES.GOLD,
-  AAU: MINERAL_INDUSTRIES.GOLD,
-  ADG: MINERAL_INDUSTRIES.GOLD,
-  AGD: MINERAL_INDUSTRIES.GOLD,
-  BEZ: MINERAL_INDUSTRIES.GOLD,
-  CTO: MINERAL_INDUSTRIES.GOLD,
-  DMG: MINERAL_INDUSTRIES.GOLD,
-  E79: MINERAL_INDUSTRIES.GOLD,
-  FEG: MINERAL_INDUSTRIES.GOLD,
-  FXG: MINERAL_INDUSTRIES.GOLD,
-  GHM: MINERAL_INDUSTRIES.GOLD,
-  HRN: MINERAL_INDUSTRIES.GOLD,
-  KNB: MINERAL_INDUSTRIES.GOLD,
-  NMG: MINERAL_INDUSTRIES.GOLD,
-  TAM: MINERAL_INDUSTRIES.GOLD,
-  TGM: MINERAL_INDUSTRIES.GOLD,
-  TSO: MINERAL_INDUSTRIES.GOLD,
-  DME: MINERAL_INDUSTRIES.GOLD,
-  FFM: MINERAL_INDUSTRIES.GOLD,
-  MAU: MINERAL_INDUSTRIES.GOLD,
-  MM8: MINERAL_INDUSTRIES.GOLD,
-  AZY: MINERAL_INDUSTRIES.GOLD,
-  RXL: MINERAL_INDUSTRIES.GOLD,
-  CAI: MINERAL_INDUSTRIES.GOLD,
-  TIE: MINERAL_INDUSTRIES.GOLD,
-  DCN: MINERAL_INDUSTRIES.GOLD,
-  ORR: MINERAL_INDUSTRIES.GOLD,
-  AQI: MINERAL_INDUSTRIES.GOLD,
-  AAR: MINERAL_INDUSTRIES.GOLD,
-  POL: MINERAL_INDUSTRIES.GOLD,
-  TRE: MINERAL_INDUSTRIES.GOLD,
-  TOK: MINERAL_INDUSTRIES.GOLD,
-  TM1: MINERAL_INDUSTRIES.GOLD,
-  PC2: MINERAL_INDUSTRIES.GOLD,
-  BM1: MINERAL_INDUSTRIES.GOLD,
-  MTH: MINERAL_INDUSTRIES.GOLD, // Mithril Silver and Gold — gold primary
-
-  // Silver
-  SVL: MINERAL_INDUSTRIES.SILVER,
-  USL: MINERAL_INDUSTRIES.SILVER,
-  SVM: MINERAL_INDUSTRIES.SILVER,
-
-  // Copper
-  CSC: MINERAL_INDUSTRIES.COPPER,
-  SFR: MINERAL_INDUSTRIES.COPPER,
-  AIS: MINERAL_INDUSTRIES.COPPER,
-  HCH: MINERAL_INDUSTRIES.COPPER,
-  WA1: MINERAL_INDUSTRIES.COPPER,
-  CBE: MINERAL_INDUSTRIES.COPPER,
-  MC2: MINERAL_INDUSTRIES.COPPER,
-  C6C: MINERAL_INDUSTRIES.COPPER,
-  GRX: MINERAL_INDUSTRIES.COPPER,
-  A1M: MINERAL_INDUSTRIES.COPPER,
-  '29M': MINERAL_INDUSTRIES.COPPER,
-  AGC: MINERAL_INDUSTRIES.COPPER, // Australian Gold and Copper — copper/gold; copper group OK
-  AMI: MINERAL_INDUSTRIES.COPPER, // Aurelia — base metals / copper-gold
-  ADT: MINERAL_INDUSTRIES.SILVER, // Adriatic — silver-zinc; silver-ish; keep silver? actually polymetallic — diversified
-  // Override ADT to diversified below
-  HAV: MINERAL_INDUSTRIES.COPPER,
-
-  // Rare earths / mineral sands
-  LYC: MINERAL_INDUSTRIES.RARE_EARTHS,
-  ILU: MINERAL_INDUSTRIES.RARE_EARTHS,
-  ARU: MINERAL_INDUSTRIES.RARE_EARTHS,
-  NTU: MINERAL_INDUSTRIES.RARE_EARTHS,
-  HAS: MINERAL_INDUSTRIES.RARE_EARTHS,
-  IXR: MINERAL_INDUSTRIES.RARE_EARTHS,
-  VMM: MINERAL_INDUSTRIES.RARE_EARTHS,
-  MEI: MINERAL_INDUSTRIES.RARE_EARTHS, // Meteoric — REE
-  LIN: MINERAL_INDUSTRIES.RARE_EARTHS, // Lindian — bauxite/REE
-  PEK: MINERAL_INDUSTRIES.RARE_EARTHS,
-  ARR: MINERAL_INDUSTRIES.RARE_EARTHS,
-
-  // Uranium (often GICS Energy — we re-bucket into Non-Energy Minerals)
-  PDN: MINERAL_INDUSTRIES.URANIUM,
-  BOE: MINERAL_INDUSTRIES.URANIUM,
-  DYL: MINERAL_INDUSTRIES.URANIUM,
-  BMN: MINERAL_INDUSTRIES.URANIUM,
-  PEN: MINERAL_INDUSTRIES.URANIUM,
-  AGE: MINERAL_INDUSTRIES.URANIUM,
-  NXG: MINERAL_INDUSTRIES.URANIUM,
-  TOE: MINERAL_INDUSTRIES.URANIUM,
-  EL8: MINERAL_INDUSTRIES.URANIUM,
-  BKY: MINERAL_INDUSTRIES.URANIUM,
-  LOT: MINERAL_INDUSTRIES.URANIUM,
-  DEV: MINERAL_INDUSTRIES.URANIUM,
-  GTR: MINERAL_INDUSTRIES.URANIUM,
-  EME: MINERAL_INDUSTRIES.URANIUM,
-  CXU: MINERAL_INDUSTRIES.URANIUM,
-  AEE: MINERAL_INDUSTRIES.URANIUM,
-
-  // Lithium / battery
-  PLS: MINERAL_INDUSTRIES.LITHIUM,
-  LTR: MINERAL_INDUSTRIES.LITHIUM,
-  MIN: MINERAL_INDUSTRIES.LITHIUM,
-  CXO: MINERAL_INDUSTRIES.LITHIUM,
-  PMT: MINERAL_INDUSTRIES.LITHIUM,
-  VUL: MINERAL_INDUSTRIES.LITHIUM,
-  LRS: MINERAL_INDUSTRIES.LITHIUM,
-  ELV: MINERAL_INDUSTRIES.LITHIUM,
-  GLN: MINERAL_INDUSTRIES.LITHIUM,
-  LKE: MINERAL_INDUSTRIES.LITHIUM,
-  EUR: MINERAL_INDUSTRIES.LITHIUM,
-  INR: MINERAL_INDUSTRIES.LITHIUM,
-  SYA: MINERAL_INDUSTRIES.LITHIUM,
-  AZL: MINERAL_INDUSTRIES.LITHIUM,
-  LPI: MINERAL_INDUSTRIES.LITHIUM,
-  PLL: MINERAL_INDUSTRIES.LITHIUM,
-  WR1: MINERAL_INDUSTRIES.LITHIUM,
-  WC8: MINERAL_INDUSTRIES.LITHIUM, // Wildcat — lithium focus recently
-  ASN: MINERAL_INDUSTRIES.LITHIUM,
-
-  // Nickel
-  NIC: MINERAL_INDUSTRIES.NICKEL,
-  IGO: MINERAL_INDUSTRIES.NICKEL,
-  MCR: MINERAL_INDUSTRIES.NICKEL,
-  PAN: MINERAL_INDUSTRIES.NICKEL,
-  CTM: MINERAL_INDUSTRIES.NICKEL, // Centaurus — nickel
-  SGQ: MINERAL_INDUSTRIES.NICKEL,
-  CHN: MINERAL_INDUSTRIES.NICKEL, // Chalice — PGE/nickel
-
-  // Industrial / processing / packaging (Materials but not miners)
-  AMC: MINERAL_INDUSTRIES.INDUSTRIAL,
-  JHX: MINERAL_INDUSTRIES.INDUSTRIAL,
-  ORI: MINERAL_INDUSTRIES.INDUSTRIAL,
-  DNL: MINERAL_INDUSTRIES.INDUSTRIAL,
-  BSL: MINERAL_INDUSTRIES.INDUSTRIAL,
-  SGM: MINERAL_INDUSTRIES.INDUSTRIAL,
-  ORA: MINERAL_INDUSTRIES.INDUSTRIAL,
-  DRR: MINERAL_INDUSTRIES.INDUSTRIAL,
-  A4N: MINERAL_INDUSTRIES.INDUSTRIAL,
-  IMD: MINERAL_INDUSTRIES.INDUSTRIAL, // mining services / tech
-  PRN: MINERAL_INDUSTRIES.INDUSTRIAL, // Perenti — mining services
-
-  // Polymetallic / base metals buckets
-  ADT: MINERAL_INDUSTRIES.DIVERSIFIED,
-  GGP: MINERAL_INDUSTRIES.GOLD, // Greatland — gold
-  ZIM: MINERAL_INDUSTRIES.GOLD, // PGM/precious — group with precious via gold label? better Other
+function set(...tickers) {
+  return new Set(tickers.map((t) => t.toUpperCase()))
 }
 
-// Fix ZIM — platinum group
-BY_TICKER.ZIM = MINERAL_INDUSTRIES.OTHER
+const DIVERSIFIED = set('BHP', 'RIO', 'S32', 'ATM', 'ADT')
 
-const KEYWORD_RULES = [
-  { industry: MINERAL_INDUSTRIES.URANIUM, re: /\bURANIUM\b|\bURAN\b/ },
-  { industry: MINERAL_INDUSTRIES.RARE_EARTHS, re: /RARE\s*EARTH|\bREE\b|MINERAL\s*SAND/ },
-  { industry: MINERAL_INDUSTRIES.LITHIUM, re: /\bLITHIUM\b|BATTERY\s*METAL|SPODUMENE/ },
-  { industry: MINERAL_INDUSTRIES.SILVER, re: /\bSILVER\b/ },
-  { industry: MINERAL_INDUSTRIES.COPPER, re: /\bCOPPER\b/ },
-  { industry: MINERAL_INDUSTRIES.NICKEL, re: /\bNICKEL\b/ },
-  { industry: MINERAL_INDUSTRIES.IRON, re: /\bIRON\s*ORE\b|\bIRON\b/ },
-  { industry: MINERAL_INDUSTRIES.GOLD, re: /\bGOLD\b/ },
-  {
-    industry: MINERAL_INDUSTRIES.INDUSTRIAL,
-    re: /\bSTEEL\b|\bPACKAG|\bCEMENT\b|\bHARDIE\b|\bAMCOR\b|\bORICA\b|\bDYNO\b|\bEXPLOSIVE/,
-  },
+const INDUSTRIAL = set(
+  'AMC',
+  'JHX',
+  'ORI',
+  'DNL',
+  'BSL',
+  'SGM',
+  'ORA',
+  'DRR',
+  'A4N',
+  'IMD',
+  'PRN',
+  'MAH',
+  'GNG',
+  'WGN',
+  'NUF',
+  'CAA',
+  'DGL',
+  'TTT',
+  'VYS',
+  'BLY',
+)
+
+const URANIUM = set(
+  'PDN',
+  'BOE',
+  'DYL',
+  'BMN',
+  'PEN',
+  'AGE',
+  'NXG',
+  'TOE',
+  'EL8',
+  'BKY',
+  'LOT',
+  'DEV',
+  'GTR',
+  'EME',
+  'CXU',
+  'AEE',
+  'ERA',
+  'LAM',
+  'VMY',
+  'MEU',
+  'ACB',
+  'MEY',
+  'UVA',
+  'GUE',
+  'NHU',
+  'AMU',
+  '1AE',
+  'T92',
+  'ORP',
+  'EPM',
+  'ADD',
+  'MHC',
+  'ZEU',
+  '92E',
+  'LRM',
+)
+
+const LITHIUM = set(
+  'PLS',
+  'LTR',
+  'MIN',
+  'CXO',
+  'PMT',
+  'VUL',
+  'LRS',
+  'ELV',
+  'GLN',
+  'LKE',
+  'EUR',
+  'INR',
+  'SYA',
+  'AZL',
+  'LPI',
+  'PLL',
+  'WR1',
+  'WC8',
+  'ASN',
+  'JRL',
+  'PLN',
+  'EMH',
+  'LIS',
+  'PSC',
+  'TKM',
+  'NMT',
+  'AGY',
+)
+
+const RARE_EARTHS = set(
+  'LYC',
+  'ILU',
+  'ARU',
+  'NTU',
+  'HAS',
+  'IXR',
+  'VMM',
+  'MEI',
+  'LIN',
+  'PEK',
+  'ARR',
+  'AR3',
+  'HRE',
+  'BRE',
+  'GGG',
+  'CRI',
+)
+
+const COPPER = set(
+  'CSC',
+  'SFR',
+  'AIS',
+  'HCH',
+  'WA1',
+  'CBE',
+  'MC2',
+  'C6C',
+  'GRX',
+  'A1M',
+  '29M',
+  'AGC',
+  'AMI',
+  'HAV',
+  'JBY',
+  'KCC',
+  'ALM',
+  'REC',
+  'HRR',
+  'NRX',
+  'OZL',
+  'KGL',
+  'VXR',
+  'SUM',
+)
+
+const SILVER = set('SVL', 'USL', 'SVM', 'IVR', 'MTH')
+
+const NICKEL = set('NIC', 'IGO', 'MCR', 'PAN', 'CTM', 'SGQ', 'CHN', 'AZS', 'POS')
+
+const IRON = set('FMG', 'CIA', 'MGX', 'GRR', 'RHI', 'BCK', 'FEX', 'BCI', 'MDX', 'CLE', 'GEN')
+
+const SPECIALTY = set(
+  'AAI',
+  'SYR',
+  'TLG',
+  'QGL',
+  'RNU',
+  'EGR',
+  'BUX',
+  'AVL',
+  'TMT',
+  'TVN',
+  'VS8',
+  'TNG',
+  'IPX',
+  'AII',
+  'MLX',
+  'OMH',
+  'JMS',
+  'MMI',
+  'CAY',
+  'SMR',
+  'CRN',
+  'BRL',
+  'ZIM',
+  'SPD',
+  'DVP',
+  'LRV',
+  'NVA',
+  'MTM',
+  'NMR',
+  'GGP',
+)
+
+const GOLD_RAW = set(
+  'NEM',
+  'NST',
+  'EVN',
+  'NCM',
+  'AGG',
+  'DPM',
+  'PRU',
+  'RMS',
+  'VAU',
+  'DEG',
+  'RRL',
+  'WGX',
+  'EMR',
+  'WAF',
+  'PDI',
+  'GOR',
+  'SSR',
+  'SX2',
+  'SPR',
+  'AQG',
+  'OBM',
+  'RSG',
+  'RED',
+  'BGL',
+  'ALK',
+  'RXR',
+  'CYL',
+  'OGC',
+  'SLR',
+  'KCN',
+  'WIA',
+  'BC8',
+  'TIE',
+  'SXG',
+  'SBM',
+  'TCG',
+  'AUC',
+  'CDV',
+  'FML',
+  'SMI',
+  'BTR',
+  'DTR',
+  'TOK',
+  'DCN',
+  'BCN',
+  'MEK',
+  'PC2',
+  'TRE',
+  'BM1',
+  'POL',
+  'TBR',
+  'AAR',
+  'STN',
+  'ORR',
+  'BGD',
+  'AQI',
+  'TM1',
+  'HRZ',
+  'TGM',
+  'GG8',
+  'ARX',
+  'ERM',
+  'ORN',
+  'DGO',
+  'TTM',
+  'WWI',
+  'HRN',
+  'CY5',
+  'GML',
+  'AUT',
+  'TSO',
+  'BRB',
+  'BDC',
+  'GBR',
+  'LLO',
+  'TAM',
+  'TOR',
+  'GBZ',
+  'FAL',
+  'X64',
+  'KAU',
+  'DLI',
+  'FXG',
+  'RND',
+  'LRL',
+  'TUL',
+  'PGL',
+  'MMC',
+  'ARL',
+  'KGD',
+  'CAI',
+  'GBM',
+  'GHM',
+  'BRV',
+  'AWV',
+  'NWF',
+  'PGO',
+  'EMP',
+  'NUS',
+  'TRY',
+  'OKU',
+  'AA2',
+  'HMX',
+  'AME',
+  'BSX',
+  'SNM',
+  'GME',
+  'WCN',
+  'YRL',
+  'AUN',
+  'TNR',
+  'SNX',
+  'MSR',
+  'ARI',
+  'MAT',
+  'AGS',
+  'FFR',
+  'AWJ',
+  'ORD',
+  'ZAG',
+  'SFM',
+  'HMG',
+  'SIH',
+  'DGR',
+  'CTO',
+  'LNY',
+  'BEZ',
+  'E2M',
+  'SMG',
+  'ADN',
+  'ARS',
+  'UM1',
+  'G11',
+  'KNB',
+  'NVO',
+  'WGR',
+  'NXM',
+  'HAW',
+  'BDG',
+  'ANL',
+  'VEC',
+  'OZM',
+  'WMG',
+  'AYR',
+  'SHK',
+  'TAR',
+  'VKA',
+  'GDM',
+  'OKR',
+  'ONX',
+  'GMN',
+  'CGN',
+  'DSM',
+  'RGL',
+  'PRX',
+  'MVL',
+  'MRZ',
+  'GNM',
+  'BBX',
+  'DAU',
+  'ARE',
+  'KRM',
+  'ORM',
+  'GMD',
+  'CMM',
+  'PNR',
+  'FFM',
+  'MAU',
+  'MM8',
+  'AZY',
+  'RXL',
+  'AAU',
+  'ADG',
+  'AGD',
+  'DMG',
+  'E79',
+  'FEG',
+  'CEL',
+  'A1G',
+  'NMG',
+  'VAL',
+  'OAU',
+  'MI6',
+  'STK',
+  'ENR',
+  'BNZ',
+  'SLS',
+  'WA8',
+  'FRS',
+  'EM3',
+  'GA8',
+  '4CE',
+  'FFX',
+  'GWR',
+  'BSR',
+)
+
+const PRIORITY = [
+  [DIVERSIFIED, I.DIVERSIFIED],
+  [INDUSTRIAL, I.INDUSTRIAL],
+  [URANIUM, I.URANIUM],
+  [LITHIUM, I.LITHIUM],
+  [RARE_EARTHS, I.RARE_EARTHS],
+  [COPPER, I.COPPER],
+  [SILVER, I.SILVER],
+  [NICKEL, I.NICKEL],
+  [IRON, I.IRON],
+  [SPECIALTY, I.SPECIALTY],
 ]
 
-const URANIUM_SECTOR = 'Non-Energy Minerals'
+const claimed = new Set()
+for (const [s] of PRIORITY) for (const t of s) claimed.add(t)
+const GOLD = new Set([...GOLD_RAW].filter((t) => !claimed.has(t)))
+
+const KEYWORD_RULES = [
+  { industry: I.URANIUM, re: /\bURANIUM\b|\bURAN\b/ },
+  { industry: I.RARE_EARTHS, re: /RARE\s*EARTH|\bREE\b|MINERAL\s*SAND/ },
+  { industry: I.LITHIUM, re: /\bLITHIUM\b|BATTERY\s*METAL|SPODUMENE/ },
+  { industry: I.SILVER, re: /\bSILVER\b/ },
+  { industry: I.COPPER, re: /\bCOPPER\b/ },
+  { industry: I.NICKEL, re: /\bNICKEL\b/ },
+  { industry: I.IRON, re: /\bIRON\s*ORE\b|\bIRON\b/ },
+  {
+    industry: I.SPECIALTY,
+    re: /\bGRAPHITE\b|\bVANADIUM\b|\bTUNGSTEN\b|\bALUMINI|\bBAUXITE\b|\bMANGANESE\b|\bTIN\b|\bZINC\b|\bLEAD\b|\bANTIMONY\b|\bCOBALT\b|\bTITANIUM\b|\bPALLADIUM\b|\bPLATINUM\b|\bPOTASH\b|\bCOAL\b|\bSILICA\b/,
+  },
+  {
+    industry: I.INDUSTRIAL,
+    re: /\bSTEEL\b|\bPACKAG|\bCEMENT\b|\bHARDIE\b|\bAMCOR\b|\bORICA\b|\bDYNO\b|\bEXPLOSIVE/,
+  },
+  { industry: I.GOLD, re: /\bGOLD\b|\bGOLDEN\b/ },
+]
+
+function pack(industry, sector) {
+  if (industry === I.URANIUM) return { sector: NEM, industry }
+  // Keep mineral commodity desk under Non-Energy Minerals
+  if (sector === 'Energy Minerals') return { sector: NEM, industry }
+  return { sector, industry }
+}
 
 /**
- * @param {{ ticker: string, name: string, sector: string, industry: string }} stock
- * @returns {{ sector: string, industry: string } | null} null = leave unchanged
+ * @param {{ ticker: string, name: string, sector: string }} stock
+ * @returns {{ sector: string, industry: string } | null}
  */
 export function classifyMineral(stock) {
   const ticker = String(stock.ticker || '').toUpperCase()
   const name = String(stock.name || '').toUpperCase()
   const sector = stock.sector
 
-  const fromTicker = BY_TICKER[ticker]
-  if (fromTicker) {
-    return {
-      sector: fromTicker === MINERAL_INDUSTRIES.URANIUM ? URANIUM_SECTOR : sector,
-      industry: fromTicker,
-    }
+  for (const [tickers, industry] of PRIORITY) {
+    if (tickers.has(ticker)) return pack(industry, sector)
   }
-
-  // Uranium by name — pull into Non-Energy Minerals
-  if (
-    /\bURANIUM\b|\bURAN\b/.test(name) ||
-    (sector === 'Energy Minerals' &&
-      /PALADIN|BOSS ENERGY|DEEP YELLOW|BANNERMAN|PENINSULA ENERGY|ALLIGATOR|NEXGEN|TORO ENERGY|ELEVATE URAN/.test(
-        name,
-      ))
-  ) {
-    return { sector: URANIUM_SECTOR, industry: MINERAL_INDUSTRIES.URANIUM }
-  }
-
-  if (sector !== 'Non-Energy Minerals') return null
+  if (GOLD.has(ticker)) return pack(I.GOLD, sector)
 
   for (const rule of KEYWORD_RULES) {
-    if (rule.re.test(name)) {
-      return { sector, industry: rule.industry }
+    if (!rule.re.test(name)) continue
+    if (sector === NEM) return pack(rule.industry, sector)
+    if (sector === 'Energy Minerals' && (rule.industry === I.URANIUM || rule.industry === I.SPECIALTY)) {
+      return pack(rule.industry, sector)
     }
   }
 
-  // Remaining Materials lump → Other Mining
-  if (stock.industry === 'Materials' || !stock.industry) {
-    return { sector, industry: MINERAL_INDUSTRIES.OTHER }
+  if (sector !== NEM && !Object.values(MINERAL_INDUSTRIES).includes(stock.industry)) {
+    return null
+  }
+
+  // Single catch-all for remaining Non-Energy Minerals
+  if (sector === NEM || Object.values(MINERAL_INDUSTRIES).includes(stock.industry)) {
+    return { sector: NEM, industry: I.OTHER }
   }
 
   return null
+}
+
+export function shouldReclassify(stock) {
+  const t = String(stock.ticker || '').toUpperCase()
+  if (stock.sector === NEM) return true
+  if (Object.values(MINERAL_INDUSTRIES).includes(stock.industry)) return true
+  if (URANIUM.has(t) || LITHIUM.has(t) || GOLD.has(t) || COPPER.has(t)) return true
+  if (INDUSTRIAL.has(t) || SPECIALTY.has(t) || IRON.has(t) || NICKEL.has(t)) return true
+  if (DIVERSIFIED.has(t) || RARE_EARTHS.has(t) || SILVER.has(t)) return true
+  return false
 }
