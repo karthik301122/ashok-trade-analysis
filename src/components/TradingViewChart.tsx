@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { toTradingViewSymbol } from '../lib/tradingview'
 
 declare global {
@@ -36,23 +36,40 @@ function loadTradingViewScript(): Promise<void> {
 type Props = {
   ticker: string
   height?: number
+  /** Fill parent height (fullscreen modal). */
+  fill?: boolean
 }
 
-export function TradingViewChart({ ticker, height = 560 }: Props) {
+export function TradingViewChart({ ticker, height = 560, fill = false }: Props) {
   const reactId = useId().replace(/:/g, '')
   const containerId = `tv_${ticker}_${reactId}`
   const hostRef = useRef<HTMLDivElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [pxHeight, setPxHeight] = useState(height)
   const dark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+
+  useEffect(() => {
+    if (!fill || !wrapRef.current) {
+      setPxHeight(height)
+      return
+    }
+    const el = wrapRef.current
+    const apply = () => setPxHeight(Math.max(320, Math.floor(el.clientHeight)))
+    apply()
+    const ro = new ResizeObserver(apply)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [fill, height])
 
   useEffect(() => {
     let cancelled = false
     const host = hostRef.current
-    if (!host) return
+    if (!host || pxHeight < 100) return
 
     host.innerHTML = ''
     const mount = document.createElement('div')
     mount.id = containerId
-    mount.style.height = `${height}px`
+    mount.style.height = `${pxHeight}px`
     mount.style.width = '100%'
     host.appendChild(mount)
 
@@ -89,11 +106,15 @@ export function TradingViewChart({ ticker, height = 560 }: Props) {
       cancelled = true
       if (hostRef.current) hostRef.current.innerHTML = ''
     }
-  }, [ticker, containerId, height, dark])
+  }, [ticker, containerId, pxHeight, dark])
 
   return (
-    <div className="tradingview-widget-container w-full overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
-      <div ref={hostRef} style={{ height }} />
+    <div
+      ref={wrapRef}
+      className={`tradingview-widget-container w-full overflow-hidden bg-[var(--color-surface)] ${fill ? 'h-full' : ''}`}
+      style={fill ? undefined : { height }}
+    >
+      <div ref={hostRef} style={{ height: pxHeight }} />
     </div>
   )
 }
