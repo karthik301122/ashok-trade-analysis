@@ -2,12 +2,14 @@ import type { OhlcBar } from '../yahoo'
 
 export type PatternBias = 'bullish' | 'bearish' | 'neutral'
 
-export type PatternCategoryId =
+export type CorePatternCategoryId =
   | 'candlesticks'
   | 'classic'
   | 'structure'
   | 'harmonic'
   | 'volume'
+
+export type PatternCategoryId = CorePatternCategoryId | 'starred' | 'custom'
 
 export type PatternHit = {
   id: string
@@ -42,7 +44,7 @@ export type CategorySummary = {
   note?: string
 }
 
-export const CATEGORY_META: { id: PatternCategoryId; label: string }[] = [
+export const CATEGORY_META: { id: CorePatternCategoryId; label: string }[] = [
   { id: 'candlesticks', label: 'Candlesticks' },
   { id: 'classic', label: 'Classic Chart' },
   { id: 'structure', label: 'Trend / Structure' },

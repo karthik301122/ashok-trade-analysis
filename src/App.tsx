@@ -17,6 +17,7 @@ import { fetchAuthMe, logout as apiLogout } from './lib/auth'
 import type { MarketSnapshot } from './data/types'
 import { ASX_UNIVERSE_COUNT } from './data/universe'
 import { RefreshCw } from 'lucide-react'
+import { PatternPrefsProvider } from './components/patterns/PatternPrefsContext'
 
 export default function App() {
   const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark')
@@ -148,6 +149,7 @@ export default function App() {
   })()
 
   return (
+    <PatternPrefsProvider user={user}>
     <div className="min-h-screen bg-[var(--color-muted)] text-[var(--color-ink)]">
       <Header
         dark={dark}
@@ -273,5 +275,6 @@ export default function App() {
         ) : null}
       </main>
     </div>
+    </PatternPrefsProvider>
   )
 }

@@ -2,10 +2,18 @@ import { useEffect, useState } from 'react'
 import { ExternalLink, X } from 'lucide-react'
 import { toTradingViewSymbol } from '../lib/tradingview'
 import { fetchYahooOhlc } from '../lib/yahoo'
-import { scanPatterns, type CategorySummary, type PatternCategoryId, type PatternHit, type OhlcBar } from '../lib/patterns'
+import {
+  enrichScanWithPrefs,
+  scanPatterns,
+  type CategorySummary,
+  type PatternCategoryId,
+  type PatternHit,
+  type OhlcBar,
+} from '../lib/patterns'
 import { TradingViewChart } from './TradingViewChart'
 import { PatternPanel } from './patterns/PatternPanel'
 import { AnnotatedPatternChart } from './patterns/AnnotatedPatternChart'
+import { usePatternPrefs } from './patterns/PatternPrefsContext'
 
 type Props = {
   ticker: string
@@ -16,9 +24,10 @@ type Props = {
 export function StockChartModal({ ticker, name, onClose }: Props) {
   const symbol = toTradingViewSymbol(ticker)
   const tvUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(symbol)}`
+  const { prefs, rememberHits } = usePatternPrefs()
 
   const [bars, setBars] = useState<OhlcBar[] | null>(null)
-  const [categories, setCategories] = useState<CategorySummary[]>([])
+  const [baseCategories, setBaseCategories] = useState<CategorySummary[]>([])
   const [catalogTotal, setCatalogTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -39,20 +48,31 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
       if (!ohlc?.length) {
         setError('Could not load OHLC for pattern scan')
         setBars(null)
-        setCategories([])
+        setBaseCategories([])
         setLoading(false)
         return
       }
       const result = scanPatterns(ohlc)
       setBars(ohlc)
-      setCategories(result.categories)
+      setBaseCategories(result.categories)
       setCatalogTotal(result.catalogTotal)
+      rememberHits(
+        ticker,
+        result.hits.map((h) => ({
+          name: h.name,
+          bias: h.bias,
+          endT: h.endT,
+          confidence: h.confidence,
+        })),
+      )
       setLoading(false)
     })()
     return () => {
       cancelled = true
     }
-  }, [ticker])
+  }, [ticker, rememberHits])
+
+  const categories = enrichScanWithPrefs(baseCategories, prefs)
 
   const onSelectPattern = (hit: PatternHit) => {
     setSelected(hit)

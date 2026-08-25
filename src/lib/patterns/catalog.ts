@@ -1,8 +1,8 @@
-import type { PatternBias, PatternCategoryId } from './types'
+import type { PatternBias, CorePatternCategoryId, PatternCategoryId } from './types'
 
 /** Full trader catalog — every name we scan for (hit or no-hit). */
 export type CatalogPattern = {
-  category: PatternCategoryId
+  category: CorePatternCategoryId
   name: string
   familyBias: PatternBias | 'either'
 }
@@ -126,6 +126,7 @@ export const PATTERN_CATALOG: CatalogPattern[] = [
 ]
 
 export function catalogFor(category: PatternCategoryId): CatalogPattern[] {
+  if (category === 'starred' || category === 'custom') return []
   return PATTERN_CATALOG.filter((p) => p.category === category)
 }
 

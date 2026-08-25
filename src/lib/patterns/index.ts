@@ -23,7 +23,7 @@ export function scanPatterns(bars: OhlcBar[]): {
   const volume = detectVolumeMomentum(bars)
   const harmonic: PatternHit[] = []
 
-  const byCat: Record<PatternCategoryId, PatternHit[]> = {
+  const byCat: Record<'candlesticks' | 'classic' | 'structure' | 'harmonic' | 'volume', PatternHit[]> = {
     candlesticks: candle,
     classic,
     structure,
@@ -82,3 +82,4 @@ export function scanPatterns(bars: OhlcBar[]): {
 
 export type { CategorySummary, PatternHit, PatternCategoryId, OhlcBar, PatternScanRow }
 export { CATEGORY_META, PATTERN_CATALOG, CATALOG_TOTAL }
+export { enrichScanWithPrefs } from './enrichWithPrefs'
