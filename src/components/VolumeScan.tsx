@@ -5,6 +5,7 @@ import { CYCLE_LABEL, MOOD_LABEL } from '../lib/market'
 import { formatPct, formatVolume, perfCellClass } from '../lib/format'
 import { copyTickersToTradingView } from '../lib/tradingview'
 import { Sparkline } from './Sparkline'
+import { StockChartModal } from './StockChartModal'
 
 type Props = { snapshot: MarketSnapshot }
 type SortKey = 'dollarVolume' | 'volume' | 'relativeVolume'
@@ -19,6 +20,7 @@ export function VolumeScan({ snapshot }: Props) {
   const [minRvol, setMinRvol] = useState(0)
   const [query, setQuery] = useState('')
   const [copied, setCopied] = useState(false)
+  const [chartStock, setChartStock] = useState<{ ticker: string; name: string } | null>(null)
 
   const sectors = useMemo(
     () => [...new Set(snapshot.stocks.map((s) => s.sector))].sort(),
@@ -244,8 +246,22 @@ export function VolumeScan({ snapshot }: Props) {
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1.5">
                       {s.star && <Star size={12} className="fill-amber-400 text-amber-400" />}
-                      <span className="font-semibold uppercase">{s.ticker}</span>
-                      <span className="truncate text-[var(--color-ink-soft)]">{s.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setChartStock({ ticker: s.ticker, name: s.name })}
+                        className="font-semibold uppercase text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                        title={`Open ${s.ticker} TradingView chart`}
+                      >
+                        {s.ticker}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setChartStock({ ticker: s.ticker, name: s.name })}
+                        className="truncate text-[var(--color-ink-soft)] hover:text-sky-600"
+                        title={`Open ${s.ticker} TradingView chart`}
+                      >
+                        {s.name}
+                      </button>
                     </div>
                     <div className="text-[10px] text-[var(--color-ink-soft)]">
                       {s.industry} · {s.sector}
@@ -292,6 +308,14 @@ export function VolumeScan({ snapshot }: Props) {
           </tbody>
         </table>
       </div>
+
+      {chartStock && (
+        <StockChartModal
+          ticker={chartStock.ticker}
+          name={chartStock.name}
+          onClose={() => setChartStock(null)}
+        />
+      )}
     </div>
   )
 }

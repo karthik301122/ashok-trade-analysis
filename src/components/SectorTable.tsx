@@ -5,6 +5,7 @@ import { CYCLE_LABEL, MOOD_LABEL } from '../lib/market'
 import { formatPct, formatVsIndex, perfCellClass } from '../lib/format'
 import { copyTickersToTradingView } from '../lib/tradingview'
 import { Sparkline } from './Sparkline'
+import { StockChartModal } from './StockChartModal'
 
 type Props = { snapshot: MarketSnapshot }
 
@@ -20,6 +21,7 @@ export function SectorTable({ snapshot }: Props) {
   const [copiedStars, setCopiedStars] = useState(false)
   const [copiedSectorStars, setCopiedSectorStars] = useState<string | null>(null)
   const [copiedIndustry, setCopiedIndustry] = useState<string | null>(null)
+  const [chartStock, setChartStock] = useState<{ ticker: string; name: string } | null>(null)
 
   const starCount = useMemo(
     () => snapshot.stocks.filter((s) => s.star).length,
@@ -394,6 +396,7 @@ export function SectorTable({ snapshot }: Props) {
                   )
                 }
                 starsCopied={copiedIndustry === ind.name}
+                onOpenChart={(ticker, name) => setChartStock({ ticker, name })}
               />
             ))}
             {!industries.length && (
@@ -406,6 +409,14 @@ export function SectorTable({ snapshot }: Props) {
           </tbody>
         </table>
       </div>
+
+      {chartStock && (
+        <StockChartModal
+          ticker={chartStock.ticker}
+          name={chartStock.name}
+          onClose={() => setChartStock(null)}
+        />
+      )}
     </div>
   )
 }
@@ -447,6 +458,7 @@ function IndustryRows({
   stocksOnly,
   onCopyStars,
   starsCopied,
+  onOpenChart,
 }: {
   ind: IndustryMetrics
   open: boolean
@@ -455,6 +467,7 @@ function IndustryRows({
   stocksOnly: boolean
   onCopyStars: () => void
   starsCopied: boolean
+  onOpenChart: (ticker: string, name: string) => void
 }) {
   const cycle = CYCLE_LABEL[ind.cycle]
   const mood = MOOD_LABEL[ind.mood]
@@ -550,8 +563,22 @@ function IndustryRows({
             <td className="px-2 py-2 pl-8">
               <div className="flex items-center gap-1.5">
                 {s.star && <Star size={12} className="fill-amber-400 text-amber-400" />}
-                <span className="font-semibold uppercase">{s.name}</span>
-                <span className="text-[var(--color-ink-soft)]">| {s.ticker}</span>
+                <button
+                  type="button"
+                  onClick={() => onOpenChart(s.ticker, s.name)}
+                  className="text-left font-semibold uppercase text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                  title={`Open ${s.ticker} TradingView chart`}
+                >
+                  {s.name}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenChart(s.ticker, s.name)}
+                  className="text-[var(--color-ink-soft)] hover:text-sky-600"
+                  title={`Open ${s.ticker} TradingView chart`}
+                >
+                  | {s.ticker}
+                </button>
               </div>
             </td>
             <td className="px-2 tabular-nums">{s.weight.toFixed(2)}</td>
