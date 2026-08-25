@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { MarketSnapshot, SectorMetrics } from '../data/types'
+import { formatPct } from '../lib/format'
 
 type Props = { snapshot: MarketSnapshot }
 type Mode = 'ma' | 'rs' | 'near52'
@@ -31,20 +32,12 @@ export function SectorAnalytics({ snapshot }: Props) {
   const strongIndustries = useMemo(() => {
     if (!active) return []
     const sectorW = active.weight || 1
-    const sectorM3 = active.perf.m3
     return [...active.industries]
       .map((ind) => {
         const weightShare = ind.weight / sectorW
-        // Percentage-points of sector 3M return explained by this industry
-        const contribPp = weightShare * ind.perf.m3
-        // Share of the sector's own 3M move (can exceed ±100% when industries offset)
-        const contribPct =
-          Math.abs(sectorM3) >= 0.1 ? (contribPp / sectorM3) * 100 : weightShare * 100
-        return {
-          ...ind,
-          contribPp: Math.round(contribPp * 10) / 10,
-          contribPct: Math.round(contribPct),
-        }
+        // How many percentage points this industry adds to the sector’s 3M return
+        const contribPp = Math.round(weightShare * ind.perf.m3 * 10) / 10
+        return { ...ind, weightShare: Math.round(weightShare * 1000) / 10, contribPp }
       })
       .sort((a, b) => b.contribPp - a.contribPp)
       .slice(0, 8)
@@ -148,30 +141,25 @@ export function SectorAnalytics({ snapshot }: Props) {
           <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-muted)] p-3">
             <h4 className="text-sm font-bold">Strong Industries</h4>
             <p className="mb-2 text-[11px] text-[var(--color-ink-soft)]">
-              Share of sector 3M move (industry weight × industry return ÷ sector return)
+              Ranked by contribution to sector 3M (weight × industry 3M). Number = industry 3M return.
             </p>
             <ul className="space-y-2">
-              {strongIndustries.map((ind) => {
-                const pct = ind.contribPct
-                const positive = ind.contribPp >= 0
-                return (
-                  <li key={ind.name} className="flex items-center gap-2 text-xs">
-                    <span className="flex-1 font-medium">{ind.name}</span>
-                    <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-800 dark:bg-sky-950 dark:text-sky-200">
-                      {ind.sector}
-                    </span>
-                    <span
-                      className={`w-16 text-right font-bold tabular-nums ${
-                        positive ? 'text-emerald-600' : 'text-rose-600'
-                      }`}
-                      title={`${ind.contribPp >= 0 ? '+' : ''}${ind.contribPp} pp of sector 3M · industry 3M ${ind.perf.m3}% · weight ${ind.weight.toFixed(1)}%`}
-                    >
-                      {positive ? '+' : ''}
-                      {pct}%
-                    </span>
-                  </li>
-                )
-              })}
+              {strongIndustries.map((ind) => (
+                <li key={ind.name} className="flex items-center gap-2 text-xs">
+                  <span className="flex-1 font-medium">{ind.name}</span>
+                  <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-800 dark:bg-sky-950 dark:text-sky-200">
+                    {ind.weightShare.toFixed(0)}% wt
+                  </span>
+                  <span
+                    className={`w-14 text-right font-bold tabular-nums ${
+                      ind.perf.m3 >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                    }`}
+                    title={`Adds ${ind.contribPp >= 0 ? '+' : ''}${ind.contribPp} pp to sector 3M`}
+                  >
+                    {formatPct(ind.perf.m3)}
+                  </span>
+                </li>
+              ))}
             </ul>
           </div>
           <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-muted)] p-3">
