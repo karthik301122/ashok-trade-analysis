@@ -62,11 +62,13 @@ export function Header({ dark, onToggleDark, page, onPage, user, onLogout }: Pro
         <div className="ml-auto flex items-center gap-3">
           <button
             type="button"
-            aria-label="Toggle dark mode"
+            aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={dark ? 'Light mode' : 'Dark mode'}
             onClick={onToggleDark}
-            className="rounded-full p-2 text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border)] px-2.5 py-1.5 text-xs font-semibold text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)] hover:text-[var(--color-ink)]"
           >
-            {dark ? <Sun size={18} /> : <Moon size={18} />}
+            {dark ? <Sun size={16} /> : <Moon size={16} />}
+            <span className="hidden sm:inline">{dark ? 'Light' : 'Dark'}</span>
           </button>
           <div className="flex items-center gap-2 rounded-full border border-[var(--color-border)] py-1 pl-1 pr-2 sm:pr-3">
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-700 text-xs font-semibold text-white">

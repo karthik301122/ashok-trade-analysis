@@ -1,7 +1,19 @@
 export type PriceBar = {
   t: number
   c: number
+  o?: number
+  h?: number
+  l?: number
   v?: number
+}
+
+export type OhlcBar = {
+  t: number
+  o: number
+  h: number
+  l: number
+  c: number
+  v: number
 }
 
 export type SeriesResult = {
@@ -62,6 +74,31 @@ export async function fetchYahooSeries(
       last: json.last,
       high52: json.high52,
     }
+  } catch {
+    return null
+  }
+}
+
+/** Daily OHLC for pattern detection / annotated charts */
+export async function fetchYahooOhlc(symbol: string, from = '2023-01-01'): Promise<OhlcBar[] | null> {
+  const ticker = /\.AX$/i.test(symbol) ? symbol.replace(/\.AX$/i, '') : symbol
+  const url = `/api/series/${encodeURIComponent(ticker)}?from=${from}`
+  try {
+    const res = await fetch(url, { credentials: 'include' })
+    if (!res.ok) return null
+    const json = await res.json()
+    if (!json?.closes?.length) return null
+    const bars: OhlcBar[] = []
+    for (const b of json.closes as PriceBar[]) {
+      if (b.t == null || !Number.isFinite(b.c)) continue
+      const c = b.c
+      const o = Number.isFinite(b.o) ? Number(b.o) : c
+      const h = Number.isFinite(b.h) ? Number(b.h) : Math.max(o, c)
+      const l = Number.isFinite(b.l) ? Number(b.l) : Math.min(o, c)
+      const v = Number.isFinite(b.v) ? Number(b.v) : 0
+      bars.push({ t: b.t, o, h, l, c, v })
+    }
+    return bars.length >= 30 ? bars : null
   } catch {
     return null
   }

@@ -192,7 +192,7 @@ export default function App() {
                 className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-semibold ${
                   live
                     ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
-                    : 'bg-amber-100 text-amber-800'
+                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
                 }`}
               >
                 <span

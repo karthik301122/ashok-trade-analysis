@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { toTradingViewSymbol } from '../lib/tradingview'
+import { useIsDark } from '../lib/useIsDark'
 
 declare global {
   interface Window {
@@ -46,7 +47,7 @@ export function TradingViewChart({ ticker, height = 560, fill = false }: Props) 
   const hostRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const [pxHeight, setPxHeight] = useState(height)
-  const dark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+  const dark = useIsDark()
 
   useEffect(() => {
     if (!fill || !wrapRef.current) {

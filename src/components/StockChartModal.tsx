@@ -1,6 +1,11 @@
+import { useEffect, useState } from 'react'
 import { ExternalLink, X } from 'lucide-react'
 import { toTradingViewSymbol } from '../lib/tradingview'
+import { fetchYahooOhlc } from '../lib/yahoo'
+import { scanPatterns, type CategorySummary, type PatternCategoryId, type PatternHit, type OhlcBar } from '../lib/patterns'
 import { TradingViewChart } from './TradingViewChart'
+import { PatternPanel } from './patterns/PatternPanel'
+import { AnnotatedPatternChart } from './patterns/AnnotatedPatternChart'
 
 type Props = {
   ticker: string
@@ -11,6 +16,48 @@ type Props = {
 export function StockChartModal({ ticker, name, onClose }: Props) {
   const symbol = toTradingViewSymbol(ticker)
   const tvUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(symbol)}`
+
+  const [bars, setBars] = useState<OhlcBar[] | null>(null)
+  const [categories, setCategories] = useState<CategorySummary[]>([])
+  const [catalogTotal, setCatalogTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [activeCategory, setActiveCategory] = useState<PatternCategoryId | null>(null)
+  const [selected, setSelected] = useState<PatternHit | null>(null)
+  const [chartMode, setChartMode] = useState<'tv' | 'pattern'>('tv')
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    setSelected(null)
+    setActiveCategory(null)
+    setChartMode('tv')
+    ;(async () => {
+      const ohlc = await fetchYahooOhlc(ticker)
+      if (cancelled) return
+      if (!ohlc?.length) {
+        setError('Could not load OHLC for pattern scan')
+        setBars(null)
+        setCategories([])
+        setLoading(false)
+        return
+      }
+      const result = scanPatterns(ohlc)
+      setBars(ohlc)
+      setCategories(result.categories)
+      setCatalogTotal(result.catalogTotal)
+      setLoading(false)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [ticker])
+
+  const onSelectPattern = (hit: PatternHit) => {
+    setSelected(hit)
+    setChartMode('pattern')
+  }
 
   return (
     <div
@@ -25,9 +72,26 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
             {ticker}
             {name ? <span className="ml-2 text-sm font-medium text-[var(--color-ink-soft)]">{name}</span> : null}
           </h2>
-          <p className="text-xs text-[var(--color-ink-soft)]">{symbol} · TradingView chart</p>
+          <p className="text-xs text-[var(--color-ink-soft)]">
+            {symbol}
+            {selected && chartMode === 'pattern'
+              ? ` · showing ${selected.name}`
+              : ' · TradingView + pattern scan'}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {chartMode === 'pattern' && (
+            <button
+              type="button"
+              onClick={() => {
+                setChartMode('tv')
+                setSelected(null)
+              }}
+              className="rounded-lg border border-sky-500 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-800 dark:bg-sky-950 dark:text-sky-200"
+            >
+              Back to TradingView
+            </button>
+          )}
           <a
             href={tvUrl}
             target="_blank"
@@ -50,8 +114,27 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
           </button>
         </div>
       </div>
-      <div className="min-h-0 flex-1">
-        <TradingViewChart ticker={ticker} fill />
+
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        <div className="min-h-[50vh] min-w-0 flex-1 md:min-h-0">
+          {chartMode === 'tv' || !bars ? (
+            <TradingViewChart key={`tv-${ticker}`} ticker={ticker} fill />
+          ) : (
+            <AnnotatedPatternChart bars={bars} selected={selected} />
+          )}
+        </div>
+        <div className="h-[40vh] shrink-0 md:h-auto md:w-[340px]">
+          <PatternPanel
+            loading={loading}
+            error={error}
+            categories={categories}
+            catalogTotal={catalogTotal}
+            activeCategory={activeCategory}
+            selectedPatternId={selected?.id ?? null}
+            onSelectCategory={setActiveCategory}
+            onSelectPattern={onSelectPattern}
+          />
+        </div>
       </div>
     </div>
   )
