@@ -5,9 +5,10 @@ import {
   detectThreeWeeksTight,
   isWeeklyHammer,
   isWeeklyInsideBar,
+  threeWeeksTightFormationWeek,
   threeWeeksTightness,
 } from './karthikWeekly'
-import { dailyToWeeklyBars } from './weeklyBars'
+import { completedWeeklyBars, dailyToWeeklyBars } from './weeklyBars'
 
 function day(ts: number, o: number, h: number, l: number, c: number): OhlcBar {
   return { t: ts, o, h, l, c, v: 1_000_000 }
@@ -95,5 +96,24 @@ describe('dailyToWeeklyBars', () => {
     expect(w[0].h).toBe(12)
     expect(w[0].l).toBe(9)
     expect(w[0].c).toBe(11.5)
+  })
+})
+
+describe('threeWeeksTightFormationWeek', () => {
+  it('uses market formation week, not scan day, for extended tight streaks', () => {
+    const base = 1_700_000_000
+    const daily: OhlcBar[] = []
+    for (let w = 0; w < 7; w++) {
+      const c = 100 + (w % 2) * 0.5
+      for (let d = 0; d < 5; d++) {
+        daily.push(day(base - w * 7 * 86400 + d * 86400, c, c + 1, c - 1, c))
+      }
+    }
+    const nowSec = base + 86400
+    const weeks = completedWeeklyBars(daily, nowSec)
+    const formed = threeWeeksTightFormationWeek(weeks)
+    expect(formed.hit).toBe(true)
+    expect(formed.weekEndT).toBe(weeks[3]?.t)
+    expect(formed.weekEndT).not.toBe(weeks[0]?.t)
   })
 })

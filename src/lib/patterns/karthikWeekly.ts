@@ -1,5 +1,5 @@
 import type { OhlcBar } from './types'
-import { dailyToWeeklyBars, recentWeeklyBars } from './weeklyBars'
+import { completedWeeklyBars } from './weeklyBars'
 
 /** Max (max−min)/min spread across last 3 weekly closes — pattern if ≤ threshold (default 5%). */
 export const THREE_WEEKS_TIGHT_THRESHOLD = 0.05
@@ -67,21 +67,46 @@ export function threeWeeksTightness(c1: number, c2: number, c3: number): number 
   return (hi - lo) / lo
 }
 
+export function threeWeeksTightAt(
+  weeks: OhlcBar[],
+  i: number,
+  threshold = THREE_WEEKS_TIGHT_THRESHOLD,
+): boolean {
+  if (i + 2 >= weeks.length) return false
+  return threeWeeksTightness(weeks[i].c, weeks[i + 1].c, weeks[i + 2].c) <= threshold
+}
+
+/**
+ * When the current 3-week-tight streak first formed in the market:
+ * end of the newest week in the oldest qualifying triple still in the chain.
+ */
+export function threeWeeksTightFormationWeek(
+  weeks: OhlcBar[],
+  threshold = THREE_WEEKS_TIGHT_THRESHOLD,
+): { hit: boolean; tightness: number | null; weekEndT: number | null } {
+  if (weeks.length < 3 || !threeWeeksTightAt(weeks, 0, threshold)) {
+    return { hit: false, tightness: null, weekEndT: null }
+  }
+  const tightness = threeWeeksTightness(weeks[0].c, weeks[1].c, weeks[2].c)
+  let maxI = 0
+  for (let i = 0; i <= weeks.length - 3; i++) {
+    if (threeWeeksTightAt(weeks, i, threshold)) maxI = i
+    else break
+  }
+  return { hit: true, tightness, weekEndT: weeks[maxI]?.t ?? null }
+}
+
 export function detectThreeWeeksTight(
   daily: OhlcBar[],
   threshold = THREE_WEEKS_TIGHT_THRESHOLD,
-): { hit: boolean; tightness: number | null } {
-  const weekly = dailyToWeeklyBars(daily)
-  const w = recentWeeklyBars(weekly, 3)
-  if (w.length < 3) return { hit: false, tightness: null }
-  const [c1, c2, c3] = [w[0].c, w[1].c, w[2].c]
-  const tightness = threeWeeksTightness(c1, c2, c3)
-  return { hit: tightness <= threshold, tightness }
+  nowSec?: number,
+): { hit: boolean; tightness: number | null; weekEndT: number | null } {
+  const weeks = completedWeeklyBars(daily, nowSec)
+  return threeWeeksTightFormationWeek(weeks, threshold)
 }
 
-export function detectKarthikWeekly(daily: OhlcBar[]): KarthikWeeklySignals {
-  const weekly = dailyToWeeklyBars(daily)
-  const w = recentWeeklyBars(weekly, 4)
+export function detectKarthikWeekly(daily: OhlcBar[], nowSec?: number): KarthikWeeklySignals {
+  const weeks = completedWeeklyBars(daily, nowSec)
   const empty: KarthikWeeklySignals = {
     threeWeeksTight: false,
     tightness: null,
@@ -90,13 +115,19 @@ export function detectKarthikWeekly(daily: OhlcBar[]): KarthikWeeklySignals {
     doubleHammer: false,
     weekEndT: null,
   }
-  if (w.length < 3) return empty
+  if (weeks.length < 3) return empty
 
-  const three = detectThreeWeeksTight(daily)
-  const inside0 = isWeeklyInsideBar(w, 0)
-  const inside1 = w.length >= 3 && isWeeklyInsideBar(w, 1)
+  const three = threeWeeksTightFormationWeek(weeks)
+  const inside0 = isWeeklyInsideBar(weeks, 0)
+  const inside1 = weeks.length >= 3 && isWeeklyInsideBar(weeks, 1)
   const doubleHammer =
-    w.length >= 3 && isWeeklyHammer(w, 0) && isWeeklyHammer(w, 1)
+    weeks.length >= 3 && isWeeklyHammer(weeks, 0) && isWeeklyHammer(weeks, 1)
+
+  let weekEndT: number | null = null
+  if (three.hit) weekEndT = three.weekEndT
+  else if (inside0 && inside1) weekEndT = weeks[0]?.t ?? null
+  else if (inside0) weekEndT = weeks[0]?.t ?? null
+  else if (doubleHammer) weekEndT = weeks[0]?.t ?? null
 
   return {
     threeWeeksTight: three.hit,
@@ -104,7 +135,7 @@ export function detectKarthikWeekly(daily: OhlcBar[]): KarthikWeeklySignals {
     weeklyInsideBar: inside0,
     doubleInsideBar: inside0 && inside1,
     doubleHammer,
-    weekEndT: w[0]?.t ?? null,
+    weekEndT,
   }
 }
 

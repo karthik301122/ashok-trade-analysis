@@ -270,8 +270,8 @@ function WeeklyHitsTable({
   onOpenChart: (ticker: string, name: string) => void
 }) {
   const headers = showTightness
-    ? ['Stock', 'Sector', 'Tightness', 'Week ending', 'Bias']
-    : ['Stock', 'Sector', 'Week ending', 'Bias']
+    ? ['Stock', 'Sector', 'Tightness', 'Pattern formed', 'Bias']
+    : ['Stock', 'Sector', 'Pattern formed', 'Bias']
 
   return (
     <table className="min-w-[640px] w-full border-collapse text-left text-xs">
@@ -452,8 +452,8 @@ function PatternDetail({
           </p>
         ) : (
           <p className="mt-2 text-[10px] text-[var(--color-ink-soft)]">
-            Daily bars are aggregated to ISO weeks; C₁ = most recent week close. 3 Weeks Tight
-            threshold = 5% (0.05) per Karthik spec.
+            Daily bars → ISO weeks (completed weeks only). Pattern formed = week ending when the
+            setup first qualified in the market, not when this app scanned.
           </p>
         )}
       </div>

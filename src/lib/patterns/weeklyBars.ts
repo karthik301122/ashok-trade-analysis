@@ -41,3 +41,15 @@ export function recentWeeklyCloses(weekly: OhlcBar[], n: number): number[] {
 export function recentWeeklyBars(weekly: OhlcBar[], n: number): OhlcBar[] {
   return [...weekly].sort((a, b) => b.t - a.t).slice(0, n)
 }
+
+/**
+ * Weekly bars excluding the in-progress ISO week (newest → oldest).
+ * Pattern dates use the last trading day of a completed week, not “today”.
+ */
+export function completedWeeklyBars(daily: OhlcBar[], nowSec = Math.floor(Date.now() / 1000)): OhlcBar[] {
+  const weekly = dailyToWeeklyBars(daily)
+  const sorted = recentWeeklyBars(weekly, weekly.length)
+  if (!sorted.length) return []
+  if (isoWeekKey(sorted[0].t) === isoWeekKey(nowSec)) return sorted.slice(1)
+  return sorted
+}
