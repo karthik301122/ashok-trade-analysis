@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ExternalLink, X } from 'lucide-react'
 import { toTradingViewSymbol } from '../lib/tradingview'
 import { fetchYahooOhlc } from '../lib/yahoo'
 import {
   enrichScanWithPrefs,
   scanPatterns,
-  type CategorySummary,
+  detectAllCustomRules,
+  filterHitsByWindow,
   type PatternCategoryId,
   type PatternHit,
   type OhlcBar,
@@ -24,16 +25,20 @@ type Props = {
 export function StockChartModal({ ticker, name, onClose }: Props) {
   const symbol = toTradingViewSymbol(ticker)
   const tvUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(symbol)}`
-  const { prefs, rememberHits } = usePatternPrefs()
+  const { prefs, rememberHits, setScanWindow } = usePatternPrefs()
 
   const [bars, setBars] = useState<OhlcBar[] | null>(null)
-  const [baseCategories, setBaseCategories] = useState<CategorySummary[]>([])
-  const [catalogTotal, setCatalogTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<PatternCategoryId | null>(null)
   const [selected, setSelected] = useState<PatternHit | null>(null)
   const [chartMode, setChartMode] = useState<'tv' | 'pattern'>('tv')
+  const [fund, setFund] = useState<{
+    pe: number | null
+    forwardPe: number | null
+    dividendYield: number | null
+    marketCap: number | null
+  } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -42,37 +47,74 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
     setSelected(null)
     setActiveCategory(null)
     setChartMode('tv')
+    setFund(null)
     ;(async () => {
-      const ohlc = await fetchYahooOhlc(ticker)
+      const [ohlc, fundRes] = await Promise.all([
+        fetchYahooOhlc(ticker),
+        fetch(`/api/fundamentals/${encodeURIComponent(ticker)}`, { credentials: 'include' })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+      ])
       if (cancelled) return
+      if (fundRes) {
+        setFund({
+          pe: fundRes.pe ?? null,
+          forwardPe: fundRes.forwardPe ?? null,
+          dividendYield: fundRes.dividendYield ?? null,
+          marketCap: fundRes.marketCap ?? null,
+        })
+      }
       if (!ohlc?.length) {
         setError('Could not load OHLC for pattern scan')
         setBars(null)
-        setBaseCategories([])
         setLoading(false)
         return
       }
-      const result = scanPatterns(ohlc)
       setBars(ohlc)
-      setBaseCategories(result.categories)
-      setCatalogTotal(result.catalogTotal)
-      rememberHits(
-        ticker,
-        result.hits.map((h) => ({
-          name: h.name,
-          bias: h.bias,
-          endT: h.endT,
-          confidence: h.confidence,
-        })),
-      )
       setLoading(false)
     })()
     return () => {
       cancelled = true
     }
-  }, [ticker, rememberHits])
+  }, [ticker])
 
-  const categories = enrichScanWithPrefs(baseCategories, prefs)
+  const scanResult = useMemo(() => {
+    if (!bars?.length) return null
+    return scanPatterns(bars, { window: prefs.scanWindow })
+  }, [bars, prefs.scanWindow])
+
+  const baseCategories = scanResult?.categories ?? []
+  const catalogTotal = scanResult?.catalogTotal ?? 0
+
+  useEffect(() => {
+    if (!bars?.length || !scanResult?.asOf) return
+    const builtIn = scanResult.hits
+    const customHits = filterHitsByWindow(
+      detectAllCustomRules(bars, prefs.customPatterns),
+      prefs.scanWindow,
+      scanResult.asOf,
+    )
+    rememberHits(
+      ticker,
+      [...builtIn, ...customHits].map((h) => ({
+        name: h.name,
+        bias: h.bias,
+        endT: h.endT,
+        confidence: h.confidence,
+      })),
+    )
+  }, [bars, scanResult, prefs.customPatterns, prefs.scanWindow, rememberHits, ticker])
+
+  const categories = enrichScanWithPrefs(baseCategories, prefs, bars, prefs.scanWindow)
+
+  useEffect(() => {
+    if (!selected) return
+    const stillVisible = categories.some((c) => c.hits.some((h) => h.id === selected.id))
+    if (!stillVisible) {
+      setSelected(null)
+      setChartMode('tv')
+    }
+  }, [categories, selected])
 
   const onSelectPattern = (hit: PatternHit) => {
     setSelected(hit)
@@ -98,6 +140,24 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
               ? ` · showing ${selected.name}`
               : ' · TradingView + pattern scan'}
           </p>
+          {fund && (
+            <p className="mt-1 flex flex-wrap gap-3 text-[11px] font-semibold tabular-nums text-[var(--color-ink-soft)]">
+              <span>PE {fund.pe != null ? fund.pe.toFixed(1) : '—'}</span>
+              <span>Fwd PE {fund.forwardPe != null ? fund.forwardPe.toFixed(1) : '—'}</span>
+              <span>
+                Yield{' '}
+                {fund.dividendYield != null ? `${(fund.dividendYield * 100).toFixed(1)}%` : '—'}
+              </span>
+              <span>
+                Mkt cap{' '}
+                {fund.marketCap != null
+                  ? fund.marketCap >= 1e9
+                    ? `$${(fund.marketCap / 1e9).toFixed(1)}B`
+                    : `$${(fund.marketCap / 1e6).toFixed(0)}M`
+                  : '—'}
+              </span>
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {chartMode === 'pattern' && (
@@ -149,6 +209,8 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
             error={error}
             categories={categories}
             catalogTotal={catalogTotal}
+            scanWindow={prefs.scanWindow}
+            onScanWindowChange={setScanWindow}
             activeCategory={activeCategory}
             selectedPatternId={selected?.id ?? null}
             onSelectCategory={setActiveCategory}

@@ -1,12 +1,29 @@
 import type { MarketSnapshot, StockMetrics } from '../../data/types'
+import { membershipSet } from '../../data/indexMembership'
 
 export type UniverseId = 'asx200' | 'asx500' | 'mid' | 'small'
 
-export const UNIVERSES: { id: UniverseId; label: string }[] = [
-  { id: 'asx200', label: 'ASX 200' },
-  { id: 'asx500', label: 'ASX 500' },
-  { id: 'mid', label: 'Mid Cap' },
-  { id: 'small', label: 'Small Cap' },
+export const UNIVERSES: { id: UniverseId; label: string; hint: string }[] = [
+  {
+    id: 'asx200',
+    label: 'Top 200',
+    hint: 'Membership set from indexMembers.json (weight-rank proxy unless rebuilt from official CSV)',
+  },
+  {
+    id: 'asx500',
+    label: 'Top 500',
+    hint: 'Weight ranks 1–500 in our universe — not an official ASX 500 list',
+  },
+  {
+    id: 'mid',
+    label: 'Mid (201–500)',
+    hint: 'Weight ranks 201–500 — not the official MidCap index',
+  },
+  {
+    id: 'small',
+    label: 'Small (501+)',
+    hint: 'Weight ranks 501+ — thinner names in our universe',
+  },
 ]
 
 export type BreadthSentiment = 'bullish' | 'neutral' | 'weak' | 'bearish'
@@ -70,6 +87,16 @@ export type BreadthBundle = {
     rs50: number[]
     rvol15: number[]
   }
+  /** Real calendar-day snapshots from server (when available) */
+  dailyHistory: {
+    day: string
+    above20: number
+    above50: number
+    above200: number
+    rsi50: number
+    adNet: number
+  }[]
+  historyKind: 'spark-proxy' | 'server-daily'
 }
 
 function rankedByWeight(stocks: StockMetrics[]): StockMetrics[] {
@@ -77,6 +104,12 @@ function rankedByWeight(stocks: StockMetrics[]): StockMetrics[] {
 }
 
 export function filterUniverse(stocks: StockMetrics[], id: UniverseId): StockMetrics[] {
+  const members = membershipSet(id)
+  const filtered = stocks.filter((s) => members.has(s.ticker))
+  // Prefer explicit membership file; fall back to weight ranks if file empty/mismatched
+  if (filtered.length >= Math.min(50, members.size * 0.5 || 50)) {
+    return rankedByWeight(filtered)
+  }
   const ranked = rankedByWeight(stocks)
   if (id === 'asx200') return ranked.slice(0, 200)
   if (id === 'asx500') return ranked.slice(0, 500)
@@ -270,7 +303,20 @@ export function appendDailyBreadthPoint(
   }
 }
 
-export function computeBreadth(snapshot: MarketSnapshot, universeId: UniverseId): BreadthBundle {
+export function computeBreadth(
+  snapshot: MarketSnapshot,
+  universeId: UniverseId,
+  opts?: {
+    serverPoints?: {
+      day: string
+      above20: number
+      above50: number
+      above200: number
+      rsi50: number
+      adNet: number
+    }[]
+  },
+): BreadthBundle {
   const stocks = filterUniverse(snapshot.stocks, universeId)
   const pctAbove20 = pctOf(stocks, (s) => s.above20ma)
   const pctAbove50 = pctOf(stocks, (s) => s.above50ma)
@@ -343,6 +389,41 @@ export function computeBreadth(snapshot: MarketSnapshot, universeId: UniverseId)
     rsi50: pctRsi50,
     adNet,
   })
+
+  const serverPoints = opts?.serverPoints?.length ? opts.serverPoints : []
+  const historyKind = serverPoints.length >= 2 ? 'server-daily' : 'spark-proxy'
+
+  // Prefer real daily SMA / A-D net series when the server has history.
+  // Other series still lack true history — filled with today's snapshot (labeled in Charts).
+  if (historyKind === 'server-daily') {
+    hist.dates = serverPoints.map((p) => p.day.slice(5))
+    hist.above20 = serverPoints.map((p) => p.above20)
+    hist.above50 = serverPoints.map((p) => p.above50)
+    hist.above200 = serverPoints.map((p) => p.above200)
+    hist.rs50 = serverPoints.map((p) => p.rsi50)
+    let cum = 0
+    hist.adHistory = serverPoints.map((p) => {
+      cum += p.adNet
+      return cum
+    })
+    hist.advances = serverPoints.map(() => advancing)
+    hist.declines = serverPoints.map(() => declining)
+    hist.thrust = serverPoints.map((p) => {
+      const mag = Math.max(1, Math.abs(p.adNet))
+      return round1(Math.min(1, Math.max(0, 0.5 + p.adNet / (mag * 4))))
+    })
+    hist.thrustMa = hist.thrust.map((_, i) => {
+      const slice = hist.thrust.slice(Math.max(0, i - 9), i + 1)
+      return round1(slice.reduce((a, b) => a + b, 0) / slice.length)
+    })
+    hist.near52w = serverPoints.map(() => pctNear52w)
+    hist.rsiOb = serverPoints.map(() => pctRsi70)
+    hist.rsiOs = serverPoints.map(() => pctOf(stocks, (s) => (s.rsi ?? 50) <= 30))
+    hist.rsiNeutral = serverPoints.map(() =>
+      pctOf(stocks, (s) => (s.rsi ?? 50) > 30 && (s.rsi ?? 50) < 70),
+    )
+    hist.rvol15 = serverPoints.map(() => pctRvol15)
+  }
 
   const smaRows: BreadthRow[] = [
     {
@@ -503,5 +584,7 @@ export function computeBreadth(snapshot: MarketSnapshot, universeId: UniverseId)
       rs50: hist.rs50,
       rvol15: hist.rvol15,
     },
+    dailyHistory: serverPoints,
+    historyKind,
   }
 }

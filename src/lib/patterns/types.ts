@@ -6,7 +6,6 @@ export type CorePatternCategoryId =
   | 'candlesticks'
   | 'classic'
   | 'structure'
-  | 'harmonic'
   | 'volume'
 
 export type PatternCategoryId = CorePatternCategoryId | 'starred' | 'custom'
@@ -24,7 +23,7 @@ export type PatternHit = {
   note?: string
 }
 
-/** One catalog entry after scan — always listed, hit may be null */
+/** One catalog entry after scan — always a real detector; hit may be null */
 export type PatternScanRow = {
   name: string
   familyBias: PatternBias | 'either'
@@ -38,7 +37,7 @@ export type CategorySummary = {
   bearish: number
   neutral: number
   hits: PatternHit[]
-  /** Full catalog for this category (hit or no-hit) */
+  /** Scanned detectors for this category (hit or no-hit) */
   rows: PatternScanRow[]
   analyzed: number
   note?: string
@@ -48,7 +47,6 @@ export const CATEGORY_META: { id: CorePatternCategoryId; label: string }[] = [
   { id: 'candlesticks', label: 'Candlesticks' },
   { id: 'classic', label: 'Classic Chart' },
   { id: 'structure', label: 'Trend / Structure' },
-  { id: 'harmonic', label: 'Harmonic' },
   { id: 'volume', label: 'Volume / Momentum' },
 ]
 

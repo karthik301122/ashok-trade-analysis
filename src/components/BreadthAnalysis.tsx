@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Copy } from 'lucide-react'
 import type { MarketSnapshot } from '../data/types'
 import {
@@ -15,9 +15,11 @@ import { ChartsTab } from './breadth/ChartsTab'
 import { HowToReadTab } from './breadth/HowToReadTab'
 import { SeasonalityTab } from './breadth/SeasonalityTab'
 import { copyTickersToTradingView } from '../lib/tradingview'
+import { fetchBreadthDaily, postBreadthDaily, type BreadthDailyPoint } from '../lib/breadthApi'
+import { membershipSourceLabel } from '../data/indexMembership'
 
 type Props = { snapshot: MarketSnapshot }
-type TabId = 'sma' | 'rsi' | 'rsvol' | 'charts' | 'howto' | 'seasonality'
+type TabId = 'sma' | 'rsi' | 'rsvol' | 'charts' | 'howto' | 'monthpulse'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'sma', label: 'SMA Breadth' },
@@ -25,7 +27,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'rsvol', label: 'RS / Volume' },
   { id: 'charts', label: 'Charts' },
   { id: 'howto', label: 'How to Read' },
-  { id: 'seasonality', label: 'Seasonality' },
+  { id: 'monthpulse', label: 'This Month' },
 ]
 
 export function BreadthAnalysis({ snapshot }: Props) {
@@ -33,9 +35,41 @@ export function BreadthAnalysis({ snapshot }: Props) {
   const [tab, setTab] = useState<TabId>('sma')
   const [copied, setCopied] = useState(false)
   const [listOpen, setListOpen] = useState(false)
+  const [serverPoints, setServerPoints] = useState<BreadthDailyPoint[]>([])
 
-  const bundle = useMemo(() => computeBreadth(snapshot, universeId), [snapshot, universeId])
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const points = await fetchBreadthDaily(universeId)
+      if (!cancelled) setServerPoints(points)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [universeId])
+
+  const bundle = useMemo(
+    () => computeBreadth(snapshot, universeId, { serverPoints }),
+    [snapshot, universeId, serverPoints],
+  )
   const universeLabel = UNIVERSES.find((u) => u.id === universeId)?.label ?? universeId
+
+  useEffect(() => {
+    let cancelled = false
+    const b = computeBreadth(snapshot, universeId)
+    void postBreadthDaily(universeId, {
+      above20: b.pctAbove20,
+      above50: b.pctAbove50,
+      above200: b.pctAbove200,
+      rsi50: b.pctRsi50,
+      adNet: b.adNet,
+    }).then((points) => {
+      if (!cancelled && points.length) setServerPoints(points)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [universeId, snapshot])
 
   const copyUniverse = async () => {
     const tickers = bundle.stocks.map((s) => s.ticker)
@@ -57,8 +91,7 @@ export function BreadthAnalysis({ snapshot }: Props) {
             {universeLabel} · {bundle.stocks.length} stocks · {snapshot.asOf}
           </p>
           <p className="mt-1 max-w-xl text-xs text-[var(--color-ink-soft)]">
-            Mid Cap = weight ranks 201–500 (proxy, not the official MidCap index). Use Copy list to
-            compare with your watchlist.
+            {membershipSourceLabel()}. Use Copy list to compare with your watchlist.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -90,6 +123,7 @@ export function BreadthAnalysis({ snapshot }: Props) {
           <button
             key={u.id}
             type="button"
+            title={u.hint}
             onClick={() => setUniverseId(u.id)}
             className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
               universeId === u.id
@@ -156,13 +190,13 @@ export function BreadthAnalysis({ snapshot }: Props) {
       {tab === 'rsvol' && (
         <MetricRows
           title={`Relative strength & volume · ${universeLabel}`}
-          blurb={`RS vs ASX200 (avg RS ${bundle.avgRs}). RVOL = today ÷ 20-day average volume (avg ${bundle.avgRvol}×).`}
+          blurb={`RS vs ASX200 uses score 50 + (3M−index)×2.2 (avg ${bundle.avgRs}). RVOL = today ÷ 20-day average volume (avg ${bundle.avgRvol}×).`}
           rows={bundle.rsVolRows}
         />
       )}
       {tab === 'charts' && <ChartsTab bundle={bundle} />}
       {tab === 'howto' && <HowToReadTab />}
-      {tab === 'seasonality' && (
+      {tab === 'monthpulse' && (
         <SeasonalityTab snapshot={snapshot} bundle={bundle} universeId={universeId} />
       )}
     </div>

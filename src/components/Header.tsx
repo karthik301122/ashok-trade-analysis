@@ -3,8 +3,8 @@ import { LogOut, Moon, Sun, User } from 'lucide-react'
 type Props = {
   dark: boolean
   onToggleDark: () => void
-  page: 'sector' | 'breadth'
-  onPage: (p: 'sector' | 'breadth') => void
+  page: 'sector' | 'breadth' | 'alerts'
+  onPage: (p: 'sector' | 'breadth' | 'alerts') => void
   user?: string | null
   onLogout?: () => void
 }
@@ -56,6 +56,17 @@ export function Header({ dark, onToggleDark, page, onPage, user, onLogout }: Pro
             }`}
           >
             Breadth Analysis
+          </button>
+          <button
+            type="button"
+            onClick={() => onPage('alerts')}
+            className={`rounded-md px-3 py-1.5 font-medium transition ${
+              page === 'alerts'
+                ? 'text-teal-700 underline decoration-2 underline-offset-8 dark:text-teal-300'
+                : 'text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]'
+            }`}
+          >
+            Alerts
           </button>
         </nav>
 

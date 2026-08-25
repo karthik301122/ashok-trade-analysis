@@ -7,16 +7,21 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:universe": "node scripts/build-universe.mjs",
+    "fetch:asx200": "node scripts/fetch-asx200-ioz.mjs",
+    "build:members": "node scripts/build-index-members.mjs",
+    "refresh:asx200": "node scripts/fetch-asx200-ioz.mjs && node scripts/build-index-members.mjs",
+    "snapshot": "node scripts/run-snapshot.mjs",
     "start": "node server/prod.mjs",
     "lint": "oxlint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "preview": "vite preview"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
-    "cors": "^2.8.6",
     "express": "^5.2.1",
     "lightweight-charts": "^5.2.1",
     "lucide-react": "^1.31.0",
@@ -35,6 +40,7 @@
     "oxlint": "^1.75.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
-    "vite": "^8.2.0"
+    "vite": "^8.2.0",
+    "vitest": "^3.2.7"
   }
 }

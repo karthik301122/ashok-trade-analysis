@@ -23,8 +23,20 @@ export function HowToReadTab() {
             'Share of stocks with RSI(14) above 50 (positive momentum), 60 (strong), or 70 (overbought). Oversold clusters can mark washouts; crowded overbought readings warn of pullback risk.',
           ],
           [
+            'RS score (how we calculate it)',
+            'Not an IBD-style percentile rank. Each stock gets rs = clamp(50 + (3M return − ASX200 3M) × 2.2), bounded roughly 1–99. RS ≥ 50 means the name beat the index over ~3 months on that heuristic — nothing more.',
+          ],
+          [
             'RS breadth',
-            'Relative strength vs ASX200. % with RS ≥ 50 means more names are beating the index. Rising RS breadth = leadership broadening; falling = index may be carried by a few heavyweights.',
+            '% of stocks with RS ≥ 50 (beating the index on our score). Rising RS breadth = leadership broadening; falling = index may be carried by a few heavyweights.',
+          ],
+          [
+            'Mood labels',
+            'Rule-based, not AI. Score = ±1 for each of: 1M > 0, 3M > 0, vs ASX200 3M > 0, above 50-day MA. Score ≥ 2 → bullish; ≤ −2 → bearish; else neutral.',
+          ],
+          [
+            'Cycle stages (Rotation Clock)',
+            'Heuristic ladder on excess return vs index + MA flags (early / mid / late / recession). Useful for scanning, not a calibrated regime model.',
           ],
           [
             'Relative volume (RVOL)',
@@ -44,7 +56,19 @@ export function HowToReadTab() {
           ],
           [
             'Universes',
-            'ASX 200 / 500 are weight-rank proxies (top names by weight in our universe). Mid Cap = ranks 201–500; Small Cap = thinner names. Official index membership may differ slightly.',
+            'Membership sets live in indexMembers.json. Default build is weight-rank proxy (npm run build:members). Pass INDEX_ASX200_CSV for official ASX200 tickers; other buckets may still be weight-ranked.',
+          ],
+          [
+            'Server cache',
+            'OHLCV bars, breadth daily points, and the full-market snapshot live in SQLite (data/asx.sqlite). Run npm run snapshot (or wait for background build). SPA prefers a fresh snapshot instead of crawling ~2k tickers in the browser.',
+          ],
+          [
+            'This month pulse',
+            'Live calendar-month framing from current returns only. It is not multi-year seasonality statistics.',
+          ],
+          [
+            'Pattern scanner',
+            'Only detectors we actually run are listed (~36 names). Harmonics and many textbook chart patterns are not implemented yet.',
           ],
         ] as const
       ).map(([t, b]) => (

@@ -52,16 +52,31 @@ function sleep(ms: number) {
 }
 
 /**
+ * Map UI range labels to an ISO `from` date for /api/series.
+ */
+export function rangeToFromIso(range = '2y'): string {
+  const d = new Date()
+  const r = range.toLowerCase()
+  if (r === '6mo' || r === '6m') d.setUTCMonth(d.getUTCMonth() - 6)
+  else if (r === '1y' || r === 'y1') d.setUTCFullYear(d.getUTCFullYear() - 1)
+  else if (r === '5y' || r === 'y5') d.setUTCFullYear(d.getUTCFullYear() - 5)
+  else if (r === 'max' || r === '10y') d.setUTCFullYear(d.getUTCFullYear() - 10)
+  else d.setUTCFullYear(d.getUTCFullYear() - 2) // default 2y
+  return d.toISOString().slice(0, 10)
+}
+
+/**
  * Fetch daily closes via local yahoo-finance2 middleware.
  * Provider: server-side Yahoo (yahoo-finance2) — better ASX small-cap coverage.
+ * Honors `range` via ?from= (server also disk-caches + incremental refresh).
  */
 export async function fetchYahooSeries(
   symbol: string,
-  _range = '2y',
+  range = '2y',
 ): Promise<SeriesResult | null> {
   // Keep futures/crypto symbols intact (GC=F, BTC-USD). Only strip .AX for ASX equities.
   const ticker = /\.AX$/i.test(symbol) ? symbol.replace(/\.AX$/i, '') : symbol
-  const from = '2023-01-01'
+  const from = rangeToFromIso(range)
   const url = `/api/series/${encodeURIComponent(ticker)}?from=${from}`
   try {
     const res = await fetch(url, { credentials: 'include' })

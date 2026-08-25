@@ -1,7 +1,13 @@
 import type { CustomPattern, PatternPrefs } from '../patternPrefs'
 import { PATTERN_CATALOG } from './catalog'
+import { detectCustomRule } from './customRules'
+import {
+  filterHitsByWindow,
+  type PatternScanWindow,
+} from './scanWindow'
 import type {
   CategorySummary,
+  OhlcBar,
   PatternBias,
   PatternCategoryId,
   PatternHit,
@@ -20,6 +26,8 @@ function cloneHit(hit: PatternHit, overrides: Partial<PatternHit>): PatternHit {
 function buildStarredCategory(
   allHits: PatternHit[],
   prefs: PatternPrefs,
+  bars: OhlcBar[] | null,
+  window: PatternScanWindow,
 ): CategorySummary {
   const starred = new Set(prefs.starredNames)
   const customByName = new Map(prefs.customPatterns.map((c) => [c.name, c]))
@@ -30,20 +38,12 @@ function buildStarredCategory(
     if (!prev || h.endT > prev.endT) hitByName.set(h.name, h)
   }
 
-  // Resolve custom names that map onto a basedOn detector
   for (const c of prefs.customPatterns) {
-    if (!c.basedOn) continue
-    const src = hitByName.get(c.basedOn)
-    if (!src) continue
-    const mapped = cloneHit(src, {
-      id: `custom-${c.id}-${src.endT}`,
-      category: 'custom',
-      name: c.name,
-      bias: c.bias,
-      note: c.description || `Based on ${c.basedOn}`,
-    })
+    if (!starred.has(c.name)) continue
+    const hit = resolveCustomHit(c, hitByName, bars, window)
+    if (!hit) continue
     const prev = hitByName.get(c.name)
-    if (!prev || mapped.endT > prev.endT) hitByName.set(c.name, mapped)
+    if (!prev || hit.endT > prev.endT) hitByName.set(c.name, hit)
   }
 
   const names = [...starred]
@@ -84,7 +84,44 @@ function buildStarredCategory(
   }
 }
 
-function buildCustomCategory(allHits: PatternHit[], customs: CustomPattern[]): CategorySummary {
+function resolveCustomHit(
+  c: CustomPattern,
+  hitByName: Map<string, PatternHit>,
+  bars: OhlcBar[] | null,
+  window: PatternScanWindow,
+): PatternHit | null {
+  const asOf = bars?.length ? bars[bars.length - 1].t : null
+  let hit: PatternHit | null = null
+  if (c.rules?.conditions?.length && bars?.length) {
+    hit = detectCustomRule(bars, {
+      id: c.id,
+      name: c.name,
+      bias: c.bias,
+      description: c.description,
+      rules: c.rules,
+    })
+  } else if (c.basedOn) {
+    const src = hitByName.get(c.basedOn)
+    if (!src) return null
+    hit = cloneHit(src, {
+      id: `custom-${c.id}-${src.endT}`,
+      category: 'custom',
+      name: c.name,
+      bias: c.bias,
+      note: c.description || `Based on ${c.basedOn}`,
+    })
+  }
+  if (!hit || asOf == null) return hit
+  const filtered = filterHitsByWindow([hit], window, asOf)
+  return filtered[0] ?? null
+}
+
+function buildCustomCategory(
+  allHits: PatternHit[],
+  customs: CustomPattern[],
+  bars: OhlcBar[] | null,
+  window: PatternScanWindow,
+): CategorySummary {
   const hitByName = new Map<string, PatternHit>()
   for (const h of allHits) {
     const prev = hitByName.get(h.name)
@@ -92,19 +129,7 @@ function buildCustomCategory(allHits: PatternHit[], customs: CustomPattern[]): C
   }
 
   const rows: PatternScanRow[] = customs.map((c) => {
-    let hit: PatternHit | null = null
-    if (c.basedOn) {
-      const src = hitByName.get(c.basedOn)
-      if (src) {
-        hit = cloneHit(src, {
-          id: `custom-${c.id}-${src.endT}`,
-          category: 'custom',
-          name: c.name,
-          bias: c.bias,
-          note: c.description || `Based on ${c.basedOn}`,
-        })
-      }
-    }
+    const hit = resolveCustomHit(c, hitByName, bars, window)
     return {
       name: c.name,
       familyBias: c.bias,
@@ -132,20 +157,21 @@ function buildCustomCategory(allHits: PatternHit[], customs: CustomPattern[]): C
     analyzed: customs.length,
     note:
       customs.length === 0
-        ? 'Create named patterns private to your account'
-        : 'Private to you · optional detector from catalog',
+        ? 'Create private rules (RSI, RVOL, MAs…) or aliases — only you see them'
+        : 'Private to you · condition rules or catalog aliases',
   }
 }
 
-/** Append Starred + My Patterns categories after a base scan. */
+/** Append Starred + My Patterns categories after a base scan. Pass bars to evaluate private rules. */
 export function enrichScanWithPrefs(
   categories: CategorySummary[],
   prefs: PatternPrefs,
+  bars: OhlcBar[] | null = null,
+  window: PatternScanWindow = prefs.scanWindow,
 ): CategorySummary[] {
   const allHits = categories.flatMap((c) => c.hits)
-  const starred = buildStarredCategory(allHits, prefs)
-  const custom = buildCustomCategory(allHits, prefs.customPatterns)
-  // Keep built-ins first; starred + custom at the bottom
+  const starred = buildStarredCategory(allHits, prefs, bars, window)
+  const custom = buildCustomCategory(allHits, prefs.customPatterns, bars, window)
   const core = categories.filter((c) => c.id !== 'starred' && c.id !== 'custom')
   return [...core, starred, custom]
 }

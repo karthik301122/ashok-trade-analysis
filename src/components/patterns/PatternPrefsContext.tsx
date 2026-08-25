@@ -12,11 +12,14 @@ import {
   loadPatternPrefs,
   removeCustomPattern,
   savePatternPrefs,
+  setPatternScanWindow,
   toggleStarredName,
   type CustomPattern,
   type PatternPrefs,
 } from '../../lib/patternPrefs'
 import type { PatternBias } from '../../lib/patterns'
+import type { CustomRuleSet } from '../../lib/patterns/customRules'
+import type { PatternScanWindow } from '../../lib/patterns/scanWindow'
 import {
   getManyTickerPatternHits,
   getTickerPatternHits,
@@ -34,9 +37,12 @@ type Ctx = {
     bias: PatternBias
     description: string
     basedOn: string | null
+    rules?: CustomRuleSet | null
   }) => void
   deleteCustom: (id: string) => void
   customPatterns: CustomPattern[]
+  scanWindow: PatternScanWindow
+  setScanWindow: (window: PatternScanWindow) => void
   /** Live map of ticker → last scan hits (memory + localStorage) */
   hitsByTicker: Map<string, TickerPatternCache>
   rememberHits: (ticker: string, hits: CachedPatternHit[]) => void
@@ -80,6 +86,7 @@ export function PatternPrefsProvider({
       bias: PatternBias
       description: string
       basedOn: string | null
+      rules?: CustomRuleSet | null
     }) => {
       setPrefs((p) => addCustomPattern(p, input))
     },
@@ -88,6 +95,10 @@ export function PatternPrefsProvider({
 
   const deleteCustom = useCallback((id: string) => {
     setPrefs((p) => removeCustomPattern(p, id))
+  }, [])
+
+  const setScanWindow = useCallback((scanWindow: PatternScanWindow) => {
+    setPrefs((p) => setPatternScanWindow(p, scanWindow))
   }, [])
 
   const rememberHits = useCallback((ticker: string, hits: CachedPatternHit[]) => {
@@ -132,6 +143,7 @@ export function PatternPrefsProvider({
         }
       }
 
+      // Custom rule hits are already stored under the custom name
       return out.sort((a, b) => b.endT - a.endT)
     },
     [hitsByTicker, prefs.starredNames, prefs.customPatterns],
@@ -145,6 +157,8 @@ export function PatternPrefsProvider({
       createCustom,
       deleteCustom,
       customPatterns: prefs.customPatterns,
+      scanWindow: prefs.scanWindow,
+      setScanWindow,
       hitsByTicker,
       rememberHits,
       starredHitsFor,
@@ -158,6 +172,7 @@ export function PatternPrefsProvider({
       hitsByTicker,
       rememberHits,
       starredHitsFor,
+      setScanWindow,
     ],
   )
 

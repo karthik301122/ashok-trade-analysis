@@ -4,6 +4,11 @@ import { detectStructure } from './structure'
 import { detectVolumeMomentum } from './volume'
 import { catalogFor, CATALOG_TOTAL, PATTERN_CATALOG } from './catalog'
 import {
+  DEFAULT_PATTERN_SCAN_WINDOW,
+  filterHitsByWindow,
+  type PatternScanWindow,
+} from './scanWindow'
+import {
   CATEGORY_META,
   type CategorySummary,
   type OhlcBar,
@@ -13,22 +18,42 @@ import {
   type PatternScanRow,
 } from './types'
 
-export function scanPatterns(bars: OhlcBar[]): {
+export type ScanPatternsOptions = {
+  /** Only count hits ending within this window from the latest bar. */
+  window?: PatternScanWindow
+}
+
+function applyWindow(hits: PatternHit[], bars: OhlcBar[], window: PatternScanWindow): PatternHit[] {
+  if (!bars.length) return hits
+  const asOf = bars[bars.length - 1].t
+  return filterHitsByWindow(hits, window, asOf)
+}
+
+export function scanPatterns(
+  bars: OhlcBar[],
+  opts: ScanPatternsOptions = {},
+): {
   hits: PatternHit[]
   categories: CategorySummary[]
   catalogTotal: number
+  window: PatternScanWindow
+  asOf: number | null
 } {
-  const candle = detectCandlesticks(bars)
-  const classic = detectClassic(bars)
-  const structure = detectStructure(bars)
-  const volume = detectVolumeMomentum(bars)
-  const harmonic: PatternHit[] = []
+  const window = opts.window ?? DEFAULT_PATTERN_SCAN_WINDOW
+  const asOf = bars.length ? bars[bars.length - 1].t : null
 
-  const byCat: Record<'candlesticks' | 'classic' | 'structure' | 'harmonic' | 'volume', PatternHit[]> = {
+  const candle = applyWindow(detectCandlesticks(bars), bars, window)
+  const classic = applyWindow(detectClassic(bars), bars, window)
+  const structure = applyWindow(detectStructure(bars), bars, window)
+  const volume = applyWindow(detectVolumeMomentum(bars), bars, window)
+
+  const byCat: Record<
+    'candlesticks' | 'classic' | 'structure' | 'volume',
+    PatternHit[]
+  > = {
     candlesticks: candle,
     classic,
     structure,
-    harmonic,
     volume,
   }
 
@@ -67,20 +92,40 @@ export function scanPatterns(bars: OhlcBar[]): {
       hits: hits.sort((a, b) => b.endT - a.endT),
       rows,
       analyzed: catalogFor(meta.id).length,
-      note:
-        meta.id === 'harmonic'
-          ? 'Harmonic geometry engine not active yet — catalog listed, 0 auto hits'
-          : undefined,
     }
   })
 
   return {
-    hits: [...candle, ...classic, ...structure, ...volume, ...harmonic],
+    hits: [...candle, ...classic, ...structure, ...volume],
     categories,
     catalogTotal: CATALOG_TOTAL,
+    window,
+    asOf,
   }
 }
 
 export type { CategorySummary, PatternHit, PatternCategoryId, PatternBias, OhlcBar, PatternScanRow }
 export { CATEGORY_META, PATTERN_CATALOG, CATALOG_TOTAL }
 export { enrichScanWithPrefs } from './enrichWithPrefs'
+export {
+  DEFAULT_PATTERN_SCAN_WINDOW,
+  PATTERN_SCAN_WINDOWS,
+  filterHitsByWindow,
+  hitInWindow,
+  parsePatternScanWindow,
+  scanWindowLabel,
+  type PatternScanWindow,
+} from './scanWindow'
+export {
+  detectAllCustomRules,
+  detectCustomRule,
+  describeRuleSet,
+  newCondition,
+  RULE_METRIC_OPTIONS,
+  RULE_OP_OPTIONS,
+  MAX_CONDITIONS,
+  type CustomRuleSet,
+  type RuleCondition,
+  type RuleMetric,
+  type RuleOp,
+} from './customRules'

@@ -5,8 +5,21 @@ import type {
   PatternBias,
   PatternCategoryId,
   PatternHit,
+  PatternScanWindow,
+  RuleCondition,
+  RuleMetric,
+  RuleOp,
 } from '../../lib/patterns'
-import { PATTERN_CATALOG } from '../../lib/patterns'
+import {
+  PATTERN_CATALOG,
+  MAX_CONDITIONS,
+  RULE_METRIC_OPTIONS,
+  RULE_OP_OPTIONS,
+  PATTERN_SCAN_WINDOWS,
+  describeRuleSet,
+  newCondition,
+  scanWindowLabel,
+} from '../../lib/patterns'
 import { usePatternPrefs } from './PatternPrefsContext'
 
 type Props = {
@@ -14,11 +27,15 @@ type Props = {
   error: string | null
   categories: CategorySummary[]
   catalogTotal: number
+  scanWindow: PatternScanWindow
+  onScanWindowChange: (window: PatternScanWindow) => void
   activeCategory: PatternCategoryId | null
   selectedPatternId: string | null
   onSelectCategory: (id: PatternCategoryId | null) => void
   onSelectPattern: (hit: PatternHit) => void
 }
+
+type DetectMode = 'rules' | 'alias' | 'none'
 
 function biasClass(bias: string) {
   if (bias === 'bullish') return 'text-emerald-600'
@@ -39,6 +56,8 @@ export function PatternPanel({
   error,
   categories,
   catalogTotal,
+  scanWindow,
+  onScanWindowChange,
   activeCategory,
   selectedPatternId,
   onSelectCategory,
@@ -50,6 +69,9 @@ export function PatternPanel({
   const [cBias, setCBias] = useState<PatternBias>('bullish')
   const [cDesc, setCDesc] = useState('')
   const [cBasedOn, setCBasedOn] = useState('')
+  const [detectMode, setDetectMode] = useState<DetectMode>('rules')
+  const [matchMode, setMatchMode] = useState<'all' | 'any'>('all')
+  const [conditions, setConditions] = useState<RuleCondition[]>(() => [newCondition('rsi')])
 
   const active = categories.find((c) => c.id === activeCategory) ?? null
   const totalHits = categories
@@ -61,6 +83,34 @@ export function PatternPanel({
     [],
   )
 
+  const resetForm = () => {
+    setCName('')
+    setCDesc('')
+    setCBasedOn('')
+    setCBias('bullish')
+    setDetectMode('rules')
+    setMatchMode('all')
+    setConditions([newCondition('rsi')])
+    setShowCreate(false)
+  }
+
+  const updateCondition = (id: string, patch: Partial<RuleCondition>) => {
+    setConditions((prev) =>
+      prev.map((c) => {
+        if (c.id !== id) return c
+        const next = { ...c, ...patch }
+        if (patch.metric && patch.metric !== c.metric) {
+          const meta = RULE_METRIC_OPTIONS.find((m) => m.id === patch.metric)
+          if (meta) {
+            next.value = meta.defaultValue
+            next.op = meta.id === 'rsi' ? 'lte' : 'gte'
+          }
+        }
+        return next
+      }),
+    )
+  }
+
   const submitCustom = (e: FormEvent) => {
     e.preventDefault()
     if (!cName.trim()) return
@@ -68,13 +118,13 @@ export function PatternPanel({
       name: cName.trim(),
       bias: cBias,
       description: cDesc,
-      basedOn: cBasedOn || null,
+      basedOn: detectMode === 'alias' ? cBasedOn || null : null,
+      rules:
+        detectMode === 'rules' && conditions.length > 0
+          ? { match: matchMode, conditions }
+          : null,
     })
-    setCName('')
-    setCDesc('')
-    setCBasedOn('')
-    setCBias('bullish')
-    setShowCreate(false)
+    resetForm()
     onSelectCategory('custom')
   }
 
@@ -83,9 +133,25 @@ export function PatternPanel({
       <div className="border-b border-[var(--color-border)] px-3 py-2.5">
         <h3 className="text-sm font-bold">Pattern Analysis</h3>
         <p className="text-[10px] text-[var(--color-ink-soft)]">
-          Catalog {catalogTotal} · {totalHits} hits · star favorites for Sector Table · My Patterns
-          are private to you
+          {catalogTotal} scanners · {totalHits} hits in {scanWindowLabel(scanWindow)} · My Patterns
+          are private
         </p>
+        <div className="mt-2 flex flex-wrap gap-1">
+          {PATTERN_SCAN_WINDOWS.map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              onClick={() => onScanWindowChange(w.id)}
+              className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                scanWindow === w.id
+                  ? 'bg-sky-700 text-white'
+                  : 'border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-ink-soft)] hover:border-sky-400'
+              }`}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto p-2">
@@ -117,7 +183,7 @@ export function PatternPanel({
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-bold">{cat.label}</span>
                         <span className="text-[10px] text-[var(--color-ink-soft)]">
-                          {total} hit{total === 1 ? '' : 's'} · {cat.analyzed} listed
+                          {total} hit{total === 1 ? '' : 's'} · {cat.analyzed} scanned
                         </span>
                       </div>
                       <div className="mt-1.5 flex flex-wrap gap-2 text-[11px] font-semibold">
@@ -173,21 +239,130 @@ export function PatternPanel({
                     rows={2}
                     className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-xs"
                   />
-                  <label className="block text-[10px] text-[var(--color-ink-soft)]">
-                    Detect using catalog rule (optional)
-                    <select
-                      value={cBasedOn}
-                      onChange={(e) => setCBasedOn(e.target.value)}
-                      className="mt-0.5 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-xs"
-                    >
-                      <option value="">Manual name only (no auto-detect)</option>
-                      {catalogNames.map((n) => (
-                        <option key={n} value={n}>
-                          {n}
-                        </option>
+
+                  <fieldset className="space-y-1.5">
+                    <legend className="text-[10px] font-semibold text-[var(--color-ink-soft)]">
+                      How to detect
+                    </legend>
+                    {(
+                      [
+                        ['rules', 'My conditions (RSI, RVOL, MAs…)'],
+                        ['alias', 'Reuse a built-in scanner'],
+                        ['none', 'Name only (no auto-detect)'],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <label
+                        key={id}
+                        className="flex cursor-pointer items-center gap-2 text-[11px]"
+                      >
+                        <input
+                          type="radio"
+                          name="detectMode"
+                          checked={detectMode === id}
+                          onChange={() => setDetectMode(id)}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </fieldset>
+
+                  {detectMode === 'rules' && (
+                    <div className="space-y-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+                      <label className="flex items-center gap-2 text-[10px] text-[var(--color-ink-soft)]">
+                        Match
+                        <select
+                          value={matchMode}
+                          onChange={(e) => setMatchMode(e.target.value as 'all' | 'any')}
+                          className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[11px]"
+                        >
+                          <option value="all">All conditions (AND)</option>
+                          <option value="any">Any condition (OR)</option>
+                        </select>
+                      </label>
+                      {conditions.map((c) => (
+                        <div key={c.id} className="flex flex-wrap items-center gap-1">
+                          <select
+                            value={c.metric}
+                            onChange={(e) =>
+                              updateCondition(c.id, { metric: e.target.value as RuleMetric })
+                            }
+                            className="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-1 text-[10px]"
+                          >
+                            {RULE_METRIC_OPTIONS.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.label}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={c.op}
+                            onChange={(e) =>
+                              updateCondition(c.id, { op: e.target.value as RuleOp })
+                            }
+                            className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-1 text-[10px]"
+                          >
+                            {RULE_OP_OPTIONS.map((o) => (
+                              <option key={o.id} value={o.id}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="number"
+                            step="any"
+                            value={c.value}
+                            onChange={(e) =>
+                              updateCondition(c.id, { value: Number(e.target.value) })
+                            }
+                            className="w-14 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-1 text-[10px]"
+                          />
+                          <button
+                            type="button"
+                            disabled={conditions.length <= 1}
+                            onClick={() =>
+                              setConditions((prev) => prev.filter((x) => x.id !== c.id))
+                            }
+                            className="rounded p-0.5 text-rose-600 disabled:opacity-30"
+                            title="Remove condition"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
                       ))}
-                    </select>
-                  </label>
+                      {conditions.length < MAX_CONDITIONS && (
+                        <button
+                          type="button"
+                          onClick={() => setConditions((prev) => [...prev, newCondition()])}
+                          className="text-[10px] font-semibold text-teal-700 hover:underline dark:text-teal-300"
+                        >
+                          + Add condition
+                        </button>
+                      )}
+                      <p className="text-[9px] text-[var(--color-ink-soft)]">
+                        Fires if true on any of the last ~10 sessions.
+                      </p>
+                    </div>
+                  )}
+
+                  {detectMode === 'alias' && (
+                    <label className="block text-[10px] text-[var(--color-ink-soft)]">
+                      Built-in scanner
+                      <select
+                        value={cBasedOn}
+                        onChange={(e) => setCBasedOn(e.target.value)}
+                        className="mt-0.5 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-xs"
+                        required
+                      >
+                        <option value="">Select…</option>
+                        {catalogNames.map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+
                   <button
                     type="submit"
                     className="w-full rounded-md bg-teal-700 px-2 py-1.5 text-xs font-bold text-white hover:bg-teal-800"
@@ -201,16 +376,20 @@ export function PatternPanel({
                   {customPatterns.map((c) => (
                     <li
                       key={c.id}
-                      className="flex items-center justify-between gap-2 text-[10px] text-[var(--color-ink-soft)]"
+                      className="flex items-start justify-between gap-2 text-[10px] text-[var(--color-ink-soft)]"
                     >
                       <span>
-                        {c.name}
-                        {c.basedOn ? ` ← ${c.basedOn}` : ''}
+                        <span className="font-semibold text-[var(--color-ink)]">{c.name}</span>
+                        {c.rules?.conditions?.length
+                          ? ` · ${describeRuleSet(c.rules)}`
+                          : c.basedOn
+                            ? ` ← ${c.basedOn}`
+                            : ' · name only'}
                       </span>
                       <button
                         type="button"
                         onClick={() => deleteCustom(c.id)}
-                        className="rounded p-0.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                        className="shrink-0 rounded p-0.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
                         title="Delete"
                       >
                         <Trash2 size={12} />
@@ -237,87 +416,71 @@ export function PatternPanel({
             <p className="mb-2 text-[10px] text-[var(--color-ink-soft)]">
               {active.analyzed} patterns · Bull {active.bullish} · Bear {active.bearish} · Neutral{' '}
               {active.neutral}
-              {active.note ? ` · ${active.note}` : ''}
             </p>
-            <ul className="space-y-1.5">
+            {active.note && (
+              <p className="mb-2 text-[10px] text-[var(--color-ink-soft)]">{active.note}</p>
+            )}
+            <ul className="space-y-1">
               {active.rows.map((row) => {
-                const h = row.hit
-                const selected = h != null && selectedPatternId === h.id
                 const starred = isStarred(row.name)
                 const customDef = customPatterns.find((c) => c.name === row.name)
-
+                const hit = row.hit
                 return (
-                  <li key={row.name} className="relative">
+                  <li key={row.name}>
                     <div
-                      className={`rounded-lg border px-2.5 py-2 ${
-                        !h
-                          ? 'border-dashed border-[var(--color-border)] opacity-80'
-                          : selected
-                            ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40'
-                            : 'border-[var(--color-border)]'
+                      className={`flex items-start gap-1 rounded-md border px-2 py-1.5 ${
+                        hit && selectedPatternId === hit.id
+                          ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40'
+                          : 'border-[var(--color-border)] bg-[var(--color-bg)]'
                       }`}
                     >
-                      <div className="flex items-start gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => toggleStar(row.name)}
+                        className="mt-0.5 shrink-0 rounded p-0.5"
+                        title={starred ? 'Unstar pattern' : 'Star pattern'}
+                        aria-label={starred ? 'Unstar' : 'Star'}
+                      >
+                        <Star
+                          size={14}
+                          className={
+                            starred
+                              ? 'fill-amber-400 text-amber-500'
+                              : 'text-[var(--color-ink-soft)]'
+                          }
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!hit}
+                        onClick={() => hit && onSelectPattern(hit)}
+                        className="min-w-0 flex-1 text-left disabled:cursor-default"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-xs font-semibold">{row.name}</span>
+                          <span className={`text-[10px] font-bold ${biasClass(row.familyBias)}`}>
+                            {hit ? hit.bias : row.familyBias}
+                          </span>
+                        </div>
+                        {hit ? (
+                          <p className="mt-0.5 text-[10px] text-[var(--color-ink-soft)]">
+                            {formatDate(hit.endT)}
+                            {hit.note ? ` · ${hit.note}` : ''}
+                          </p>
+                        ) : (
+                          <p className="mt-0.5 text-[10px] text-[var(--color-ink-soft)]">No hit</p>
+                        )}
+                      </button>
+                      {customDef && active.id === 'custom' && (
                         <button
                           type="button"
-                          onClick={() => toggleStar(row.name)}
-                          className="mt-0.5 shrink-0 rounded p-0.5 hover:bg-amber-100 dark:hover:bg-amber-950/50"
-                          title={starred ? 'Unstar pattern' : 'Star pattern'}
-                          aria-label={starred ? 'Unstar' : 'Star'}
+                          onClick={() => deleteCustom(customDef.id)}
+                          className="mt-0.5 shrink-0 rounded p-0.5 text-rose-600"
+                          title="Delete custom pattern"
                         >
-                          <Star
-                            size={14}
-                            className={
-                              starred
-                                ? 'fill-amber-400 text-amber-400'
-                                : 'text-[var(--color-ink-soft)]'
-                            }
-                          />
+                          <Trash2 size={12} />
                         </button>
-                        {h ? (
-                          <button
-                            type="button"
-                            onClick={() => onSelectPattern(h)}
-                            className="min-w-0 flex-1 text-left hover:opacity-90"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-bold">{h.name}</span>
-                              <span className={`text-[10px] font-bold uppercase ${biasClass(h.bias)}`}>
-                                {h.bias}
-                              </span>
-                            </div>
-                            <div className="mt-0.5 text-[10px] text-[var(--color-ink-soft)]">
-                              {formatDate(h.startT)}
-                              {h.startT !== h.endT ? ` → ${formatDate(h.endT)}` : ''}
-                              {' · '}
-                              {Math.round(h.confidence * 100)}% conf
-                              {h.note ? ` · ${h.note}` : ''}
-                            </div>
-                          </button>
-                        ) : (
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-medium">{row.name}</span>
-                              <span className="text-[10px] font-semibold uppercase text-[var(--color-ink-soft)]">
-                                No hit
-                              </span>
-                            </div>
-                            <div className="mt-0.5 text-[10px] text-[var(--color-ink-soft)]">
-                              Scanned · family {row.familyBias}
-                            </div>
-                          </div>
-                        )}
-                        {customDef && active.id === 'custom' && (
-                          <button
-                            type="button"
-                            onClick={() => deleteCustom(customDef.id)}
-                            className="shrink-0 rounded p-0.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                            title="Delete custom pattern"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        )}
-                      </div>
+                      )}
                     </div>
                   </li>
                 )

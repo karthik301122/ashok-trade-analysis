@@ -1,4 +1,13 @@
 import type { PatternBias } from './patterns/types'
+import {
+  normalizeRuleSet,
+  type CustomRuleSet,
+} from './patterns/customRules'
+import {
+  DEFAULT_PATTERN_SCAN_WINDOW,
+  parsePatternScanWindow,
+  type PatternScanWindow,
+} from './patterns/scanWindow'
 
 export type CustomPattern = {
   id: string
@@ -7,19 +16,44 @@ export type CustomPattern = {
   description: string
   /** Reuse an existing catalog detector under this custom name */
   basedOn: string | null
+  /** Private condition rules (AND/OR). Mutually preferred over basedOn when set. */
+  rules: CustomRuleSet | null
   createdAt: number
 }
 
 export type PatternPrefs = {
   starredNames: string[]
   customPatterns: CustomPattern[]
+  /** Pattern hits must end within this window from latest bar. */
+  scanWindow: PatternScanWindow
 }
 
-const EMPTY: PatternPrefs = { starredNames: [], customPatterns: [] }
+const EMPTY: PatternPrefs = {
+  starredNames: [],
+  customPatterns: [],
+  scanWindow: DEFAULT_PATTERN_SCAN_WINDOW,
+}
 
 function storageKey(user: string | null) {
   const who = user?.trim() || 'local'
   return `asx-pattern-prefs:${who}`
+}
+
+function parseCustom(p: unknown): CustomPattern | null {
+  if (p == null || typeof p !== 'object') return null
+  const o = p as Partial<CustomPattern>
+  if (typeof o.id !== 'string' || typeof o.name !== 'string') return null
+  const bias: PatternBias =
+    o.bias === 'bearish' || o.bias === 'neutral' || o.bias === 'bullish' ? o.bias : 'neutral'
+  return {
+    id: o.id,
+    name: o.name,
+    bias,
+    description: typeof o.description === 'string' ? o.description : '',
+    basedOn: typeof o.basedOn === 'string' && o.basedOn.trim() ? o.basedOn.trim() : null,
+    rules: normalizeRuleSet(o.rules),
+    createdAt: typeof o.createdAt === 'number' ? o.createdAt : Date.now(),
+  }
 }
 
 export function loadPatternPrefs(user: string | null): PatternPrefs {
@@ -32,14 +66,9 @@ export function loadPatternPrefs(user: string | null): PatternPrefs {
         ? parsed.starredNames.filter((n): n is string => typeof n === 'string')
         : [],
       customPatterns: Array.isArray(parsed.customPatterns)
-        ? parsed.customPatterns.filter(
-            (p): p is CustomPattern =>
-              p != null &&
-              typeof p === 'object' &&
-              typeof p.id === 'string' &&
-              typeof p.name === 'string',
-          )
+        ? parsed.customPatterns.map(parseCustom).filter((p): p is CustomPattern => p != null)
         : [],
+      scanWindow: parsePatternScanWindow(parsed.scanWindow),
     }
   } catch {
     return { ...EMPTY, starredNames: [], customPatterns: [] }
@@ -59,16 +88,26 @@ export function toggleStarredName(prefs: PatternPrefs, name: string): PatternPre
 
 export function addCustomPattern(
   prefs: PatternPrefs,
-  input: { name: string; bias: PatternBias; description: string; basedOn: string | null },
+  input: {
+    name: string
+    bias: PatternBias
+    description: string
+    basedOn: string | null
+    rules?: CustomRuleSet | null
+  },
 ): PatternPrefs {
   const name = input.name.trim()
   if (!name) return prefs
+  const rules = normalizeRuleSet(input.rules)
+  // Prefer rules over alias when both provided
+  const basedOn = rules ? null : input.basedOn?.trim() || null
   const custom: CustomPattern = {
     id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name,
     bias: input.bias,
     description: input.description.trim(),
-    basedOn: input.basedOn?.trim() || null,
+    basedOn,
+    rules,
     createdAt: Date.now(),
   }
   return { ...prefs, customPatterns: [...prefs.customPatterns, custom] }
@@ -81,4 +120,11 @@ export function removeCustomPattern(prefs: PatternPrefs, id: string): PatternPre
     ? prefs.starredNames.filter((n) => n !== removed.name)
     : prefs.starredNames
   return { ...prefs, customPatterns, starredNames }
+}
+
+export function setPatternScanWindow(
+  prefs: PatternPrefs,
+  scanWindow: PatternScanWindow,
+): PatternPrefs {
+  return { ...prefs, scanWindow: parsePatternScanWindow(scanWindow) }
 }

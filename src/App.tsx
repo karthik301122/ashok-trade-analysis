@@ -8,10 +8,10 @@ import { SectorAnalytics } from './components/SectorAnalytics'
 import { IndustryAnalytics } from './components/IndustryAnalytics'
 import { BreadthAnalysis } from './components/BreadthAnalysis'
 import { AltAssetsPanel } from './components/AltAssetsPanel'
+import { AlertsPanel } from './components/AlertsPanel'
 import { VolumeScan } from './components/VolumeScan'
 import { LoginPage } from './components/LoginPage'
 import { COMMODITIES, CRYPTO } from './data/altAssets'
-import { buildMarketSnapshot } from './lib/market'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
 import { fetchAuthMe, logout as apiLogout } from './lib/auth'
 import type { MarketSnapshot } from './data/types'
@@ -24,17 +24,19 @@ export default function App() {
   const [authChecking, setAuthChecking] = useState(true)
   const [authRequired, setAuthRequired] = useState(false)
   const [user, setUser] = useState<string | null>(null)
-  const [page, setPage] = useState<'sector' | 'breadth'>('sector')
+  const [page, setPage] = useState<'sector' | 'breadth' | 'alerts'>('sector')
   const [view, setView] = useState<ViewId>('sector-table')
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [backfilling, setBackfilling] = useState(false)
   const [progress, setProgress] = useState<LiveLoadProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [meta, setMeta] = useState<{ fromCache: boolean; loaded: number; failed: number } | null>(
-    null,
-  )
-  const [live, setLive] = useState(true)
+  const [meta, setMeta] = useState<{
+    fromCache: boolean
+    loaded: number
+    failed: number
+    source?: string
+  } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const startedLoad = useRef(false)
 
@@ -75,24 +77,27 @@ export default function App() {
           if (ac.signal.aborted) return
           setSnapshot(partial)
           setMeta({ fromCache: false, loaded, failed })
-          setLive(true)
           setLoading(false)
         },
       })
       if (ac.signal.aborted) return
       setSnapshot(result.snapshot)
-      setMeta({ fromCache: result.fromCache, loaded: result.loaded, failed: result.failed })
-      setLive(true)
+      setMeta({
+        fromCache: result.fromCache,
+        loaded: result.loaded,
+        failed: result.failed,
+        source: result.source,
+      })
     } catch (e) {
       if (ac.signal.aborted) return
       const msg = e instanceof Error ? e.message : 'Failed to load live data'
       if (msg === 'Aborted') return
       setError(msg)
+      // Keep any prior live/cache snapshot; never invent synthetic DEMO markets.
       setSnapshot((prev) => {
         if (prev) return prev
-        setLive(false)
         setMeta(null)
-        return buildMarketSnapshot()
+        return null
       })
     } finally {
       if (!ac.signal.aborted) {
@@ -138,6 +143,7 @@ export default function App() {
 
   const statusLine = (() => {
     if (!meta) return null
+    if (meta.source === 'server-sqlite') return ' · server SQLite snapshot'
     if (meta.fromCache && !backfilling) return ' · cached (6h)'
     if (backfilling) {
       const rem = progress?.remaining
@@ -187,26 +193,63 @@ export default function App() {
                 : 'Starting…'}
             </p>
           </div>
+        ) : !snapshot ? (
+          <div className="mx-auto mt-16 max-w-lg rounded-2xl border border-rose-300 bg-[var(--color-surface)] p-6 shadow-sm dark:border-rose-800">
+            <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold text-rose-700 dark:text-rose-300">
+              Live data unavailable
+            </h2>
+            <p className="mt-2 text-sm text-[var(--color-ink-soft)]">
+              Could not load ASX prices from Yahoo. No synthetic demo market is shown — retry when
+              the API is reachable.
+            </p>
+            {error && (
+              <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
+                {error}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => void load(true)}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-teal-600 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-800 dark:bg-teal-950/40 dark:text-teal-200"
+            >
+              <RefreshCw size={14} />
+              Retry live load
+            </button>
+          </div>
         ) : snapshot ? (
           <>
             <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs">
               <span
                 className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-semibold ${
-                  live
-                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
-                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
+                  backfilling
+                    ? 'bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-300'
+                    : meta && meta.loaded < ASX_UNIVERSE_COUNT * 0.98
+                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
+                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
                 }`}
               >
                 <span
-                  className={`h-1.5 w-1.5 rounded-full ${live ? 'bg-emerald-500' : 'bg-amber-500'} ${backfilling ? 'animate-pulse' : ''}`}
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    backfilling
+                      ? 'animate-pulse bg-sky-500'
+                      : meta && meta.loaded < ASX_UNIVERSE_COUNT * 0.98
+                        ? 'bg-amber-500'
+                        : 'bg-emerald-500'
+                  }`}
                 />
-                {backfilling ? 'LOADING' : live ? 'LIVE' : 'DEMO FALLBACK'}
+                {backfilling
+                  ? 'LOADING'
+                  : meta && meta.loaded < ASX_UNIVERSE_COUNT * 0.98
+                    ? 'PARTIAL'
+                    : 'LIVE'}
               </span>
               {meta && (
                 <span className="text-[var(--color-ink-soft)]">
                   {meta.loaded.toLocaleString()} / {ASX_UNIVERSE_COUNT.toLocaleString()} stocks
                   loaded
-                  {meta.failed ? ` · ${meta.failed} failed` : ''}
+                  {meta.failed
+                    ? ` · ${meta.failed} failed (${Math.round((meta.failed / ASX_UNIVERSE_COUNT) * 100)}%)`
+                    : ''}
                   {statusLine}
                 </span>
               )}
@@ -227,7 +270,9 @@ export default function App() {
               </button>
             </div>
 
-            {page === 'breadth' ? (
+            {page === 'alerts' ? (
+              <AlertsPanel />
+            ) : page === 'breadth' ? (
               <BreadthAnalysis snapshot={snapshot} />
             ) : (
               <div className="space-y-4">

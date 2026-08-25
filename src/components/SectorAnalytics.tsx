@@ -165,7 +165,7 @@ export function SectorAnalytics({ snapshot }: Props) {
           <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-muted)] p-3">
             <h4 className="text-sm font-bold">Strong Stocks</h4>
             <p className="mb-2 text-[11px] text-[var(--color-ink-soft)]">
-              Number after stock name indicates RS strength
+              Number = RS score (heuristic: 50 + (3M − index 3M) × 2.2) — not IBD RS
             </p>
             <ul className="max-h-64 space-y-1.5 overflow-auto">
               {strongStocks.map((s) => (

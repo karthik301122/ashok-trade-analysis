@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchYahooOhlc } from '../../lib/yahoo'
-import { scanPatterns } from '../../lib/patterns'
+import { detectAllCustomRules, filterHitsByWindow, scanPatterns } from '../../lib/patterns'
 import { getTickerPatternHits } from '../../lib/patternHitsCache'
 import { usePatternPrefs } from './PatternPrefsContext'
 
@@ -59,10 +59,13 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
           const ohlc = await fetchYahooOhlc(ticker)
           if (cancelled || gen !== queueGen.current) return
           if (ohlc?.length) {
-            const result = scanPatterns(ohlc)
+            const result = scanPatterns(ohlc, { window: prefs.scanWindow })
+            const customHits = result.asOf
+              ? filterHitsByWindow(detectAllCustomRules(ohlc, prefs.customPatterns), prefs.scanWindow, result.asOf)
+              : []
             rememberHits(
               ticker,
-              result.hits.map((h) => ({
+              [...result.hits, ...customHits].map((h) => ({
                 name: h.name,
                 bias: h.bias,
                 endT: h.endT,
@@ -86,7 +89,7 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
     return () => {
       cancelled = true
     }
-  }, [tickerKey, enabled, prefs.starredNames.length, rememberHits])
+  }, [tickerKey, enabled, prefs.starredNames.length, prefs.customPatterns, prefs.scanWindow, rememberHits])
 
   return { scanning, done, total }
 }

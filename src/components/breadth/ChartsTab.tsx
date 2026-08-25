@@ -86,6 +86,10 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+        {bundle.historyKind === 'server-daily'
+          ? `SMA / A-D net charts use ${bundle.dailyHistory.length} server daily snapshots. Other series still lack full history and may hold today's levels flat across dates.`
+          : 'Chart history is mostly a short spark-proxy until the server accumulates daily breadth snapshots (open Breadth on multiple days).'}
+        {' '}
         {bundle.adNet < 0
           ? 'A-D is soft under the surface — be cautious trusting index-level strength right now.'
           : 'Advances are leading — breadth supports index strength for now.'}
@@ -234,8 +238,8 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
 
       <ChartCard
         title="% Stocks with RS ≥ 50"
-        subtitle={`Relative strength vs ASX200 · avg RS ${bundle.avgRs}`}
-        means="Share of names outperforming the index on our RS score. Rising % = leadership broadening beyond a few megacaps."
+        subtitle={`RS score vs ASX200 (heuristic) · avg ${bundle.avgRs}`}
+        means="Share of names with our RS score ≥ 50 (50 + (3M−index)×2.2). Rising % = leadership broadening beyond a few megacaps."
         reading={`${bundle.pctRs50}% have RS ≥ 50 · ${bundle.pctRs70}% are strong leaders (RS ≥ 70).`}
         action={
           bundle.pctRs50 < 40

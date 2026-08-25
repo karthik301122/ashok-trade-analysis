@@ -46,14 +46,14 @@ export function SeasonalityTab({ snapshot, bundle, universeId }: Props) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="flex items-center gap-2 font-[family-name:var(--font-display)] text-lg font-semibold">
-            Seasonality Intelligence
+            This month pulse
             <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-800 dark:bg-sky-950/50 dark:text-sky-200">
-              Live month
+              Live returns
             </span>
           </h3>
           <p className="text-sm text-[var(--color-ink-soft)]">
-            What {month} looks like right now using live ASX returns (not a multi-year seasonal
-            database).
+            What {month} looks like right now from live ASX returns — not a multi-year seasonal
+            database or win-rate calendar.
           </p>
         </div>
         <div className="flex gap-1 rounded-lg border border-[var(--color-border)] p-1">

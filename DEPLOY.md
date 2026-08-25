@@ -1,92 +1,68 @@
-# Deploy for free (Render)
+# Self-host (local or VPS) — SQLite backend
 
-This app needs a **Node server** (not static-only hosting) because live ASX prices come from `yahoo-finance2`.
+Live ASX prices come from `yahoo-finance2`. OHLCV bars, breadth history, and
+universe snapshots persist in **SQLite** (`data/asx.sqlite` by default).
 
-## Fastest free option: Render.com
+> Render is no longer the recommended host for this app (ephemeral disk). Prefer
+> a machine/VPS with durable storage.
 
-### 1. Put the project on GitHub
-1. Create a free GitHub account (if needed)
-2. Create a new **public** repo
-3. From this folder in PowerShell:
+## Requirements
+
+- **Node.js 22+** (uses built-in `node:sqlite`)
+- Network access to Yahoo Finance
+
+## Quick start
 
 ```powershell
-cd C:\Users\karth\OneDrive\Desktop\ashokwork
-git init
-git add .
-git commit -m "ASX Sector Intelligence ready to deploy"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
-git push -u origin main
+cd "C:\Trade Analysis\ashok-trade-analysis"
+npm install
+npm run refresh:asx200    # free ASX200 membership via iShares IOZ
+npm run snapshot          # build SQLite universe snapshot (takes several minutes first time)
+npm run dev               # http://localhost:5173
 ```
 
-### 2. Deploy on Render
-1. Go to https://render.com and sign up (GitHub login is easiest)
-2. Click **New +** → **Web Service**
-3. Connect the GitHub repo
-4. Settings:
-   - **Runtime:** Node
-   - **Build Command:** `npm install && npm run build`
-   - **Start Command:** `npm start`
-   - **Instance type:** Free
-5. Click **Create Web Service**
-
-### 3. Share the link
-When deploy finishes, Render gives a URL like:
-
-`https://ashoktrades.onrender.com`
-
-Open that on any phone/laptop — no Cursor needed.
-
----
-
-## Login (required for private access)
-
-Auth is **off** until both env vars are set. With them set, the site shows a login page and `/api/series` requires a session cookie.
-
-### 1. Create password hashes (never put plain passwords in git)
+Production:
 
 ```powershell
-cd C:\Users\karth\OneDrive\Desktop\ashokwork
+npm run build
+npm start                 # http://localhost:4173 — also starts a background snapshot if stale
+```
+
+## Environment
+
+See `.env.example`.
+
+| Variable | Purpose |
+|----------|---------|
+| `AUTH_SECRET` + `AUTH_USERS` | Optional login gate |
+| `API_RATE_LIMIT` | Max `/api/series` requests per IP per minute (default `180`) |
+| `DATABASE_PATH` | SQLite file path (default `./data/asx.sqlite`) |
+| `PORT` | Prod listen port (default `4173`) |
+
+### Auth (optional)
+
+```powershell
 node scripts/hash-password.mjs "choose-a-strong-password"
-```
-
-Copy the `$2b$10$...` hash it prints.
-
-### 2. Set Render environment variables
-
-In Render → your web service → **Environment**:
-
-| Key | Example |
-|-----|---------|
-| `AUTH_SECRET` | long random string (e.g. from a password manager) |
-| `AUTH_USERS` | `ashok:$2b$10$....,karthik:$2b$10$....` |
-
-Format for `AUTH_USERS`: comma-separated `username:bcryptHash` pairs (usernames are case-insensitive).
-
-### 3. Redeploy
-
-Save env vars and trigger a deploy (or push a commit). After deploy, open the site — you should see **Sign in**.
-
-### Local testing with auth
-
-```powershell
 $env:AUTH_SECRET = "dev-secret-change-me"
 $env:AUTH_USERS = "ashok:<paste-hash-here>"
 npm run dev
 ```
 
-Without these vars, local/prod stays open (no login) for convenience.
+## Useful commands
 
----
+| Command | What it does |
+|---------|----------------|
+| `npm run snapshot` | Build/refresh SQLite market snapshot |
+| `npm run snapshot -- --force` | Force re-pull from Yahoo |
+| `npm run refresh:asx200` | Refresh ASX200 list from free IOZ holdings |
+| `GET /api/health` | DB path, snapshot freshness, job status |
+| `GET /api/snapshot` | Full CachedPerf map for the SPA |
+| `POST /api/snapshot/refresh` | Kick a background rebuild |
 
 ## Notes
-- Free Render services **sleep after ~15 min idle**. First open after sleep can take 30–60 seconds.
-- First load still downloads many ASX tickers; later visits use browser cache for ~6 hours.
-- Local test of production build:
 
-```powershell
-npm run build
-npm start
-```
-
-Then open http://localhost:4173
+- First snapshot crawl of ~2k tickers is slow (Yahoo rate limits). Later runs use SQLite bars + incremental refresh.
+- API logs are JSON lines on stdout (`series.ok`, `rate_limited`, `snapshot.refresh`, `alerts.evaluate`, …).
+- The SPA prefers a **fresh** server snapshot (`< 12h`); otherwise it falls back to progressive browser fetches.
+- Breadth “This Month” / SMA history accumulates via `/api/breadth/daily` in SQLite.
+- Keep `data/` out of git (already gitignored) — it holds the DB and IOZ download scratch.

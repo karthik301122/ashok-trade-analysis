@@ -557,19 +557,6 @@ function IndustryRows({
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-5">
               <span className="text-[10px] text-[var(--color-ink-soft)]">{ind.sector}</span>
-              {ind.starCount > 0 && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onCopyStars()
-                  }}
-                  className="inline-flex items-center gap-1 rounded-md border-2 border-amber-500 bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-950 hover:bg-amber-200 dark:border-amber-400 dark:bg-amber-950/70 dark:text-amber-100"
-                >
-                  <Copy size={12} />
-                  {starsCopied ? 'Copied!' : `Copy ${ind.starCount} stars`}
-                </button>
-              )}
             </div>
           </td>
           <td className="px-2 tabular-nums">{ind.weight.toFixed(1)}%</td>

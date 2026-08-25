@@ -12,8 +12,12 @@ dist
 dist-ssr
 *.local
 
-# Local probe / download scratch (universe JSON lives in src/data)
+# Local probe / download scratch + SQLite (universe JSON lives in src/data)
 /data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
 
 # Editor directories and files
 .vscode/*

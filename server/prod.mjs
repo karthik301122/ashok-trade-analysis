@@ -1,15 +1,16 @@
 import express from 'express'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { fetchAsx200, fetchAsxTicker, fetchChartCloses } from './yf.mjs'
 import {
   authEnabled,
-  getUserFromRequest,
   sessionClearCookieHeader,
   sessionSetCookieHeader,
   createSessionToken,
   verifyCredentials,
 } from './auth.mjs'
+import { mountExpressApi } from './apiHandlers.mjs'
+import { maybeStartBackgroundSnapshot } from './snapshotJob.mjs'
+import { dbPath } from './db.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -17,20 +18,9 @@ const dist = path.join(root, 'dist')
 const port = Number(process.env.PORT) || 4173
 
 const app = express()
-app.use(express.json({ limit: '32kb' }))
+app.use(express.json({ limit: '8mb' }))
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, provider: 'yahoo-finance2', authRequired: authEnabled() })
-})
-
-app.get('/api/auth/me', (req, res) => {
-  if (!authEnabled()) {
-    return res.json({ user: null, authRequired: false })
-  }
-  const user = getUserFromRequest(req)
-  if (!user) return res.status(401).json({ user: null, authRequired: true })
-  return res.json({ user, authRequired: true })
-})
+mountExpressApi(app)
 
 app.post('/api/auth/login', async (req, res) => {
   if (!authEnabled()) {
@@ -48,31 +38,6 @@ app.post('/api/auth/logout', (_req, res) => {
   return res.json({ ok: true })
 })
 
-app.get('/api/series/:ticker', async (req, res) => {
-  if (authEnabled() && !getUserFromRequest(req)) {
-    return res.status(401).json({ error: 'Unauthorized', authRequired: true })
-  }
-  try {
-    const ticker = decodeURIComponent(req.params.ticker).toUpperCase()
-    if (!ticker || !/^[A-Z0-9.^=\-]{1,20}$/.test(ticker)) {
-      return res.status(400).json({ error: 'Invalid ticker' })
-    }
-    const from = typeof req.query.from === 'string' ? req.query.from : '2023-01-01'
-    const isIndex = ticker === '^AXJO' || ticker === 'XJO' || ticker === 'ASX200'
-    const isRawYahoo = ticker.includes('=') || ticker.includes('-') || ticker.includes('.')
-    const data = isIndex
-      ? await fetchAsx200(from)
-      : isRawYahoo
-        ? await fetchChartCloses(ticker, from)
-        : await fetchAsxTicker(ticker, from)
-    if (!data) return res.status(404).json({ error: 'No series', ticker })
-    return res.json(data)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    return res.status(500).json({ error: message })
-  }
-})
-
 app.use(express.static(dist))
 
 app.get(/.*/, (_req, res) => {
@@ -81,5 +46,7 @@ app.get(/.*/, (_req, res) => {
 
 app.listen(port, () => {
   console.log(`ASX Sector Intelligence running on http://localhost:${port}`)
+  console.log(`SQLite: ${dbPath()}`)
   console.log(authEnabled() ? 'Auth: enabled' : 'Auth: disabled (set AUTH_USERS + AUTH_SECRET)')
+  maybeStartBackgroundSnapshot()
 })

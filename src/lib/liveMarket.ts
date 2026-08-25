@@ -257,10 +257,57 @@ export async function loadLiveMarketSnapshot(
     onProgress?: (p: LiveLoadProgress) => void
     onPartial?: (snapshot: MarketSnapshot, loaded: number, failed: number) => void
   } = {},
-): Promise<{ snapshot: MarketSnapshot; fromCache: boolean; loaded: number; failed: number }> {
+): Promise<{
+  snapshot: MarketSnapshot
+  fromCache: boolean
+  loaded: number
+  failed: number
+  source?: 'server-sqlite' | 'browser-yahoo'
+}> {
   const { forceRefresh = false, signal, onProgress, onPartial } = opts
   const tickers = ASX_UNIVERSE.map((s) => s.ticker)
   const total = tickers.length + 1
+
+  // Prefer server SQLite universe snapshot when fresh (avoids browser crawling ~2k tickers)
+  if (!forceRefresh) {
+    try {
+      onProgress?.({ done: 0, total, phase: 'cache', loaded: 0, remaining: tickers.length })
+      const res = await fetch('/api/snapshot', { credentials: 'include', signal })
+      if (res.ok) {
+        const json = (await res.json()) as {
+          fresh?: boolean
+          loaded?: number
+          failed?: number
+          indexPerf?: CachedPerf
+          stocks?: Record<string, CachedPerf>
+        }
+        const stockCount = json.stocks ? Object.keys(json.stocks).length : 0
+        if (json.fresh && json.indexPerf && stockCount >= tickers.length * 0.5) {
+          const stockPerfs = new Map<string, CachedPerf>()
+          for (const [t, p] of Object.entries(json.stocks || {})) stockPerfs.set(t, p)
+          const snapshot = assembleSnapshotFromPerfs(stockPerfs, json.indexPerf)
+          persist(stockPerfs, json.indexPerf)
+          onProgress?.({
+            done: total,
+            total,
+            phase: 'done',
+            loaded: stockPerfs.size,
+            remaining: 0,
+          })
+          onPartial?.(snapshot, stockPerfs.size, json.failed ?? 0)
+          return {
+            snapshot,
+            fromCache: true,
+            loaded: stockPerfs.size,
+            failed: json.failed ?? tickers.length - stockPerfs.size,
+            source: 'server-sqlite',
+          }
+        }
+      }
+    } catch {
+      // fall through to progressive Yahoo pull
+    }
+  }
 
   const stockPerfs = new Map<string, CachedPerf>()
   let indexPerf: CachedPerf | null = null
@@ -285,6 +332,7 @@ export async function loadLiveMarketSnapshot(
           fromCache: true,
           loaded: stockPerfs.size,
           failed: tickers.length - stockPerfs.size,
+          source: 'browser-yahoo',
         }
       }
     }
@@ -362,5 +410,6 @@ export async function loadLiveMarketSnapshot(
     fromCache: fromCache && missing.length === 0,
     loaded: stockPerfs.size,
     failed: tickers.length - stockPerfs.size,
+    source: 'browser-yahoo',
   }
 }
