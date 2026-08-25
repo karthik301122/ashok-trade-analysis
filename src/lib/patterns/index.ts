@@ -7,6 +7,7 @@ import {
   CATEGORY_META,
   type CategorySummary,
   type OhlcBar,
+  type PatternBias,
   type PatternCategoryId,
   type PatternHit,
   type PatternScanRow,
@@ -80,6 +81,6 @@ export function scanPatterns(bars: OhlcBar[]): {
   }
 }
 
-export type { CategorySummary, PatternHit, PatternCategoryId, OhlcBar, PatternScanRow }
+export type { CategorySummary, PatternHit, PatternCategoryId, PatternBias, OhlcBar, PatternScanRow }
 export { CATEGORY_META, PATTERN_CATALOG, CATALOG_TOTAL }
 export { enrichScanWithPrefs } from './enrichWithPrefs'
