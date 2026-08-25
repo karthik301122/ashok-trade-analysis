@@ -30,13 +30,23 @@ export function SectorAnalytics({ snapshot }: Props) {
 
   const strongIndustries = useMemo(() => {
     if (!active) return []
-    const total = active.perf.m3 || 1
+    const sectorW = active.weight || 1
+    const sectorM3 = active.perf.m3
     return [...active.industries]
-      .map((ind) => ({
-        ...ind,
-        contrib: Math.round((ind.perf.m3 / Math.abs(total)) * 40 + ind.weight),
-      }))
-      .sort((a, b) => b.perf.m3 - a.perf.m3)
+      .map((ind) => {
+        const weightShare = ind.weight / sectorW
+        // Percentage-points of sector 3M return explained by this industry
+        const contribPp = weightShare * ind.perf.m3
+        // Share of the sector's own 3M move (can exceed ±100% when industries offset)
+        const contribPct =
+          Math.abs(sectorM3) >= 0.1 ? (contribPp / sectorM3) * 100 : weightShare * 100
+        return {
+          ...ind,
+          contribPp: Math.round(contribPp * 10) / 10,
+          contribPct: Math.round(contribPct),
+        }
+      })
+      .sort((a, b) => b.contribPp - a.contribPp)
       .slice(0, 8)
   }, [active])
 
@@ -138,18 +148,30 @@ export function SectorAnalytics({ snapshot }: Props) {
           <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-muted)] p-3">
             <h4 className="text-sm font-bold">Strong Industries</h4>
             <p className="mb-2 text-[11px] text-[var(--color-ink-soft)]">
-              % indicates contribution of industry toward sector performance
+              Share of sector 3M move (industry weight × industry return ÷ sector return)
             </p>
             <ul className="space-y-2">
-              {strongIndustries.map((ind) => (
-                <li key={ind.name} className="flex items-center gap-2 text-xs">
-                  <span className="flex-1 font-medium">{ind.name}</span>
-                  <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-800 dark:bg-sky-950 dark:text-sky-200">
-                    {ind.sector}
-                  </span>
-                  <span className="font-bold text-emerald-600">+{Math.max(5, Math.round(ind.contrib))}%</span>
-                </li>
-              ))}
+              {strongIndustries.map((ind) => {
+                const pct = ind.contribPct
+                const positive = ind.contribPp >= 0
+                return (
+                  <li key={ind.name} className="flex items-center gap-2 text-xs">
+                    <span className="flex-1 font-medium">{ind.name}</span>
+                    <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-800 dark:bg-sky-950 dark:text-sky-200">
+                      {ind.sector}
+                    </span>
+                    <span
+                      className={`w-16 text-right font-bold tabular-nums ${
+                        positive ? 'text-emerald-600' : 'text-rose-600'
+                      }`}
+                      title={`${ind.contribPp >= 0 ? '+' : ''}${ind.contribPp} pp of sector 3M · industry 3M ${ind.perf.m3}% · weight ${ind.weight.toFixed(1)}%`}
+                    >
+                      {positive ? '+' : ''}
+                      {pct}%
+                    </span>
+                  </li>
+                )
+              })}
             </ul>
           </div>
           <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-muted)] p-3">
