@@ -3,8 +3,8 @@ import { LogOut, Moon, Sun, User } from 'lucide-react'
 type Props = {
   dark: boolean
   onToggleDark: () => void
-  page: 'sector' | 'breadth' | 'alerts'
-  onPage: (p: 'sector' | 'breadth' | 'alerts') => void
+  page: 'sector' | 'breadth' | 'alerts' | 'special-patterns'
+  onPage: (p: 'sector' | 'breadth' | 'alerts' | 'special-patterns') => void
   user?: string | null
   onLogout?: () => void
 }
@@ -67,6 +67,17 @@ export function Header({ dark, onToggleDark, page, onPage, user, onLogout }: Pro
             }`}
           >
             Alerts
+          </button>
+          <button
+            type="button"
+            onClick={() => onPage('special-patterns')}
+            className={`rounded-md px-3 py-1.5 font-medium transition ${
+              page === 'special-patterns'
+                ? 'text-violet-700 underline decoration-2 underline-offset-8 dark:text-violet-300'
+                : 'text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]'
+            }`}
+          >
+            Special Patterns
           </button>
         </nav>
 

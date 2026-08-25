@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Copy, Search, Star } from 'lucide-react'
 import type { IndustryMetrics, MarketSnapshot, Mood } from '../data/types'
+import type { PatternPrefs } from '../lib/patternPrefs'
 import { CYCLE_LABEL, MOOD_LABEL } from '../lib/market'
 import { formatPct, formatVsIndex, perfCellClass } from '../lib/format'
 import { copyTickersToTradingView } from '../lib/tradingview'
@@ -9,6 +10,11 @@ import { StockChartModal } from './StockChartModal'
 import { usePatternPrefs } from './patterns/PatternPrefsContext'
 import { useIndustryPatternScan } from './patterns/useIndustryPatternScan'
 import type { CachedPatternHit } from '../lib/patternHitsCache'
+import {
+  isCustomOverviewHit,
+  isStarredOverviewHit,
+} from '../lib/overviewPatternHits'
+import { scanWindowLabel } from '../lib/patterns'
 
 type Props = { snapshot: MarketSnapshot }
 
@@ -18,21 +24,40 @@ function biasChipClass(bias: string) {
   return 'border-amber-400/60 bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100'
 }
 
-function StarredPatternChips({ hits }: { hits: CachedPatternHit[] }) {
+function formatHitDate(t: number) {
+  return new Date(t * 1000).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+  })
+}
+
+function PatternHitChips({ hits, prefs }: { hits: CachedPatternHit[]; prefs: PatternPrefs }) {
   if (!hits.length) return null
   const show = hits.slice(0, 4)
   const extra = hits.length - show.length
   return (
     <div className="mt-1 flex flex-wrap gap-1 pl-0">
-      {show.map((h) => (
-        <span
-          key={h.name}
-          title={`${h.name} · ${h.bias} · ${Math.round(h.confidence * 100)}%`}
-          className={`inline-flex max-w-[9.5rem] items-center truncate rounded border px-1.5 py-0.5 text-[9px] font-semibold ${biasChipClass(h.bias)}`}
-        >
-          ★ {h.name}
-        </span>
-      ))}
+      {show.map((h) => {
+        const starred = isStarredOverviewHit(h.name, prefs)
+        const custom = isCustomOverviewHit(h.name, prefs)
+        const prefix = starred ? '★ ' : custom ? 'My ' : ''
+        const when = formatHitDate(h.endT)
+        return (
+          <span
+            key={h.name}
+            title={`${h.name} · ${h.bias} · ${when} · ${Math.round(h.confidence * 100)}% conf.`}
+            className={`inline-flex max-w-[11rem] items-center truncate rounded border px-1.5 py-0.5 text-[9px] font-semibold ${
+              custom && !starred
+                ? 'border-teal-400/60 bg-teal-50 text-teal-900 dark:bg-teal-950/40 dark:text-teal-100'
+                : biasChipClass(h.bias)
+            }`}
+          >
+            {prefix}
+            {h.name}
+            <span className="ml-1 font-normal opacity-75">· {when}</span>
+          </span>
+        )
+      })}
       {extra > 0 && (
         <span className="rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[9px] text-[var(--color-ink-soft)]">
           +{extra}
@@ -55,7 +80,7 @@ export function SectorTable({ snapshot }: Props) {
   const [copiedSectorStars, setCopiedSectorStars] = useState<string | null>(null)
   const [copiedIndustry, setCopiedIndustry] = useState<string | null>(null)
   const [chartStock, setChartStock] = useState<{ ticker: string; name: string } | null>(null)
-  const { prefs, starredHitsFor } = usePatternPrefs()
+  const { prefs, overviewHitsFor, hasOverviewWatch } = usePatternPrefs()
 
   const starCount = useMemo(
     () => snapshot.stocks.filter((s) => s.star).length,
@@ -123,7 +148,7 @@ export function SectorTable({ snapshot }: Props) {
   }, [industries, expanded, stocksOnly, starOnly, searching])
 
   const { scanning: patternScanning, done: patternDone, total: patternTotal } =
-    useIndustryPatternScan(visibleTickers, prefs.starredNames.length > 0)
+    useIndustryPatternScan(visibleTickers, hasOverviewWatch)
 
   const selectSector = (name: string | null) => {
     setSectorFilter(name)
@@ -357,18 +382,17 @@ export function SectorTable({ snapshot }: Props) {
           </span>
         ))}
         <div className="ml-auto flex flex-wrap gap-2">
-          {prefs.starredNames.length === 0 ? (
+          {!hasOverviewWatch ? (
             <span className="self-center text-[10px] text-[var(--color-ink-soft)]">
-              Star patterns in a stock chart to show ★ results here
+              Star patterns or create My Patterns — hits show as chips under stock names
             </span>
           ) : patternScanning ? (
             <span className="self-center text-[10px] font-medium text-amber-700 dark:text-amber-300">
-              Scanning ★ patterns… {patternDone}/{patternTotal}
+              Scanning patterns ({scanWindowLabel(prefs.scanWindow)})… {patternDone}/{patternTotal}
             </span>
           ) : (
             <span className="self-center text-[10px] text-[var(--color-ink-soft)]">
-              {prefs.starredNames.length} starred pattern
-              {prefs.starredNames.length === 1 ? '' : 's'} · chips under stock names
+              Watching patterns · {scanWindowLabel(prefs.scanWindow)} window · chips when hit
             </span>
           )}
           <button
@@ -458,7 +482,8 @@ export function SectorTable({ snapshot }: Props) {
                 }
                 starsCopied={copiedIndustry === ind.name}
                 onOpenChart={(ticker, name) => setChartStock({ ticker, name })}
-                starredHitsFor={starredHitsFor}
+                overviewHitsFor={overviewHitsFor}
+                prefs={prefs}
               />
             ))}
             {!industries.length && (
@@ -521,7 +546,8 @@ function IndustryRows({
   onCopyStars,
   starsCopied,
   onOpenChart,
-  starredHitsFor,
+  overviewHitsFor,
+  prefs,
 }: {
   ind: IndustryMetrics
   open: boolean
@@ -531,7 +557,8 @@ function IndustryRows({
   onCopyStars: () => void
   starsCopied: boolean
   onOpenChart: (ticker: string, name: string) => void
-  starredHitsFor: (ticker: string) => CachedPatternHit[]
+  overviewHitsFor: (ticker: string) => CachedPatternHit[]
+  prefs: PatternPrefs
 }) {
   const cycle = CYCLE_LABEL[ind.cycle]
   const mood = MOOD_LABEL[ind.mood]
@@ -610,7 +637,7 @@ function IndustryRows({
       )}
       {open &&
         ind.stocks.map((s) => {
-          const patternHits = starredHitsFor(s.ticker)
+          const patternHits = overviewHitsFor(s.ticker)
           return (
           <tr key={s.ticker} className="border-t border-[var(--color-border)]/60 bg-[var(--color-muted)]/40">
             <td className="px-2 py-2 pl-8">
@@ -633,7 +660,7 @@ function IndustryRows({
                   | {s.ticker}
                 </button>
               </div>
-              <StarredPatternChips hits={patternHits} />
+              <PatternHitChips hits={patternHits} prefs={prefs} />
             </td>
             <td className="px-2 tabular-nums">{s.weight.toFixed(2)}</td>
             <td className="px-2">

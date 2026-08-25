@@ -1,4 +1,5 @@
 import type { PatternBias } from './patterns/types'
+import type { PatternScanWindow } from './patterns/scanWindow'
 
 export type CachedPatternHit = {
   name: string
@@ -10,6 +11,8 @@ export type CachedPatternHit = {
 export type TickerPatternCache = {
   updatedAt: number
   hits: CachedPatternHit[]
+  scanWindow?: PatternScanWindow
+  asOf?: number | null
 }
 
 const KEY = 'asx-pattern-hits-v1'
@@ -36,9 +39,18 @@ export function getTickerPatternHits(ticker: string): TickerPatternCache | null 
   return readAll()[ticker.toUpperCase()] ?? null
 }
 
-export function setTickerPatternHits(ticker: string, hits: CachedPatternHit[]) {
+export function setTickerPatternHits(
+  ticker: string,
+  hits: CachedPatternHit[],
+  meta?: { scanWindow?: PatternScanWindow; asOf?: number | null },
+) {
   const all = readAll()
-  all[ticker.toUpperCase()] = { updatedAt: Date.now(), hits }
+  all[ticker.toUpperCase()] = {
+    updatedAt: Date.now(),
+    hits,
+    scanWindow: meta?.scanWindow,
+    asOf: meta?.asOf ?? null,
+  }
   writeAll(all)
 }
 

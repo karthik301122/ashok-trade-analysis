@@ -2,15 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchYahooOhlc } from '../../lib/yahoo'
 import { detectAllCustomRules, filterHitsByWindow, scanPatterns } from '../../lib/patterns'
 import { getTickerPatternHits } from '../../lib/patternHitsCache'
+import { hasOverviewPatternWatch } from '../../lib/overviewPatternHits'
 import { usePatternPrefs } from './PatternPrefsContext'
 
 const CONCURRENCY = 2
-/** Re-scan if older than 12h */
+/** Re-scan if older than 12h or scan window changed */
 const STALE_MS = 12 * 60 * 60 * 1000
 
 /**
  * When industries expand, quietly scan visible tickers for patterns
- * so starred results can show next to stock names.
+ * so starred + My Pattern hits show on the Sector Table overview.
  */
 export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
   const { rememberHits, prefs } = usePatternPrefs()
@@ -22,7 +23,8 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
 
   useEffect(() => {
     const list = tickerKey ? tickerKey.split(',') : []
-    if (!enabled || prefs.starredNames.length === 0 || list.length === 0) {
+    const watch = hasOverviewPatternWatch(prefs)
+    if (!enabled || !watch || list.length === 0) {
       setScanning(false)
       setDone(0)
       setTotal(0)
@@ -33,7 +35,11 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
     const now = Date.now()
     const need = list.filter((t) => {
       const cached = getTickerPatternHits(t)
-      return !cached || now - cached.updatedAt > STALE_MS
+      return (
+        !cached ||
+        now - cached.updatedAt > STALE_MS ||
+        cached.scanWindow !== prefs.scanWindow
+      )
     })
 
     if (!need.length) {
@@ -71,6 +77,7 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
                 endT: h.endT,
                 confidence: h.confidence,
               })),
+              { scanWindow: prefs.scanWindow, asOf: result.asOf },
             )
           }
         } catch {
@@ -89,7 +96,7 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
     return () => {
       cancelled = true
     }
-  }, [tickerKey, enabled, prefs.starredNames.length, prefs.customPatterns, prefs.scanWindow, rememberHits])
+  }, [tickerKey, enabled, prefs, rememberHits])
 
   return { scanning, done, total }
 }

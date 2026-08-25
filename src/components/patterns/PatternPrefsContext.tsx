@@ -27,6 +27,10 @@ import {
   type CachedPatternHit,
   type TickerPatternCache,
 } from '../../lib/patternHitsCache'
+import {
+  hasOverviewPatternWatch,
+  resolveOverviewHits,
+} from '../../lib/overviewPatternHits'
 
 type Ctx = {
   prefs: PatternPrefs
@@ -45,8 +49,16 @@ type Ctx = {
   setScanWindow: (window: PatternScanWindow) => void
   /** Live map of ticker → last scan hits (memory + localStorage) */
   hitsByTicker: Map<string, TickerPatternCache>
-  rememberHits: (ticker: string, hits: CachedPatternHit[]) => void
+  rememberHits: (
+    ticker: string,
+    hits: CachedPatternHit[],
+    meta?: { scanWindow?: PatternScanWindow; asOf?: number | null },
+  ) => void
+  /** Hits for starred + My Patterns on Sector Table overview */
+  overviewHitsFor: (ticker: string) => CachedPatternHit[]
+  /** @deprecated use overviewHitsFor */
   starredHitsFor: (ticker: string) => CachedPatternHit[]
+  hasOverviewWatch: boolean
 }
 
 const PatternPrefsContext = createContext<Ctx | null>(null)
@@ -101,53 +113,40 @@ export function PatternPrefsProvider({
     setPrefs((p) => setPatternScanWindow(p, scanWindow))
   }, [])
 
-  const rememberHits = useCallback((ticker: string, hits: CachedPatternHit[]) => {
-    setTickerPatternHits(ticker, hits)
-    setHitsByTicker((prev) => {
-      const next = new Map(prev)
-      next.set(ticker.toUpperCase(), { updatedAt: Date.now(), hits })
-      return next
-    })
-  }, [])
+  const rememberHits = useCallback(
+    (
+      ticker: string,
+      hits: CachedPatternHit[],
+      meta?: { scanWindow?: PatternScanWindow; asOf?: number | null },
+    ) => {
+      setTickerPatternHits(ticker, hits, meta)
+      setHitsByTicker((prev) => {
+        const next = new Map(prev)
+        next.set(ticker.toUpperCase(), {
+          updatedAt: Date.now(),
+          hits,
+          scanWindow: meta?.scanWindow,
+          asOf: meta?.asOf ?? null,
+        })
+        return next
+      })
+    },
+    [],
+  )
 
-  const starredHitsFor = useCallback(
+  const overviewHitsFor = useCallback(
     (ticker: string): CachedPatternHit[] => {
       const key = ticker.toUpperCase()
       const cached = hitsByTicker.get(key) ?? getTickerPatternHits(key)
       if (!cached?.hits?.length) return []
-
-      const starred = new Set(prefs.starredNames)
-      const customByBasedOn = new Map(
-        prefs.customPatterns
-          .filter((c) => c.basedOn && starred.has(c.name))
-          .map((c) => [c.basedOn as string, c]),
-      )
-
-      const out: CachedPatternHit[] = []
-      const seen = new Set<string>()
-
-      for (const h of cached.hits) {
-        if (starred.has(h.name) && !seen.has(h.name)) {
-          out.push(h)
-          seen.add(h.name)
-        }
-        const custom = customByBasedOn.get(h.name)
-        if (custom && !seen.has(custom.name)) {
-          out.push({
-            name: custom.name,
-            bias: custom.bias,
-            endT: h.endT,
-            confidence: h.confidence,
-          })
-          seen.add(custom.name)
-        }
-      }
-
-      // Custom rule hits are already stored under the custom name
-      return out.sort((a, b) => b.endT - a.endT)
+      return resolveOverviewHits(cached.hits, prefs)
     },
-    [hitsByTicker, prefs.starredNames, prefs.customPatterns],
+    [hitsByTicker, prefs],
   )
+
+  const starredHitsFor = overviewHitsFor
+
+  const hasOverviewWatch = hasOverviewPatternWatch(prefs)
 
   const value = useMemo<Ctx>(
     () => ({
@@ -161,7 +160,9 @@ export function PatternPrefsProvider({
       setScanWindow,
       hitsByTicker,
       rememberHits,
+      overviewHitsFor,
       starredHitsFor,
+      hasOverviewWatch,
     }),
     [
       prefs,
@@ -171,7 +172,9 @@ export function PatternPrefsProvider({
       deleteCustom,
       hitsByTicker,
       rememberHits,
+      overviewHitsFor,
       starredHitsFor,
+      hasOverviewWatch,
       setScanWindow,
     ],
   )

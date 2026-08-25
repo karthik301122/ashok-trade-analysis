@@ -102,6 +102,7 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
         endT: h.endT,
         confidence: h.confidence,
       })),
+      { scanWindow: prefs.scanWindow, asOf: scanResult.asOf },
     )
   }, [bars, scanResult, prefs.customPatterns, prefs.scanWindow, rememberHits, ticker])
 

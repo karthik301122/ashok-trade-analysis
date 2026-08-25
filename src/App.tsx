@@ -9,6 +9,7 @@ import { IndustryAnalytics } from './components/IndustryAnalytics'
 import { BreadthAnalysis } from './components/BreadthAnalysis'
 import { AltAssetsPanel } from './components/AltAssetsPanel'
 import { AlertsPanel } from './components/AlertsPanel'
+import { SpecialPatternsPanel } from './components/SpecialPatternsPanel'
 import { VolumeScan } from './components/VolumeScan'
 import { LoginPage } from './components/LoginPage'
 import { COMMODITIES, CRYPTO } from './data/altAssets'
@@ -24,7 +25,7 @@ export default function App() {
   const [authChecking, setAuthChecking] = useState(true)
   const [authRequired, setAuthRequired] = useState(false)
   const [user, setUser] = useState<string | null>(null)
-  const [page, setPage] = useState<'sector' | 'breadth' | 'alerts'>('sector')
+  const [page, setPage] = useState<'sector' | 'breadth' | 'alerts' | 'special-patterns'>('sector')
   const [view, setView] = useState<ViewId>('sector-table')
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
@@ -272,6 +273,8 @@ export default function App() {
 
             {page === 'alerts' ? (
               <AlertsPanel />
+            ) : page === 'special-patterns' ? (
+              <SpecialPatternsPanel snapshot={snapshot} />
             ) : page === 'breadth' ? (
               <BreadthAnalysis snapshot={snapshot} />
             ) : (
