@@ -4,6 +4,10 @@ import {
   type CustomRuleSet,
 } from './patterns/customRules'
 import {
+  normalizeCandleShape,
+  type CandleShapeSpec,
+} from './patterns/candleShape'
+import {
   DEFAULT_PATTERN_SCAN_WINDOW,
   parsePatternScanWindow,
   type PatternScanWindow,
@@ -16,8 +20,10 @@ export type CustomPattern = {
   description: string
   /** Reuse an existing catalog detector under this custom name */
   basedOn: string | null
-  /** Private condition rules (AND/OR). Mutually preferred over basedOn when set. */
+  /** Private condition rules (AND/OR). */
   rules: CustomRuleSet | null
+  /** Candle geometry builder (daily/weekly). Preferred over rules when set. */
+  candleShape: CandleShapeSpec | null
   createdAt: number
 }
 
@@ -52,6 +58,7 @@ function parseCustom(p: unknown): CustomPattern | null {
     description: typeof o.description === 'string' ? o.description : '',
     basedOn: typeof o.basedOn === 'string' && o.basedOn.trim() ? o.basedOn.trim() : null,
     rules: normalizeRuleSet(o.rules),
+    candleShape: normalizeCandleShape(o.candleShape),
     createdAt: typeof o.createdAt === 'number' ? o.createdAt : Date.now(),
   }
 }
@@ -94,13 +101,14 @@ export function addCustomPattern(
     description: string
     basedOn: string | null
     rules?: CustomRuleSet | null
+    candleShape?: CandleShapeSpec | null
   },
 ): PatternPrefs {
   const name = input.name.trim()
   if (!name) return prefs
-  const rules = normalizeRuleSet(input.rules)
-  // Prefer rules over alias when both provided
-  const basedOn = rules ? null : input.basedOn?.trim() || null
+  const candleShape = normalizeCandleShape(input.candleShape)
+  const rules = candleShape ? null : normalizeRuleSet(input.rules)
+  const basedOn = candleShape || rules ? null : input.basedOn?.trim() || null
   const custom: CustomPattern = {
     id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name,
@@ -108,6 +116,7 @@ export function addCustomPattern(
     description: input.description.trim(),
     basedOn,
     rules,
+    candleShape,
     createdAt: Date.now(),
   }
   return { ...prefs, customPatterns: [...prefs.customPatterns, custom] }

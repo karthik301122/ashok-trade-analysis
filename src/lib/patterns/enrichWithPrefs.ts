@@ -1,6 +1,7 @@
 import type { CustomPattern, PatternPrefs } from '../patternPrefs'
 import { getTickerWeeklySpecial } from '../specialWeeklyCache'
 import { PATTERN_CATALOG } from './catalog'
+import { detectCandleShape } from './candleShape'
 import { detectCustomRule } from './customRules'
 import {
   filterHitsByWindow,
@@ -121,7 +122,15 @@ function resolveCustomHit(
 ): PatternHit | null {
   const asOf = bars?.length ? bars[bars.length - 1].t : null
   let hit: PatternHit | null = null
-  if (c.rules?.conditions?.length && bars?.length) {
+  if (c.candleShape && bars?.length) {
+    hit = detectCandleShape(bars, {
+      id: c.id,
+      name: c.name,
+      bias: c.bias,
+      description: c.description,
+      candleShape: c.candleShape,
+    })
+  } else if (c.rules?.conditions?.length && bars?.length) {
     hit = detectCustomRule(bars, {
       id: c.id,
       name: c.name,
@@ -186,8 +195,8 @@ function buildCustomCategory(
     analyzed: customs.length,
     note:
       customs.length === 0
-        ? 'Create private rules (RSI, RVOL, MAs…) or aliases — only you see them'
-        : 'Private to you · condition rules or catalog aliases',
+        ? 'Create private rules, candle shapes, or aliases — only you see them'
+        : 'Private to you · rules, candle shapes, or catalog aliases',
   }
 }
 

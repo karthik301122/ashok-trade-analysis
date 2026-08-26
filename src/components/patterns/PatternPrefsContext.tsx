@@ -19,6 +19,7 @@ import {
 } from '../../lib/patternPrefs'
 import type { PatternBias } from '../../lib/patterns'
 import type { CustomRuleSet } from '../../lib/patterns/customRules'
+import type { CandleShapeSpec } from '../../lib/patterns/candleShape'
 import type { PatternScanWindow } from '../../lib/patterns/scanWindow'
 import {
   getManyTickerPatternHits,
@@ -46,6 +47,7 @@ type Ctx = {
     description: string
     basedOn: string | null
     rules?: CustomRuleSet | null
+    candleShape?: CandleShapeSpec | null
   }) => void
   deleteCustom: (id: string) => void
   customPatterns: CustomPattern[]
@@ -122,6 +124,7 @@ export function PatternPrefsProvider({
       description: string
       basedOn: string | null
       rules?: CustomRuleSet | null
+      candleShape?: CandleShapeSpec | null
     }) => {
       setPrefs((p) => addCustomPattern(p, input))
     },

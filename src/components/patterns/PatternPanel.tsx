@@ -16,9 +16,19 @@ import {
   RULE_METRIC_OPTIONS,
   RULE_OP_OPTIONS,
   PATTERN_SCAN_WINDOWS,
+  CANDLE_SHAPE_PRESETS,
+  candlePresetById,
+  defaultCandleShape,
+  describeCandleShape,
   describeRuleSet,
   newCondition,
   scanWindowLabel,
+  type BodyPosition,
+  type CandleContext,
+  type CandleDirection,
+  type CandleGeometry,
+  type CandleShapeSpec,
+  type CandleTimeframe,
 } from '../../lib/patterns'
 import { usePatternPrefs } from './PatternPrefsContext'
 
@@ -35,7 +45,7 @@ type Props = {
   onSelectPattern: (hit: PatternHit) => void
 }
 
-type DetectMode = 'rules' | 'alias' | 'none'
+type DetectMode = 'rules' | 'candle' | 'alias' | 'none'
 
 function biasClass(bias: string) {
   if (bias === 'bullish') return 'text-emerald-600'
@@ -72,6 +82,7 @@ export function PatternPanel({
   const [detectMode, setDetectMode] = useState<DetectMode>('rules')
   const [matchMode, setMatchMode] = useState<'all' | 'any'>('all')
   const [conditions, setConditions] = useState<RuleCondition[]>(() => [newCondition('rsi')])
+  const [candleShape, setCandleShape] = useState<CandleShapeSpec>(() => defaultCandleShape('hammer'))
 
   const active = categories.find((c) => c.id === activeCategory) ?? null
   const totalHits = categories
@@ -91,7 +102,29 @@ export function PatternPanel({
     setDetectMode('rules')
     setMatchMode('all')
     setConditions([newCondition('rsi')])
+    setCandleShape(defaultCandleShape('hammer'))
     setShowCreate(false)
+  }
+
+  const applyPreset = (presetId: string) => {
+    const preset = candlePresetById(presetId)
+    if (!preset) return
+    setCandleShape((prev) => ({
+      ...prev,
+      presetId: preset.id,
+      geometry: { ...preset.geometry },
+    }))
+    setCBias(preset.bias)
+    if (!cName.trim()) setCName(preset.label)
+    if (!cDesc.trim()) setCDesc(preset.description)
+  }
+
+  const patchGeometry = (patch: Partial<CandleGeometry>) => {
+    setCandleShape((prev) => ({
+      ...prev,
+      presetId: 'custom',
+      geometry: { ...prev.geometry, ...patch },
+    }))
   }
 
   const updateCondition = (id: string, patch: Partial<RuleCondition>) => {
@@ -123,6 +156,7 @@ export function PatternPanel({
         detectMode === 'rules' && conditions.length > 0
           ? { match: matchMode, conditions }
           : null,
+      candleShape: detectMode === 'candle' ? candleShape : null,
     })
     resetForm()
     onSelectCategory('custom')
@@ -247,6 +281,7 @@ export function PatternPanel({
                     {(
                       [
                         ['rules', 'My conditions (RSI, RVOL, MAs…)'],
+                        ['candle', 'Candle shape builder'],
                         ['alias', 'Reuse a built-in scanner'],
                         ['none', 'Name only (no auto-detect)'],
                       ] as const
@@ -265,6 +300,195 @@ export function PatternPanel({
                       </label>
                     ))}
                   </fieldset>
+
+                  {detectMode === 'candle' && (
+                    <div className="space-y-2 rounded-md border border-violet-300/60 bg-violet-50/40 p-2 dark:border-violet-800 dark:bg-violet-950/20">
+                      <label className="block text-[10px] text-[var(--color-ink-soft)]">
+                        Preset
+                        <select
+                          value={candleShape.presetId}
+                          onChange={(e) => applyPreset(e.target.value)}
+                          className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-1 text-[11px]"
+                        >
+                          {CANDLE_SHAPE_PRESETS.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        <label className="text-[10px] text-[var(--color-ink-soft)]">
+                          Timeframe
+                          <select
+                            value={candleShape.timeframe}
+                            onChange={(e) =>
+                              setCandleShape((prev) => ({
+                                ...prev,
+                                timeframe: e.target.value as CandleTimeframe,
+                              }))
+                            }
+                            className="ml-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
+                          >
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                          </select>
+                        </label>
+                        <label className="text-[10px] text-[var(--color-ink-soft)]">
+                          Candles
+                          <select
+                            value={candleShape.candleCount}
+                            onChange={(e) =>
+                              setCandleShape((prev) => ({
+                                ...prev,
+                                candleCount: Number(e.target.value) === 2 ? 2 : 1,
+                              }))
+                            }
+                            className="ml-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
+                          >
+                            <option value={1}>1 candle</option>
+                            <option value={2}>2 consecutive</option>
+                          </select>
+                        </label>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <label className="text-[9px] text-[var(--color-ink-soft)]">
+                          Lower wick ≥ × body
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.5}
+                            value={candleShape.geometry.minLowerWickBodyMult}
+                            onChange={(e) =>
+                              patchGeometry({ minLowerWickBodyMult: Number(e.target.value) })
+                            }
+                            className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
+                          />
+                        </label>
+                        <label className="text-[9px] text-[var(--color-ink-soft)]">
+                          Upper wick ≥ × body
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.5}
+                            value={candleShape.geometry.minUpperWickBodyMult}
+                            onChange={(e) =>
+                              patchGeometry({ minUpperWickBodyMult: Number(e.target.value) })
+                            }
+                            className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
+                          />
+                        </label>
+                        <label className="text-[9px] text-[var(--color-ink-soft)]">
+                          Max upper wick (% range)
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            step={1}
+                            value={Math.round(candleShape.geometry.maxUpperWickRangeFrac * 100)}
+                            onChange={(e) =>
+                              patchGeometry({
+                                maxUpperWickRangeFrac: Number(e.target.value) / 100,
+                              })
+                            }
+                            className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
+                          />
+                        </label>
+                        <label className="text-[9px] text-[var(--color-ink-soft)]">
+                          Max lower wick (% range)
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            step={1}
+                            value={Math.round(candleShape.geometry.maxLowerWickRangeFrac * 100)}
+                            onChange={(e) =>
+                              patchGeometry({
+                                maxLowerWickRangeFrac: Number(e.target.value) / 100,
+                              })
+                            }
+                            className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
+                          />
+                        </label>
+                        <label className="text-[9px] text-[var(--color-ink-soft)]">
+                          Max body (% range)
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            step={1}
+                            value={Math.round(candleShape.geometry.maxBodyRangeFrac * 100)}
+                            onChange={(e) =>
+                              patchGeometry({ maxBodyRangeFrac: Number(e.target.value) / 100 })
+                            }
+                            className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
+                          />
+                        </label>
+                        <label className="text-[9px] text-[var(--color-ink-soft)]">
+                          Min body (% range)
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={1}
+                            value={Math.round(candleShape.geometry.minBodyRangeFrac * 100)}
+                            onChange={(e) =>
+                              patchGeometry({ minBodyRangeFrac: Number(e.target.value) / 100 })
+                            }
+                            className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
+                          />
+                        </label>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <label className="text-[10px] text-[var(--color-ink-soft)]">
+                          Body position
+                          <select
+                            value={candleShape.geometry.bodyPosition}
+                            onChange={(e) =>
+                              patchGeometry({ bodyPosition: e.target.value as BodyPosition })
+                            }
+                            className="ml-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
+                          >
+                            <option value="any">Anywhere</option>
+                            <option value="near_top">Near top</option>
+                            <option value="near_bottom">Near bottom</option>
+                          </select>
+                        </label>
+                        <label className="text-[10px] text-[var(--color-ink-soft)]">
+                          Direction
+                          <select
+                            value={candleShape.geometry.direction}
+                            onChange={(e) =>
+                              patchGeometry({ direction: e.target.value as CandleDirection })
+                            }
+                            className="ml-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
+                          >
+                            <option value="either">Either</option>
+                            <option value="bullish">Bullish</option>
+                            <option value="bearish">Bearish</option>
+                          </select>
+                        </label>
+                        <label className="text-[10px] text-[var(--color-ink-soft)]">
+                          Context
+                          <select
+                            value={candleShape.geometry.context}
+                            onChange={(e) =>
+                              patchGeometry({ context: e.target.value as CandleContext })
+                            }
+                            className="ml-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
+                          >
+                            <option value="any">Any</option>
+                            <option value="after_decline">After decline</option>
+                            <option value="after_rally">After rally</option>
+                          </select>
+                        </label>
+                      </div>
+                      <p className="text-[9px] text-[var(--color-ink-soft)]">
+                        {describeCandleShape(candleShape)}. Scans last ~16 completed bars/weeks. Set
+                        a wick multiple to 0 to turn that rule off; max wick % = 100 means no max.
+                      </p>
+                    </div>
+                  )}
 
                   {detectMode === 'rules' && (
                     <div className="space-y-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
@@ -380,11 +604,13 @@ export function PatternPanel({
                     >
                       <span>
                         <span className="font-semibold text-[var(--color-ink)]">{c.name}</span>
-                        {c.rules?.conditions?.length
-                          ? ` · ${describeRuleSet(c.rules)}`
-                          : c.basedOn
-                            ? ` ← ${c.basedOn}`
-                            : ' · name only'}
+                        {c.candleShape
+                          ? ` · ${describeCandleShape(c.candleShape)}`
+                          : c.rules?.conditions?.length
+                            ? ` · ${describeRuleSet(c.rules)}`
+                            : c.basedOn
+                              ? ` ← ${c.basedOn}`
+                              : ' · name only'}
                       </span>
                       <button
                         type="button"

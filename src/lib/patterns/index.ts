@@ -131,3 +131,20 @@ export {
   type RuleMetric,
   type RuleOp,
 } from './customRules'
+export {
+  CANDLE_SHAPE_PRESETS,
+  candlePresetById,
+  defaultCandleGeometry,
+  defaultCandleShape,
+  describeCandleShape,
+  detectAllCandleShapes,
+  detectCandleShape,
+  normalizeCandleShape,
+  type BodyPosition,
+  type CandleContext,
+  type CandleDirection,
+  type CandleGeometry,
+  type CandlePreset,
+  type CandleShapeSpec,
+  type CandleTimeframe,
+} from './candleShape'

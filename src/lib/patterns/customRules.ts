@@ -1,5 +1,9 @@
 import { ema, rsi, sma, type OhlcBar } from '../yahoo'
 import type { PatternBias, PatternHit } from './types'
+import {
+  detectAllCandleShapes,
+  type CandleShapeSpec,
+} from './candleShape'
 
 export type RuleMetric =
   | 'rsi'
@@ -183,7 +187,14 @@ export function detectCustomRule(
 
 export function detectAllCustomRules(
   bars: OhlcBar[],
-  customs: { id: string; name: string; bias: PatternBias; description?: string; rules?: CustomRuleSet | null }[],
+  customs: {
+    id: string
+    name: string
+    bias: PatternBias
+    description?: string
+    rules?: CustomRuleSet | null
+    candleShape?: CandleShapeSpec | null
+  }[],
 ): PatternHit[] {
   const hits: PatternHit[] = []
   for (const c of customs) {
@@ -197,6 +208,7 @@ export function detectAllCustomRules(
     })
     if (hit) hits.push(hit)
   }
+  hits.push(...detectAllCandleShapes(bars, customs))
   return hits
 }
 

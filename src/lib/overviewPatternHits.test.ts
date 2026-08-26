@@ -20,6 +20,7 @@ const prefs: PatternPrefs = {
       description: '',
       basedOn: null,
       rules: { match: 'all', conditions: [{ id: '1', metric: 'rvol', op: 'gte', value: 2 }] },
+      candleShape: null,
       createdAt: 1,
     },
     {
@@ -29,6 +30,7 @@ const prefs: PatternPrefs = {
       description: '',
       basedOn: 'Bull Flag',
       rules: null,
+      candleShape: null,
       createdAt: 1,
     },
   ],

@@ -15,7 +15,7 @@ import {
 import { getTickerWeeklySpecial } from './specialWeeklyCache'
 
 export function isDetectableCustom(c: CustomPattern): boolean {
-  return Boolean(c.rules?.conditions?.length || c.basedOn)
+  return Boolean(c.rules?.conditions?.length || c.basedOn || c.candleShape)
 }
 
 const CHART_CATALOG_NAMES = new Set(PATTERN_CATALOG.map((p) => p.name))
