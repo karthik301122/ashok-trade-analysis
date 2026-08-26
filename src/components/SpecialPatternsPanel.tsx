@@ -13,7 +13,7 @@ import { aggregateWeeklyHits, type WeeklySpecialHit } from '../lib/specialWeekly
 import { copyTickersToTradingView } from '../lib/tradingview'
 import { useKarthikWeeklyScan } from './patterns/useKarthikWeeklyScan'
 import { usePatternPrefs } from './patterns/PatternPrefsContext'
-import { StockChartModal } from './StockChartModal'
+import { StockChartModal, type ChartPatternFocus } from './StockChartModal'
 
 type Props = { snapshot: MarketSnapshot }
 
@@ -44,7 +44,11 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
   const [category, setCategory] = useState<string>('weekly-karthik')
   const [query, setQuery] = useState('')
   const [copied, setCopied] = useState(false)
-  const [chartStock, setChartStock] = useState<{ ticker: string; name: string } | null>(null)
+  const [chartStock, setChartStock] = useState<{
+    ticker: string
+    name: string
+    focus: ChartPatternFocus | null
+  } | null>(null)
   const { isStarred, toggleStar } = usePatternPrefs()
 
   const indexM3 = snapshot.benchmarkPerf.m3
@@ -252,14 +256,18 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
             {selected?.kind === 'weekly' ? (
               <WeeklyHitsTable
                 hits={weeklyHits}
+                patternName={selected.name}
+                patternBias={selected.bias}
                 showTightness={selected.id === 'three-weeks-tight'}
                 scanning={weeklyScanning}
-                onOpenChart={(ticker, name) => setChartStock({ ticker, name })}
+                onOpenChart={(ticker, name, focus) => setChartStock({ ticker, name, focus })}
               />
             ) : (
               <SnapshotHitsTable
                 hits={snapshotHits}
-                onOpenChart={(ticker, name) => setChartStock({ ticker, name })}
+                patternName={selected?.name ?? 'Special pattern'}
+                patternBias={selected?.bias ?? 'neutral'}
+                onOpenChart={(ticker, name, focus) => setChartStock({ ticker, name, focus })}
               />
             )}
           </div>
@@ -270,6 +278,7 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
         <StockChartModal
           ticker={chartStock.ticker}
           name={chartStock.name}
+          initialFocus={chartStock.focus}
           onClose={() => setChartStock(null)}
         />
       )}
@@ -279,18 +288,33 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
 
 function WeeklyHitsTable({
   hits,
+  patternName,
+  patternBias,
   showTightness,
   scanning,
   onOpenChart,
 }: {
   hits: WeeklySpecialHit[]
+  patternName: string
+  patternBias: SpecialPatternDef['bias']
   showTightness: boolean
   scanning: boolean
-  onOpenChart: (ticker: string, name: string) => void
+  onOpenChart: (ticker: string, name: string, focus: ChartPatternFocus) => void
 }) {
   const headers = showTightness
     ? ['Stock', 'Sector', 'Tightness', 'Pattern started', 'Bias']
     : ['Stock', 'Sector', 'Pattern started', 'Bias']
+
+  const open = (h: WeeklySpecialHit) => {
+    const startT = h.weekStartT ?? h.weekEndT ?? Math.floor(Date.now() / 1000)
+    const endT = h.weekEndT ?? startT
+    onOpenChart(h.ticker, h.name, {
+      name: patternName,
+      bias: patternBias,
+      startT,
+      endT,
+    })
+  }
 
   return (
     <table className="min-w-[640px] w-full border-collapse text-left text-xs">
@@ -321,8 +345,9 @@ function WeeklyHitsTable({
               <td className="px-3 py-2">
                 <button
                   type="button"
-                  onClick={() => onOpenChart(h.ticker, h.name)}
+                  onClick={() => open(h)}
                   className="font-semibold uppercase text-sky-700 hover:underline dark:text-sky-300"
+                  title="Open chart at this pattern hit"
                 >
                   {h.ticker}
                 </button>
@@ -352,11 +377,26 @@ function WeeklyHitsTable({
 
 function SnapshotHitsTable({
   hits,
+  patternName,
+  patternBias,
   onOpenChart,
 }: {
   hits: SpecialPatternHit[]
-  onOpenChart: (ticker: string, name: string) => void
+  patternName: string
+  patternBias: SpecialPatternDef['bias']
+  onOpenChart: (ticker: string, name: string, focus: ChartPatternFocus) => void
 }) {
+  const open = (h: SpecialPatternHit) => {
+    const endT = Math.floor(Date.now() / 1000)
+    const startT = endT - 21 * 86400
+    onOpenChart(h.ticker, h.name, {
+      name: patternName,
+      bias: patternBias,
+      startT,
+      endT,
+    })
+  }
+
   return (
     <table className="min-w-[720px] w-full border-collapse text-left text-xs">
       <thead className="sticky top-0 bg-[var(--color-muted)] text-[10px] uppercase tracking-wide text-[var(--color-ink-soft)]">
@@ -384,8 +424,9 @@ function SnapshotHitsTable({
               <td className="px-3 py-2">
                 <button
                   type="button"
-                  onClick={() => onOpenChart(h.ticker, h.name)}
+                  onClick={() => open(h)}
                   className="font-semibold uppercase text-sky-700 hover:underline dark:text-sky-300"
+                  title="Open chart highlighting this pattern"
                 >
                   {h.ticker}
                 </button>

@@ -10,6 +10,7 @@ import {
   filterHitsByWindow,
   scanWindowLabel,
   tradingViewRangeForWindow,
+  type PatternBias,
   type PatternCategoryId,
   type PatternHit,
   type OhlcBar,
@@ -19,13 +20,62 @@ import { PatternPanel } from './patterns/PatternPanel'
 import { AnnotatedPatternChart } from './patterns/AnnotatedPatternChart'
 import { usePatternPrefs } from './patterns/PatternPrefsContext'
 
+/** Open chart already zoomed/annotated to a special (or other) pattern hit. */
+export type ChartPatternFocus = {
+  name: string
+  bias: PatternBias
+  startT: number
+  endT: number
+}
+
 type Props = {
   ticker: string
   name?: string
   onClose: () => void
+  /** When set, open on annotated chart at this hit instead of TradingView. */
+  initialFocus?: ChartPatternFocus | null
 }
 
-export function StockChartModal({ ticker, name, onClose }: Props) {
+function nearestBar(bars: OhlcBar[], t: number): OhlcBar {
+  let best = bars[0]
+  let bestDist = Math.abs(bars[0].t - t)
+  for (const b of bars) {
+    const d = Math.abs(b.t - t)
+    if (d < bestDist) {
+      best = b
+      bestDist = d
+    }
+  }
+  return best
+}
+
+function hitFromFocus(bars: OhlcBar[], focus: ChartPatternFocus): PatternHit {
+  const start = nearestBar(bars, focus.startT)
+  const end = nearestBar(bars, focus.endT)
+  return {
+    id: `focus-${focus.name}-${focus.startT}-${focus.endT}`,
+    category: 'custom',
+    name: focus.name,
+    bias: focus.bias,
+    startT: start.t,
+    endT: end.t,
+    confidence: 0.85,
+    points: [
+      { time: start.t, price: start.c },
+      { time: end.t, price: end.c },
+    ],
+    note: 'Special pattern hit',
+  }
+}
+
+function barsAroundHit(all: OhlcBar[], hit: PatternHit): OhlcBar[] {
+  const from = Math.min(hit.startT, hit.endT) - 60 * 86400
+  const to = Math.max(hit.startT, hit.endT) + 20 * 86400
+  const sliced = all.filter((b) => b.t >= from && b.t <= to)
+  return sliced.length >= 10 ? sliced : all.slice(-180)
+}
+
+export function StockChartModal({ ticker, name, onClose, initialFocus = null }: Props) {
   const symbol = toTradingViewSymbol(ticker)
   const tvUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(symbol)}`
   const { prefs, rememberHits, setScanWindow } = usePatternPrefs()
@@ -35,7 +85,7 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<PatternCategoryId | null>(null)
   const [selected, setSelected] = useState<PatternHit | null>(null)
-  const [chartMode, setChartMode] = useState<'tv' | 'pattern'>('tv')
+  const [chartMode, setChartMode] = useState<'tv' | 'pattern'>(initialFocus ? 'pattern' : 'tv')
   const [fund, setFund] = useState<{
     pe: number | null
     forwardPe: number | null
@@ -49,8 +99,16 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
     setError(null)
     setSelected(null)
     setActiveCategory(null)
-    setChartMode('tv')
+    setChartMode(initialFocus ? 'pattern' : 'tv')
     setFund(null)
+    const focusSnapshot = initialFocus
+      ? {
+          name: initialFocus.name,
+          bias: initialFocus.bias,
+          startT: initialFocus.startT,
+          endT: initialFocus.endT,
+        }
+      : null
     ;(async () => {
       const [ohlc, fundRes] = await Promise.all([
         fetchYahooOhlc(ticker),
@@ -74,12 +132,22 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
         return
       }
       setBars(ohlc)
+      if (focusSnapshot) {
+        setSelected(hitFromFocus(ohlc, focusSnapshot))
+        setChartMode('pattern')
+      }
       setLoading(false)
     })()
     return () => {
       cancelled = true
     }
-  }, [ticker])
+  }, [
+    ticker,
+    initialFocus?.name,
+    initialFocus?.bias,
+    initialFocus?.startT,
+    initialFocus?.endT,
+  ])
 
   const scanResult = useMemo(() => {
     if (!bars?.length) return null
@@ -111,14 +179,22 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
 
   const categories = enrichScanWithPrefs(baseCategories, prefs, bars, prefs.scanWindow, ticker)
 
-  const chartBars = useMemo(
+  const windowBars = useMemo(
     () => (bars?.length ? filterBarsByWindow(bars, prefs.scanWindow) : null),
     [bars, prefs.scanWindow],
   )
+  const chartBars = useMemo(() => {
+    if (!bars?.length) return null
+    if (selected && chartMode === 'pattern') return barsAroundHit(bars, selected)
+    return windowBars
+  }, [bars, selected, chartMode, windowBars])
+
   const tvRange = tradingViewRangeForWindow(prefs.scanWindow)
 
   useEffect(() => {
     if (!selected) return
+    // Keep external special-pattern focus even if it isn't in the chart scan categories
+    if (selected.id.startsWith('focus-')) return
     const stillVisible = categories.some((c) => c.hits.some((h) => h.id === selected.id))
     if (!stillVisible) {
       setSelected(null)
@@ -216,7 +292,7 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
             />
           ) : (
             <AnnotatedPatternChart
-              key={`pat-${ticker}-${prefs.scanWindow}`}
+              key={`pat-${ticker}-${selected?.id ?? 'none'}`}
               bars={chartBars}
               selected={selected}
             />

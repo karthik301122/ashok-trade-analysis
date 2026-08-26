@@ -20,6 +20,24 @@ type Props = {
   selected: PatternHit | null
 }
 
+function nearestBar(bars: OhlcBar[], t: number): OhlcBar | null {
+  if (!bars.length) return null
+  let best = bars[0]
+  let bestDist = Math.abs(bars[0].t - t)
+  for (const b of bars) {
+    const d = Math.abs(b.t - t)
+    if (d < bestDist) {
+      best = b
+      bestDist = d
+    }
+  }
+  return best
+}
+
+function priceAt(bars: OhlcBar[], t: number): number {
+  return nearestBar(bars, t)?.c ?? bars.at(-1)!.c
+}
+
 export function AnnotatedPatternChart({ bars, selected }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -102,15 +120,38 @@ export function AnnotatedPatternChart({ bars, selected }: Props) {
     const color =
       selected.bias === 'bullish' ? '#059669' : selected.bias === 'bearish' ? '#e11d48' : '#ca8a04'
 
+    const startBar = nearestBar(bars, selected.startT)
+    const endBar = nearestBar(bars, selected.endT)
     const pts = selected.points?.length
-      ? selected.points
-      : [{ time: selected.endT, price: bars.find((b) => b.t === selected.endT)?.c ?? bars.at(-1)!.c }]
+      ? selected.points.map((p) => ({
+          time: nearestBar(bars, p.time)?.t ?? p.time,
+          price: p.price || priceAt(bars, p.time),
+        }))
+      : [
+          {
+            time: startBar?.t ?? selected.startT,
+            price: startBar?.c ?? priceAt(bars, selected.startT),
+          },
+          {
+            time: endBar?.t ?? selected.endT,
+            price: endBar?.c ?? priceAt(bars, selected.endT),
+          },
+        ]
 
     const lineData: LineData<Time>[] = [...pts]
       .sort((a, b) => a.time - b.time)
       .map((p) => ({ time: p.time as UTCTimestamp, value: p.price }))
+    // Deduplicate identical times for lightweight-charts
+    const dedup: LineData<Time>[] = []
+    for (const p of lineData) {
+      if (dedup.length && dedup[dedup.length - 1].time === p.time) {
+        dedup[dedup.length - 1] = p
+      } else {
+        dedup.push(p)
+      }
+    }
     line.applyOptions({ color })
-    line.setData(lineData)
+    line.setData(dedup)
 
     const mid = pts.reduce((a, p) => a + p.price, 0) / pts.length
     const pl = candle.createPriceLine({
@@ -123,10 +164,16 @@ export function AnnotatedPatternChart({ bars, selected }: Props) {
     })
     priceLinesRef.current.push(pl)
 
-    chart.timeScale().setVisibleRange({
-      from: (selected.startT - 25 * 86400) as UTCTimestamp,
-      to: (selected.endT + 12 * 86400) as UTCTimestamp,
-    })
+    const fromT = Math.min(selected.startT, selected.endT) - 40 * 86400
+    const toT = Math.max(selected.startT, selected.endT) + 15 * 86400
+    try {
+      chart.timeScale().setVisibleRange({
+        from: fromT as UTCTimestamp,
+        to: toT as UTCTimestamp,
+      })
+    } catch {
+      chart.timeScale().fitContent()
+    }
   }, [selected, bars])
 
   return <div ref={wrapRef} className="h-full w-full" />
