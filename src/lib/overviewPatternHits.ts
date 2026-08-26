@@ -92,7 +92,7 @@ export function resolveStarredSpecialHitsForTicker(
     out.push({
       name: p.name,
       bias: p.bias,
-      endT: hit.weekEndT ?? Math.floor(Date.now() / 1000),
+      endT: hit.weekStartT ?? hit.weekEndT ?? Math.floor(Date.now() / 1000),
       confidence: 0.85,
     })
     seen.add(p.name)

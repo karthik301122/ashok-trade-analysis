@@ -40,7 +40,7 @@ function formatWeekDate(t: number | null) {
 }
 
 export function SpecialPatternsPanel({ snapshot }: Props) {
-  const [selectedId, setSelectedId] = useState('three-weeks-tight')
+  const [selectedId, setSelectedId] = useState('stage-2')
   const [category, setCategory] = useState<string>('weekly-karthik')
   const [query, setQuery] = useState('')
   const [copied, setCopied] = useState(false)
@@ -289,8 +289,8 @@ function WeeklyHitsTable({
   onOpenChart: (ticker: string, name: string) => void
 }) {
   const headers = showTightness
-    ? ['Stock', 'Sector', 'Tightness', 'Pattern formed', 'Bias']
-    : ['Stock', 'Sector', 'Pattern formed', 'Bias']
+    ? ['Stock', 'Sector', 'Tightness', 'Pattern started', 'Bias']
+    : ['Stock', 'Sector', 'Pattern started', 'Bias']
 
   return (
     <table className="min-w-[640px] w-full border-collapse text-left text-xs">
@@ -334,7 +334,9 @@ function WeeklyHitsTable({
                   {h.tightness != null ? `${(h.tightness * 100).toFixed(2)}%` : '—'}
                 </td>
               )}
-              <td className="px-3 py-2 tabular-nums">{formatWeekDate(h.weekEndT)}</td>
+              <td className="px-3 py-2 tabular-nums">
+                {formatWeekDate(h.weekStartT ?? h.weekEndT)}
+              </td>
               <td className="px-3 py-2">
                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
                   weekly hit
@@ -489,8 +491,9 @@ function PatternDetail({
           </p>
         ) : (
           <p className="mt-2 text-[10px] text-[var(--color-ink-soft)]">
-            Daily bars → ISO weeks (completed weeks only). Pattern formed = week ending when the
-            setup first qualified in the market, not when this app scanned.
+            Daily bars → ISO weeks (completed weeks only). Date shown = pattern{' '}
+            <em>start</em> (oldest week in the setup). All weekly patterns require Stage 2 or ≥30%
+            rally over ~13 weeks.
           </p>
         )}
       </div>

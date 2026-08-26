@@ -7,6 +7,8 @@ export type WeeklySpecialHit = {
   sector: string
   industry: string
   tightness: number | null
+  /** Pattern start (oldest week) — preferred for display */
+  weekStartT: number | null
   weekEndT: number | null
 }
 
@@ -15,7 +17,7 @@ export type TickerWeeklySpecialCache = {
   hits: WeeklySpecialHit[]
 }
 
-const KEY = 'asx-karthik-weekly-v1'
+const KEY = 'asx-karthik-weekly-v2'
 const MAX = 600
 
 function readAll(): Record<string, TickerWeeklySpecialCache> {
@@ -57,7 +59,7 @@ export function aggregateWeeklyHits(
       if (h.patternId === patternId) out.push(h)
     }
   }
-  return out.sort((a, b) => (b.weekEndT ?? 0) - (a.weekEndT ?? 0))
+  return out.sort((a, b) => (b.weekStartT ?? b.weekEndT ?? 0) - (a.weekStartT ?? a.weekEndT ?? 0))
 }
 
 export function countWeeklyHits(tickers: string[], patternId: KarthikPatternId): number {

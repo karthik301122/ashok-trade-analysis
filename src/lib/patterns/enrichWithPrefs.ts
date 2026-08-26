@@ -58,15 +58,16 @@ function buildStarredCategory(
       if (!sp || sp.kind !== 'weekly') continue
       const wh = weekly?.hits.find((h) => h.patternId === (sp.id as KarthikPatternId))
       if (!wh) continue
-      const endT = wh.weekEndT ?? 0
+      const startT = wh.weekStartT ?? wh.weekEndT ?? 0
+      const endT = wh.weekEndT ?? startT
       const asOf = bars?.length ? bars[bars.length - 1].t : endT
       const hit: PatternHit = {
-        id: `special-${sp.id}-${endT}`,
+        id: `special-${sp.id}-${startT}`,
         category: 'starred',
         name: sp.name,
         bias: sp.bias,
-        startT: endT,
-        endT,
+        startT,
+        endT: startT,
         confidence: 0.85,
         note: 'Special / weekly pattern',
       }

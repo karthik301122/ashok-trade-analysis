@@ -33,15 +33,29 @@ export const SPECIAL_PATTERN_CATEGORIES: { id: SpecialPatternCategory; label: st
 /** Karthik weekly OHLC patterns — scanned from resampled weekly bars. */
 export const KARTHIK_WEEKLY_PATTERNS: SpecialPatternDef[] = [
   {
+    id: 'stage-2',
+    name: 'Stage 2',
+    category: 'weekly-karthik',
+    kind: 'weekly',
+    bias: 'bullish',
+    formula:
+      '10 WMA > 30 WMA\n' +
+      '30 WMA > 40 WMA  AND  both 30/40 slopes rising\n' +
+      'Price above 10, 30, and 40 WMAs',
+    description:
+      'Karthik primary Stage 2 filter on weekly closes — required context (or ≥30% 3M rally) for other weekly specials.',
+  },
+  {
     id: 'three-weeks-tight',
     name: '3 Weeks Tight',
     category: 'weekly-karthik',
     kind: 'weekly',
     bias: 'bullish',
     formula:
-      'Tightness = (max(C₁,C₂,C₃) − min(C₁,C₂,C₃)) / min(C₁,C₂,C₃)  ≤  5%  (weekly closes)',
+      'Context: Stage 2 OR ≥30% in ~13 weeks\n' +
+      'Tightness = (max−min)/min of weekly closes over 3–5 weeks  ≤  3%',
     description:
-      'Three consecutive weekly closes compress within 5% — volatility contraction / potential breakout setup.',
+      'Weekly closes compress within 3% over the last 3–5 weeks, only in Stage 2 or after a ≥30% 3‑month rally.',
   },
   {
     id: 'weekly-inside-bar',
@@ -49,8 +63,12 @@ export const KARTHIK_WEEKLY_PATTERNS: SpecialPatternDef[] = [
     category: 'weekly-karthik',
     kind: 'weekly',
     bias: 'neutral',
-    formula: 'H₀ ≤ H₁  AND  L₀ ≥ L₁  (current week inside prior week range)',
-    description: 'The current weekly range is fully contained inside the previous week’s high–low.',
+    formula:
+      'Context: Stage 2 OR ≥30% in ~13 weeks\n' +
+      'H₀ ≤ H₁ AND L₀ ≥ L₁\n' +
+      'Range₀ < 50% × Range₁  AND  Volume₀ < Volume₁',
+    description:
+      'Baby week inside mother, more than 50% compressed, with volume contraction — Stage 2 or strong rally context.',
   },
   {
     id: 'double-inside-bar',
@@ -59,8 +77,9 @@ export const KARTHIK_WEEKLY_PATTERNS: SpecialPatternDef[] = [
     kind: 'weekly',
     bias: 'neutral',
     formula:
-      '(H₀ ≤ H₁ AND L₀ ≥ L₁)  AND  (H₁ ≤ H₂ AND L₁ ≥ L₂)  — two nested inside weeks',
-    description: 'Two consecutive weekly inside bars — tightening coil before a range expansion.',
+      'Context: Stage 2 OR ≥30% in ~13 weeks\n' +
+      'Two consecutive Karthik inside bars (containment + 50% compression + volume ↓)',
+    description: 'Two nested weekly inside bars under the same Stage 2 / rally gate.',
   },
   {
     id: 'double-hammer',
@@ -69,9 +88,10 @@ export const KARTHIK_WEEKLY_PATTERNS: SpecialPatternDef[] = [
     kind: 'weekly',
     bias: 'bullish',
     formula:
-      'Hammer(week 0) AND Hammer(week 1);  lower wick ≥ 2× body, minimal upper wick, body near top, decline into week',
+      'Context: Stage 2 OR ≥30% in ~13 weeks\n' +
+      'Hammer(week 0) AND Hammer(week 1); lower wick ≥ 2× body, minimal upper wick, body near top, decline into week',
     description:
-      'Two consecutive valid weekly hammers after a decline — reversal / support test sequence.',
+      'Two consecutive valid weekly hammers after a decline — only with Stage 2 or ≥30% rally context.',
   },
 ]
 
