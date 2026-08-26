@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchYahooOhlc } from '../../lib/yahoo'
 import { detectAllCustomRules, filterHitsByWindow, scanPatterns } from '../../lib/patterns'
 import { getTickerPatternHits } from '../../lib/patternHitsCache'
-import { hasOverviewPatternWatch } from '../../lib/overviewPatternHits'
+import { hasOverviewChartWatch } from '../../lib/overviewPatternHits'
 import { usePatternPrefs } from './PatternPrefsContext'
 
 const CONCURRENCY = 2
@@ -10,7 +10,7 @@ const CONCURRENCY = 2
 const STALE_MS = 12 * 60 * 60 * 1000
 
 /**
- * When industries expand, quietly scan visible tickers for patterns
+ * When industries expand, quietly scan visible tickers for chart patterns
  * so starred + My Pattern hits show on the Sector Table overview.
  */
 export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
@@ -23,7 +23,7 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
 
   useEffect(() => {
     const list = tickerKey ? tickerKey.split(',') : []
-    const watch = hasOverviewPatternWatch(prefs)
+    const watch = hasOverviewChartWatch(prefs)
     if (!enabled || !watch || list.length === 0) {
       setScanning(false)
       setDone(0)

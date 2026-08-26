@@ -106,7 +106,7 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
     )
   }, [bars, scanResult, prefs.customPatterns, prefs.scanWindow, rememberHits, ticker])
 
-  const categories = enrichScanWithPrefs(baseCategories, prefs, bars, prefs.scanWindow)
+  const categories = enrichScanWithPrefs(baseCategories, prefs, bars, prefs.scanWindow, ticker)
 
   useEffect(() => {
     if (!selected) return

@@ -29,8 +29,12 @@ import {
 } from '../../lib/patternHitsCache'
 import {
   hasOverviewPatternWatch,
+  hasStarredWeeklySpecial,
+  mergeOverviewHits,
   resolveOverviewHits,
+  resolveStarredSpecialHitsForTicker,
 } from '../../lib/overviewPatternHits'
+import type { StockMetrics } from '../../data/types'
 
 type Ctx = {
   prefs: PatternPrefs
@@ -54,11 +58,30 @@ type Ctx = {
     hits: CachedPatternHit[],
     meta?: { scanWindow?: PatternScanWindow; asOf?: number | null },
   ) => void
-  /** Hits for starred + My Patterns on Sector Table overview */
-  overviewHitsFor: (ticker: string) => CachedPatternHit[]
+  /** Hits for starred + My Patterns + starred Special Patterns on Sector Table */
+  overviewHitsFor: (
+    ticker: string,
+    extras?: {
+      stock?: StockMetrics
+      indexM3?: number
+      universe?: StockMetrics[]
+      /** Bump when weekly special cache updates */
+      weeklyVersion?: number
+    },
+  ) => CachedPatternHit[]
   /** @deprecated use overviewHitsFor */
-  starredHitsFor: (ticker: string) => CachedPatternHit[]
+  starredHitsFor: (
+    ticker: string,
+    extras?: {
+      stock?: StockMetrics
+      indexM3?: number
+      universe?: StockMetrics[]
+      weeklyVersion?: number
+    },
+  ) => CachedPatternHit[]
   hasOverviewWatch: boolean
+  /** True when any starred Special Pattern is weekly (needs OHLC scan) */
+  hasStarredWeeklySpecial: boolean
 }
 
 const PatternPrefsContext = createContext<Ctx | null>(null)
@@ -135,11 +158,25 @@ export function PatternPrefsProvider({
   )
 
   const overviewHitsFor = useCallback(
-    (ticker: string): CachedPatternHit[] => {
+    (
+      ticker: string,
+      extras?: {
+        stock?: StockMetrics
+        indexM3?: number
+        universe?: StockMetrics[]
+        weeklyVersion?: number
+      },
+    ): CachedPatternHit[] => {
+      void extras?.weeklyVersion
       const key = ticker.toUpperCase()
       const cached = hitsByTicker.get(key) ?? getTickerPatternHits(key)
-      if (!cached?.hits?.length) return []
-      return resolveOverviewHits(cached.hits, prefs)
+      const chart = resolveOverviewHits(cached?.hits ?? [], prefs)
+      const special = resolveStarredSpecialHitsForTicker(ticker, prefs, {
+        stock: extras?.stock,
+        indexM3: extras?.indexM3,
+        universe: extras?.universe,
+      })
+      return mergeOverviewHits(chart, special)
     },
     [hitsByTicker, prefs],
   )
@@ -147,6 +184,7 @@ export function PatternPrefsProvider({
   const starredHitsFor = overviewHitsFor
 
   const hasOverviewWatch = hasOverviewPatternWatch(prefs)
+  const hasStarredWeekly = hasStarredWeeklySpecial(prefs)
 
   const value = useMemo<Ctx>(
     () => ({
@@ -163,6 +201,7 @@ export function PatternPrefsProvider({
       overviewHitsFor,
       starredHitsFor,
       hasOverviewWatch,
+      hasStarredWeeklySpecial: hasStarredWeekly,
     }),
     [
       prefs,
@@ -175,6 +214,7 @@ export function PatternPrefsProvider({
       overviewHitsFor,
       starredHitsFor,
       hasOverviewWatch,
+      hasStarredWeekly,
       setScanWindow,
     ],
   )

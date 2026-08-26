@@ -1,10 +1,13 @@
 import type { CustomPattern, PatternPrefs } from '../patternPrefs'
+import { getTickerWeeklySpecial } from '../specialWeeklyCache'
 import { PATTERN_CATALOG } from './catalog'
 import { detectCustomRule } from './customRules'
 import {
   filterHitsByWindow,
   type PatternScanWindow,
 } from './scanWindow'
+import { specialPatternByName } from './specialCatalog'
+import type { KarthikPatternId } from './karthikWeekly'
 import type {
   CategorySummary,
   OhlcBar,
@@ -28,6 +31,7 @@ function buildStarredCategory(
   prefs: PatternPrefs,
   bars: OhlcBar[] | null,
   window: PatternScanWindow,
+  ticker: string | null,
 ): CategorySummary {
   const starred = new Set(prefs.starredNames)
   const customByName = new Map(prefs.customPatterns.map((c) => [c.name, c]))
@@ -46,13 +50,38 @@ function buildStarredCategory(
     if (!prev || hit.endT > prev.endT) hitByName.set(c.name, hit)
   }
 
+  if (ticker) {
+    const weekly = getTickerWeeklySpecial(ticker)
+    for (const name of starred) {
+      const sp = specialPatternByName(name)
+      if (!sp || sp.kind !== 'weekly') continue
+      const wh = weekly?.hits.find((h) => h.patternId === (sp.id as KarthikPatternId))
+      if (!wh) continue
+      const endT = wh.weekEndT ?? 0
+      const asOf = bars?.length ? bars[bars.length - 1].t : endT
+      const hit: PatternHit = {
+        id: `special-${sp.id}-${endT}`,
+        category: 'starred',
+        name: sp.name,
+        bias: sp.bias,
+        startT: endT,
+        endT,
+        confidence: 0.85,
+        note: 'Special / weekly pattern',
+      }
+      const filtered = filterHitsByWindow([hit], window, asOf)
+      if (filtered[0]) hitByName.set(name, filtered[0])
+    }
+  }
+
   const names = [...starred]
   const rows: PatternScanRow[] = names
     .map((name) => {
       const custom = customByName.get(name)
       const catalog = PATTERN_CATALOG.find((p) => p.name === name)
+      const special = specialPatternByName(name)
       const familyBias: PatternBias | 'either' =
-        custom?.bias ?? catalog?.familyBias ?? 'either'
+        custom?.bias ?? special?.bias ?? catalog?.familyBias ?? 'either'
       return {
         name,
         familyBias,
@@ -79,7 +108,7 @@ function buildStarredCategory(
     analyzed: names.length,
     note:
       names.length === 0
-        ? 'Star patterns you like — they appear here and on the Sector Table'
+        ? 'Star chart or Special Patterns — they appear here and on the Sector Table'
         : undefined,
   }
 }
@@ -168,9 +197,10 @@ export function enrichScanWithPrefs(
   prefs: PatternPrefs,
   bars: OhlcBar[] | null = null,
   window: PatternScanWindow = prefs.scanWindow,
+  ticker: string | null = null,
 ): CategorySummary[] {
   const allHits = categories.flatMap((c) => c.hits)
-  const starred = buildStarredCategory(allHits, prefs, bars, window)
+  const starred = buildStarredCategory(allHits, prefs, bars, window, ticker)
   const custom = buildCustomCategory(allHits, prefs.customPatterns, bars, window)
   const core = categories.filter((c) => c.id !== 'starred' && c.id !== 'custom')
   return [...core, starred, custom]

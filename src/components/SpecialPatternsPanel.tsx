@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Copy, Search, Sparkles } from 'lucide-react'
+import { Copy, Search, Sparkles, Star } from 'lucide-react'
 import type { MarketSnapshot } from '../data/types'
 import { formatPct, perfCellClass } from '../lib/format'
 import {
@@ -12,6 +12,7 @@ import type { KarthikPatternId } from '../lib/patterns/karthikWeekly'
 import { aggregateWeeklyHits, type WeeklySpecialHit } from '../lib/specialWeeklyCache'
 import { copyTickersToTradingView } from '../lib/tradingview'
 import { useKarthikWeeklyScan } from './patterns/useKarthikWeeklyScan'
+import { usePatternPrefs } from './patterns/PatternPrefsContext'
 import { StockChartModal } from './StockChartModal'
 
 type Props = { snapshot: MarketSnapshot }
@@ -44,6 +45,7 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
   const [query, setQuery] = useState('')
   const [copied, setCopied] = useState(false)
   const [chartStock, setChartStock] = useState<{ ticker: string; name: string } | null>(null)
+  const { isStarred, toggleStar } = usePatternPrefs()
 
   const indexM3 = snapshot.benchmarkPerf.m3
   const tickers = useMemo(() => snapshot.stocks.map((s) => s.ticker), [snapshot.stocks])
@@ -123,7 +125,8 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
             </h2>
             <p className="mt-1 max-w-3xl text-sm text-[var(--color-ink-soft)]">
               Karthik weekly formulas (3 Weeks Tight, inside bars, double hammer) plus desk snapshot
-              rules (RS, RVOL, mood, cycle). Weekly patterns resample daily OHLC → weekly bars.
+              rules (RS, RVOL, mood, cycle). Star a pattern (★) to show hits as chips on the Sector
+              Table.
             </p>
             {weeklyScanning && (
               <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
@@ -180,36 +183,50 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
               {filteredCatalog.map((p) => {
                 const count = patternCount(p)
                 const active = p.id === selected?.id
+                const starred = isStarred(p.name)
                 return (
                   <li key={p.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(p.id)}
-                      className={`w-full rounded-lg border px-2.5 py-2 text-left ${
+                    <div
+                      className={`flex w-full items-stretch gap-0.5 rounded-lg border ${
                         active
                           ? 'border-violet-500 bg-violet-50 dark:bg-violet-950/40'
                           : 'border-[var(--color-border)] hover:border-violet-400'
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-bold">
-                          {p.kind === 'weekly' ? '📅 ' : ''}
-                          {p.name}
-                        </span>
-                        <span
-                          className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${
-                            count > 0
-                              ? 'bg-violet-200 text-violet-900 dark:bg-violet-900 dark:text-violet-100'
-                              : 'bg-[var(--color-muted)] text-[var(--color-ink-soft)]'
-                          }`}
-                        >
-                          {weeklyScanning && p.kind === 'weekly' && count === 0 ? '…' : count}
-                        </span>
-                      </div>
-                      <p className="mt-0.5 line-clamp-2 font-mono text-[9px] text-[var(--color-ink-soft)]">
-                        {p.formula}
-                      </p>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(p.id)}
+                        className="min-w-0 flex-1 px-2.5 py-2 text-left"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold">
+                            {p.kind === 'weekly' ? '📅 ' : ''}
+                            {p.name}
+                          </span>
+                          <span
+                            className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${
+                              count > 0
+                                ? 'bg-violet-200 text-violet-900 dark:bg-violet-900 dark:text-violet-100'
+                                : 'bg-[var(--color-muted)] text-[var(--color-ink-soft)]'
+                            }`}
+                          >
+                            {weeklyScanning && p.kind === 'weekly' && count === 0 ? '…' : count}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 line-clamp-2 font-mono text-[9px] text-[var(--color-ink-soft)]">
+                          {p.formula}
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleStar(p.name)}
+                        title={starred ? 'Unstar — hide from Sector Table' : 'Star — show on Sector Table'}
+                        aria-label={starred ? 'Unstar' : 'Star'}
+                        className="shrink-0 px-2 text-amber-500 hover:bg-violet-100/80 dark:hover:bg-violet-900/40"
+                      >
+                        <Star size={14} className={starred ? 'fill-amber-500' : ''} />
+                      </button>
+                    </div>
                   </li>
                 )
               })}
@@ -226,6 +243,8 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
               onCopy={copyHits}
               copied={copied}
               canCopy={hitCount > 0}
+              starred={isStarred(selected.name)}
+              onToggleStar={() => toggleStar(selected.name)}
             />
           )}
 
@@ -397,6 +416,8 @@ function PatternDetail({
   onCopy,
   copied,
   canCopy,
+  starred,
+  onToggleStar,
 }: {
   pattern: SpecialPatternDef
   hitCount: number
@@ -404,6 +425,8 @@ function PatternDetail({
   onCopy: () => void
   copied: boolean
   canCopy: boolean
+  starred: boolean
+  onToggleStar: () => void
 }) {
   const catLabel =
     SPECIAL_PATTERN_CATEGORIES.find((c) => c.id === pattern.category)?.label ?? pattern.category
@@ -414,6 +437,15 @@ function PatternDetail({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-lg font-bold">{pattern.name}</h3>
+            <button
+              type="button"
+              onClick={onToggleStar}
+              title={starred ? 'Unstar — hide from Sector Table chips' : 'Star — show hits on Sector Table'}
+              aria-label={starred ? 'Unstar' : 'Star'}
+              className="rounded-md border border-amber-400/60 bg-amber-50 p-1 text-amber-600 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300"
+            >
+              <Star size={16} className={starred ? 'fill-amber-500' : ''} />
+            </button>
             <span className={`text-xs font-bold uppercase ${biasClass(pattern.bias)}`}>
               {pattern.bias}
             </span>
@@ -423,6 +455,11 @@ function PatternDetail({
             {pattern.kind === 'weekly' && (
               <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold text-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-200">
                 Weekly OHLC
+              </span>
+            )}
+            {starred && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+                On Sector Table
               </span>
             )}
           </div>

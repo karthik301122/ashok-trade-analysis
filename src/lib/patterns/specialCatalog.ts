@@ -252,3 +252,12 @@ export const SPECIAL_PATTERN_CATALOG: SpecialPatternDef[] = [
 export function specialPatternById(id: string): SpecialPatternDef | undefined {
   return SPECIAL_PATTERN_CATALOG.find((p) => p.id === id)
 }
+
+export function specialPatternByName(name: string): SpecialPatternDef | undefined {
+  const n = name.trim().toLowerCase()
+  return SPECIAL_PATTERN_CATALOG.find((p) => p.name.toLowerCase() === n)
+}
+
+export function isSpecialPatternName(name: string): boolean {
+  return specialPatternByName(name) != null
+}

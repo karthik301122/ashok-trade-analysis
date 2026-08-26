@@ -3,12 +3,15 @@ import type { CachedPatternHit } from './patternHitsCache'
 import type { PatternPrefs } from './patternPrefs'
 import {
   hasOverviewPatternWatch,
+  hasStarredWeeklySpecial,
+  mergeOverviewHits,
   overviewWatchNames,
   resolveOverviewHits,
+  starredSpecialPatterns,
 } from './overviewPatternHits'
 
 const prefs: PatternPrefs = {
-  starredNames: ['Hammer'],
+  starredNames: ['Hammer', '3 Weeks Tight'],
   customPatterns: [
     {
       id: 'c1',
@@ -35,7 +38,17 @@ const prefs: PatternPrefs = {
 describe('overviewPatternHits', () => {
   it('detects watch list from stars and detectable customs', () => {
     expect(hasOverviewPatternWatch(prefs)).toBe(true)
-    expect(overviewWatchNames(prefs).sort()).toEqual(['Hammer', 'My Flag', 'My RVOL'])
+    expect(overviewWatchNames(prefs).sort()).toEqual([
+      '3 Weeks Tight',
+      'Hammer',
+      'My Flag',
+      'My RVOL',
+    ])
+  })
+
+  it('flags starred weekly specials', () => {
+    expect(hasStarredWeeklySpecial(prefs)).toBe(true)
+    expect(starredSpecialPatterns(prefs).map((p) => p.id)).toEqual(['three-weeks-tight'])
   })
 
   it('resolves starred, custom rule, and alias hits', () => {
@@ -46,6 +59,19 @@ describe('overviewPatternHits', () => {
     ]
     const hits = resolveOverviewHits(cached, prefs)
     expect(hits.map((h) => h.name).sort()).toEqual(['Hammer', 'My Flag', 'My RVOL'])
+  })
+
+  it('merges special hits onto chart overview hits', () => {
+    const chart: CachedPatternHit[] = [
+      { name: 'Hammer', bias: 'bullish', endT: 100, confidence: 0.8 },
+    ]
+    const special: CachedPatternHit[] = [
+      { name: '3 Weeks Tight', bias: 'bullish', endT: 90, confidence: 0.85 },
+    ]
+    expect(mergeOverviewHits(chart, special).map((h) => h.name)).toEqual([
+      'Hammer',
+      '3 Weeks Tight',
+    ])
   })
 
   it('returns empty when nothing watched matches', () => {
