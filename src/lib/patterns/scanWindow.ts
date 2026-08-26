@@ -46,6 +46,42 @@ export function filterHitsByWindow(
   return hits.filter((h) => hitInWindow(h, window, asOfTs))
 }
 
+/** Keep OHLC bars that fall inside the scan window (for chart display). */
+export function filterBarsByWindow<T extends { t: number }>(
+  bars: T[],
+  window: PatternScanWindow,
+): T[] {
+  if (!bars.length || window === 'all') return bars
+  const asOf = bars[bars.length - 1].t
+  const start = windowStartTs(window, asOf)
+  if (start == null) return bars
+  const sliced = bars.filter((b) => b.t >= start && b.t <= asOf)
+  // Always keep at least a few bars so the chart is usable on tiny windows
+  if (sliced.length >= 2) return sliced
+  return bars.slice(-Math.max(2, Math.min(bars.length, 5)))
+}
+
+/** TradingView advanced chart `range` values. */
+export function tradingViewRangeForWindow(window: PatternScanWindow): string {
+  switch (window) {
+    case '1d':
+      return '1D'
+    case '1w':
+      return '5D'
+    case '1m':
+      return '1M'
+    case '3m':
+      return '3M'
+    case '6m':
+      return '6M'
+    case '1y':
+      return '12M'
+    case 'all':
+    default:
+      return 'ALL'
+  }
+}
+
 export function scanWindowLabel(window: PatternScanWindow): string {
   return PATTERN_SCAN_WINDOWS.find((w) => w.id === window)?.label ?? window
 }

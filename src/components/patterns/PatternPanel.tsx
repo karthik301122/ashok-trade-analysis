@@ -133,8 +133,8 @@ export function PatternPanel({
       <div className="border-b border-[var(--color-border)] px-3 py-2.5">
         <h3 className="text-sm font-bold">Pattern Analysis</h3>
         <p className="text-[10px] text-[var(--color-ink-soft)]">
-          {catalogTotal} scanners · {totalHits} hits in {scanWindowLabel(scanWindow)} · My Patterns
-          are private
+          {catalogTotal} scanners · {totalHits} hits in {scanWindowLabel(scanWindow)} · chart shows
+          this range · My Patterns are private
         </p>
         <div className="mt-2 flex flex-wrap gap-1">
           {PATTERN_SCAN_WINDOWS.map((w) => (

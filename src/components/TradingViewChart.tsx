@@ -39,9 +39,16 @@ type Props = {
   height?: number
   /** Fill parent height (fullscreen modal). */
   fill?: boolean
+  /** TradingView visible range, e.g. 1D / 5D / 1M / 3M / 6M / 12M / ALL */
+  range?: string
 }
 
-export function TradingViewChart({ ticker, height = 560, fill = false }: Props) {
+export function TradingViewChart({
+  ticker,
+  height = 560,
+  fill = false,
+  range = '1M',
+}: Props) {
   const reactId = useId().replace(/:/g, '')
   const containerId = `tv_${ticker}_${reactId}`
   const hostRef = useRef<HTMLDivElement>(null)
@@ -82,6 +89,7 @@ export function TradingViewChart({ ticker, height = 560, fill = false }: Props) 
           autosize: true,
           symbol: toTradingViewSymbol(ticker),
           interval: 'D',
+          range,
           timezone: 'Australia/Sydney',
           theme: dark ? 'dark' : 'light',
           style: '1',
@@ -107,7 +115,7 @@ export function TradingViewChart({ ticker, height = 560, fill = false }: Props) 
       cancelled = true
       if (hostRef.current) hostRef.current.innerHTML = ''
     }
-  }, [ticker, containerId, pxHeight, dark])
+  }, [ticker, containerId, pxHeight, dark, range])
 
   return (
     <div

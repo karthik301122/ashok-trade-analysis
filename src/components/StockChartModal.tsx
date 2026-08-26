@@ -6,7 +6,10 @@ import {
   enrichScanWithPrefs,
   scanPatterns,
   detectAllCustomRules,
+  filterBarsByWindow,
   filterHitsByWindow,
+  scanWindowLabel,
+  tradingViewRangeForWindow,
   type PatternCategoryId,
   type PatternHit,
   type OhlcBar,
@@ -108,6 +111,12 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
 
   const categories = enrichScanWithPrefs(baseCategories, prefs, bars, prefs.scanWindow, ticker)
 
+  const chartBars = useMemo(
+    () => (bars?.length ? filterBarsByWindow(bars, prefs.scanWindow) : null),
+    [bars, prefs.scanWindow],
+  )
+  const tvRange = tradingViewRangeForWindow(prefs.scanWindow)
+
   useEffect(() => {
     if (!selected) return
     const stillVisible = categories.some((c) => c.hits.some((h) => h.id === selected.id))
@@ -139,7 +148,7 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
             {symbol}
             {selected && chartMode === 'pattern'
               ? ` · showing ${selected.name}`
-              : ' · TradingView + pattern scan'}
+              : ` · chart range ${scanWindowLabel(prefs.scanWindow)}`}
           </p>
           {fund && (
             <p className="mt-1 flex flex-wrap gap-3 text-[11px] font-semibold tabular-nums text-[var(--color-ink-soft)]">
@@ -198,10 +207,19 @@ export function StockChartModal({ ticker, name, onClose }: Props) {
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="min-h-[50vh] min-w-0 flex-1 md:min-h-0">
-          {chartMode === 'tv' || !bars ? (
-            <TradingViewChart key={`tv-${ticker}`} ticker={ticker} fill />
+          {chartMode === 'tv' || !chartBars ? (
+            <TradingViewChart
+              key={`tv-${ticker}-${tvRange}`}
+              ticker={ticker}
+              fill
+              range={tvRange}
+            />
           ) : (
-            <AnnotatedPatternChart bars={bars} selected={selected} />
+            <AnnotatedPatternChart
+              key={`pat-${ticker}-${prefs.scanWindow}`}
+              bars={chartBars}
+              selected={selected}
+            />
           )}
         </div>
         <div className="h-[40vh] shrink-0 md:h-auto md:w-[340px]">

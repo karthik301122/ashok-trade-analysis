@@ -110,10 +110,12 @@ export { enrichScanWithPrefs } from './enrichWithPrefs'
 export {
   DEFAULT_PATTERN_SCAN_WINDOW,
   PATTERN_SCAN_WINDOWS,
+  filterBarsByWindow,
   filterHitsByWindow,
   hitInWindow,
   parsePatternScanWindow,
   scanWindowLabel,
+  tradingViewRangeForWindow,
   type PatternScanWindow,
 } from './scanWindow'
 export {
