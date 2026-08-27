@@ -11,12 +11,15 @@ import { usePatternPrefs } from './patterns/PatternPrefsContext'
 import { useIndustryPatternScan } from './patterns/useIndustryPatternScan'
 import type { CachedPatternHit } from '../lib/patternHitsCache'
 import {
+  hasOverviewChartWatch,
+  hitDisplayStartT,
   isCustomOverviewHit,
   isSpecialOverviewHit,
   isStarredOverviewHit,
 } from '../lib/overviewPatternHits'
 import { scanWindowLabel } from '../lib/patterns'
 import { useKarthikWeeklyScan } from './patterns/useKarthikWeeklyScan'
+import { useLivermoreScan } from './patterns/useLivermoreScan'
 
 type Props = { snapshot: MarketSnapshot }
 
@@ -43,12 +46,12 @@ function PatternHitChips({ hits, prefs }: { hits: CachedPatternHit[]; prefs: Pat
         const starred = isStarredOverviewHit(h.name, prefs)
         const custom = isCustomOverviewHit(h.name, prefs)
         const special = isSpecialOverviewHit(h.name)
-        const prefix = starred ? '★ ' : custom ? 'My ' : special ? '✦ ' : ''
-        const when = formatHitDate(h.endT)
+        const prefix = special ? '✦ ' : starred ? '★ ' : custom ? 'My ' : ''
+        const when = formatHitDate(hitDisplayStartT(h))
         return (
           <span
             key={h.name}
-            title={`${h.name} · ${h.bias} · ${when} · ${Math.round(h.confidence * 100)}% conf.`}
+            title={`${h.name} · ${h.bias} · started ${when} · ${Math.round(h.confidence * 100)}% conf.`}
             className={`inline-flex max-w-[11rem] items-center truncate rounded border px-1.5 py-0.5 text-[9px] font-semibold ${
               special && starred
                 ? 'border-violet-400/60 bg-violet-50 text-violet-900 dark:bg-violet-950/40 dark:text-violet-100'
@@ -85,10 +88,17 @@ export function SectorTable({ snapshot }: Props) {
   const [copiedSectorStars, setCopiedSectorStars] = useState<string | null>(null)
   const [copiedIndustry, setCopiedIndustry] = useState<string | null>(null)
   const [chartStock, setChartStock] = useState<{ ticker: string; name: string } | null>(null)
-  const { prefs, overviewHitsFor, hasOverviewWatch, hasStarredWeeklySpecial } = usePatternPrefs()
+  const { prefs, overviewHitsFor } = usePatternPrefs()
 
   const { scanning: weeklyScanning, done: weeklyDone, total: weeklyTotal, version: weeklyVersion } =
-    useKarthikWeeklyScan(snapshot.stocks, hasStarredWeeklySpecial)
+    useKarthikWeeklyScan(snapshot.stocks, true)
+
+  const {
+    scanning: livermoreScanning,
+    done: livermoreDone,
+    total: livermoreTotal,
+    version: livermoreVersion,
+  } = useLivermoreScan(snapshot.stocks, true)
 
   const indexM3 = snapshot.benchmarkPerf.m3
   const universe = snapshot.stocks
@@ -159,7 +169,7 @@ export function SectorTable({ snapshot }: Props) {
   }, [industries, expanded, stocksOnly, starOnly, searching])
 
   const { scanning: patternScanning, done: patternDone, total: patternTotal } =
-    useIndustryPatternScan(visibleTickers, hasOverviewWatch)
+    useIndustryPatternScan(visibleTickers, hasOverviewChartWatch(prefs))
 
   const selectSector = (name: string | null) => {
     setSectorFilter(name)
@@ -393,13 +403,17 @@ export function SectorTable({ snapshot }: Props) {
           </span>
         ))}
         <div className="ml-auto flex flex-wrap gap-2">
-          {!hasOverviewWatch ? (
+          {!weeklyScanning && !livermoreScanning && !patternScanning ? (
             <span className="self-center text-[10px] text-[var(--color-ink-soft)]">
-              Star chart / Special Patterns or create My Patterns — hits show as chips
+              Special patterns always on desk (✦) · star chart patterns for ★ chips
             </span>
           ) : weeklyScanning ? (
             <span className="self-center text-[10px] font-medium text-amber-700 dark:text-amber-300">
               Scanning weekly specials… {weeklyDone}/{weeklyTotal}
+            </span>
+          ) : livermoreScanning ? (
+            <span className="self-center text-[10px] font-medium text-amber-700 dark:text-amber-300">
+              Scanning Livermore scores… {livermoreDone}/{livermoreTotal}
             </span>
           ) : patternScanning ? (
             <span className="self-center text-[10px] font-medium text-amber-700 dark:text-amber-300">
@@ -502,6 +516,7 @@ export function SectorTable({ snapshot }: Props) {
                 indexM3={indexM3}
                 universe={universe}
                 weeklyVersion={weeklyVersion}
+                livermoreVersion={livermoreVersion}
               />
             ))}
             {!industries.length && (
@@ -569,6 +584,7 @@ function IndustryRows({
   indexM3,
   universe,
   weeklyVersion,
+  livermoreVersion,
 }: {
   ind: IndustryMetrics
   open: boolean
@@ -585,12 +601,14 @@ function IndustryRows({
       indexM3?: number
       universe?: StockMetrics[]
       weeklyVersion?: number
+      livermoreVersion?: number
     },
   ) => CachedPatternHit[]
   prefs: PatternPrefs
   indexM3: number
   universe: StockMetrics[]
   weeklyVersion: number
+  livermoreVersion: number
 }) {
   const cycle = CYCLE_LABEL[ind.cycle]
   const mood = MOOD_LABEL[ind.mood]
@@ -674,6 +692,7 @@ function IndustryRows({
             indexM3,
             universe,
             weeklyVersion,
+            livermoreVersion,
           })
           return (
           <tr key={s.ticker} className="border-t border-[var(--color-border)]/60 bg-[var(--color-muted)]/40">

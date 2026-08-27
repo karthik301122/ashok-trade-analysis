@@ -38,6 +38,7 @@ export default function App() {
     failed: number
     source?: string
   } | null>(null)
+  const [retryingFailed, setRetryingFailed] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const startedLoad = useRef(false)
 
@@ -108,6 +109,41 @@ export default function App() {
       }
     }
   }, [])
+
+  const waitForSnapshotJob = useCallback(async () => {
+    for (let i = 0; i < 600; i++) {
+      const res = await fetch('/api/snapshot/refresh', { credentials: 'include' })
+      if (!res.ok) return null
+      const json = (await res.json()) as { job?: { status?: string; message?: string } }
+      if (json.job?.status !== 'running') return json.job
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+    return null
+  }, [])
+
+  const retryFailedLoads = useCallback(async () => {
+    setRetryingFailed(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/snapshot/retry-failed', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(
+          typeof body?.error === 'string' ? body.error : `Retry failed (${res.status})`,
+        )
+      }
+      await waitForSnapshotJob()
+      await load(false)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Retry failed'
+      setError(msg)
+    } finally {
+      setRetryingFailed(false)
+    }
+  }, [load, waitForSnapshotJob])
 
   const canUseApp = !authChecking && (!authRequired || Boolean(user))
 
@@ -260,9 +296,21 @@ export default function App() {
                   <div className="h-full bg-teal-600 transition-all" style={{ width: `${pct}%` }} />
                 </div>
               )}
+              {meta && meta.failed > 0 && (
+                <button
+                  type="button"
+                  disabled={backfilling || retryingFailed}
+                  onClick={() => void retryFailedLoads()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-amber-600 bg-amber-50 px-2.5 py-1 font-semibold text-amber-900 disabled:opacity-50 dark:bg-amber-950/40 dark:text-amber-200"
+                  title="Slow re-fetch of missing tickers from Yahoo (server snapshot)"
+                >
+                  <RefreshCw size={12} className={retryingFailed ? 'animate-spin' : ''} />
+                  {retryingFailed ? 'Retrying failed…' : `Retry ${meta.failed} failed`}
+                </button>
+              )}
               <button
                 type="button"
-                disabled={backfilling}
+                disabled={backfilling || retryingFailed}
                 onClick={() => void load(true)}
                 className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-teal-600 bg-teal-50 px-2.5 py-1 font-semibold text-teal-800 disabled:opacity-50 dark:bg-teal-950/40 dark:text-teal-200"
               >

@@ -4,6 +4,7 @@ import {
   detectAllCandleShapes,
   type CandleShapeSpec,
 } from './candleShape'
+import { rulesFromCustom } from './scanScript'
 
 export type RuleMetric =
   | 'rsi'
@@ -194,17 +195,19 @@ export function detectAllCustomRules(
     description?: string
     rules?: CustomRuleSet | null
     candleShape?: CandleShapeSpec | null
+    scanScript?: string | null
   }[],
 ): PatternHit[] {
   const hits: PatternHit[] = []
   for (const c of customs) {
-    if (!c.rules?.conditions?.length) continue
+    const rules = rulesFromCustom(c.rules, c.scanScript)
+    if (!rules?.conditions?.length) continue
     const hit = detectCustomRule(bars, {
       id: c.id,
       name: c.name,
       bias: c.bias,
       description: c.description,
-      rules: c.rules,
+      rules,
     })
     if (hit) hits.push(hit)
   }

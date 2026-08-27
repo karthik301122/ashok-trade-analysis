@@ -148,3 +148,11 @@ export {
   type CandleShapeSpec,
   type CandleTimeframe,
 } from './candleShape'
+export {
+  SCANSCRIPT_EXAMPLE,
+  SCANSCRIPT_NAME,
+  compileScanScript,
+  describeScanScript,
+  rulesFromCustom,
+  validateScanScript,
+} from './scanScript'

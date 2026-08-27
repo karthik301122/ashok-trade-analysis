@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchYahooOhlc } from '../../lib/yahoo'
 import { detectAllCustomRules, filterHitsByWindow, scanPatterns } from '../../lib/patterns'
-import { getTickerPatternHits } from '../../lib/patternHitsCache'
+import { cacheMissingStartT, getTickerPatternHits } from '../../lib/patternHitsCache'
 import { hasOverviewChartWatch } from '../../lib/overviewPatternHits'
 import { usePatternPrefs } from './PatternPrefsContext'
 
@@ -14,7 +14,7 @@ const STALE_MS = 12 * 60 * 60 * 1000
  * so starred + My Pattern hits show on the Sector Table overview.
  */
 export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
-  const { rememberHits, prefs } = usePatternPrefs()
+  const { rememberHits, prefs, hitsScanEpoch } = usePatternPrefs()
   const [scanning, setScanning] = useState(false)
   const [done, setDone] = useState(0)
   const [total, setTotal] = useState(0)
@@ -38,7 +38,8 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
       return (
         !cached ||
         now - cached.updatedAt > STALE_MS ||
-        cached.scanWindow !== prefs.scanWindow
+        cached.scanWindow !== prefs.scanWindow ||
+        cacheMissingStartT(cached)
       )
     })
 
@@ -67,13 +68,18 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
           if (ohlc?.length) {
             const result = scanPatterns(ohlc, { window: prefs.scanWindow })
             const customHits = result.asOf
-              ? filterHitsByWindow(detectAllCustomRules(ohlc, prefs.customPatterns), prefs.scanWindow, result.asOf)
+              ? filterHitsByWindow(
+                  detectAllCustomRules(ohlc, prefs.customPatterns),
+                  prefs.scanWindow,
+                  result.asOf,
+                )
               : []
             rememberHits(
               ticker,
               [...result.hits, ...customHits].map((h) => ({
                 name: h.name,
                 bias: h.bias,
+                startT: h.startT,
                 endT: h.endT,
                 confidence: h.confidence,
               })),
@@ -96,7 +102,7 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
     return () => {
       cancelled = true
     }
-  }, [tickerKey, enabled, prefs, rememberHits])
+  }, [tickerKey, enabled, prefs, rememberHits, hitsScanEpoch])
 
   return { scanning, done, total }
 }

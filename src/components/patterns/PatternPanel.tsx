@@ -9,6 +9,7 @@ import type {
   RuleCondition,
   RuleMetric,
   RuleOp,
+  CustomRuleSet,
 } from '../../lib/patterns'
 import {
   PATTERN_CATALOG,
@@ -23,6 +24,10 @@ import {
   describeRuleSet,
   newCondition,
   scanWindowLabel,
+  SCANSCRIPT_EXAMPLE,
+  SCANSCRIPT_NAME,
+  validateScanScript,
+  describeScanScript,
   type BodyPosition,
   type CandleContext,
   type CandleDirection,
@@ -45,7 +50,7 @@ type Props = {
   onSelectPattern: (hit: PatternHit) => void
 }
 
-type DetectMode = 'rules' | 'candle' | 'alias' | 'none'
+type DetectMode = 'rules' | 'candle' | 'alias' | 'script' | 'none'
 
 function biasClass(bias: string) {
   if (bias === 'bullish') return 'text-emerald-600'
@@ -59,6 +64,19 @@ function formatDate(t: number) {
     month: 'short',
     year: '2-digit',
   })
+}
+
+function describeCustomPattern(c: {
+  scanScript?: string | null
+  candleShape: CandleShapeSpec | null
+  rules: CustomRuleSet | null
+  basedOn: string | null
+}): string {
+  if (c.scanScript) return ` · ${SCANSCRIPT_NAME}`
+  if (c.candleShape) return ` · ${describeCandleShape(c.candleShape)}`
+  if (c.rules?.conditions?.length) return ` · ${describeRuleSet(c.rules)}`
+  if (c.basedOn) return ` <- ${c.basedOn}`
+  return ' · name only'
 }
 
 export function PatternPanel({
@@ -83,6 +101,16 @@ export function PatternPanel({
   const [matchMode, setMatchMode] = useState<'all' | 'any'>('all')
   const [conditions, setConditions] = useState<RuleCondition[]>(() => [newCondition('rsi')])
   const [candleShape, setCandleShape] = useState<CandleShapeSpec>(() => defaultCandleShape('hammer'))
+  const [cScanScript, setCScanScript] = useState(SCANSCRIPT_EXAMPLE)
+
+  const scriptErrors = useMemo(
+    () => (detectMode === 'script' ? validateScanScript(cScanScript) : []),
+    [detectMode, cScanScript],
+  )
+  const scriptPreview = useMemo(
+    () => (detectMode === 'script' && scriptErrors.length === 0 ? describeScanScript(cScanScript) : ''),
+    [detectMode, cScanScript, scriptErrors.length],
+  )
 
   const active = categories.find((c) => c.id === activeCategory) ?? null
   const totalHits = categories
@@ -103,6 +131,7 @@ export function PatternPanel({
     setMatchMode('all')
     setConditions([newCondition('rsi')])
     setCandleShape(defaultCandleShape('hammer'))
+    setCScanScript(SCANSCRIPT_EXAMPLE)
     setShowCreate(false)
   }
 
@@ -147,6 +176,7 @@ export function PatternPanel({
   const submitCustom = (e: FormEvent) => {
     e.preventDefault()
     if (!cName.trim()) return
+    if (detectMode === 'script' && scriptErrors.length > 0) return
     createCustom({
       name: cName.trim(),
       bias: cBias,
@@ -157,6 +187,7 @@ export function PatternPanel({
           ? { match: matchMode, conditions }
           : null,
       candleShape: detectMode === 'candle' ? candleShape : null,
+      scanScript: detectMode === 'script' ? cScanScript : null,
     })
     resetForm()
     onSelectCategory('custom')
@@ -281,6 +312,7 @@ export function PatternPanel({
                     {(
                       [
                         ['rules', 'My conditions (RSI, RVOL, MAs…)'],
+                        ['script', SCANSCRIPT_NAME + ' (text rules)'],
                         ['candle', 'Candle shape builder'],
                         ['alias', 'Reuse a built-in scanner'],
                         ['none', 'Name only (no auto-detect)'],
@@ -490,6 +522,42 @@ export function PatternPanel({
                     </div>
                   )}
 
+                  {detectMode === 'script' && (
+                    <div className="space-y-2 rounded-md border border-sky-300/60 bg-sky-50/40 p-2 dark:border-sky-800 dark:bg-sky-950/20">
+                      <p className="text-[10px] font-semibold text-sky-900 dark:text-sky-100">
+                        {SCANSCRIPT_NAME}
+                      </p>
+                      <textarea
+                        value={cScanScript}
+                        onChange={(e) => setCScanScript(e.target.value)}
+                        rows={8}
+                        spellCheck={false}
+                        className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 font-mono text-[10px] leading-relaxed"
+                      />
+                      {scriptErrors.length > 0 && (
+                        <ul className="space-y-0.5 text-[10px] text-rose-600">
+                          {scriptErrors.map((err) => (
+                            <li key={err}>{err}</li>
+                          ))}
+                        </ul>
+                      )}
+                      {scriptPreview && (
+                        <p className="text-[9px] text-[var(--color-ink-soft)]">
+                          Compiles to: {scriptPreview}
+                        </p>
+                      )}
+                      <p className="text-[9px] text-[var(--color-ink-soft)]">
+                        Headers: <code className="text-[9px]">match all</code>,{' '}
+                        <code className="text-[9px]">bias bullish</code>. Conditions:{' '}
+                        <code className="text-[9px]">rsi(14) &lt;= 35</code>,{' '}
+                        <code className="text-[9px]">rvol &gt;= 1.5</code>,{' '}
+                        <code className="text-[9px]">above_sma(50)</code>,{' '}
+                        <code className="text-[9px]">pct_chg(5) &gt;= 3</code>. Scans full ASX
+                        when saved.
+                      </p>
+                    </div>
+                  )}
+
                   {detectMode === 'rules' && (
                     <div className="space-y-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
                       <label className="flex items-center gap-2 text-[10px] text-[var(--color-ink-soft)]">
@@ -589,7 +657,8 @@ export function PatternPanel({
 
                   <button
                     type="submit"
-                    className="w-full rounded-md bg-teal-700 px-2 py-1.5 text-xs font-bold text-white hover:bg-teal-800"
+                    disabled={detectMode === 'script' && scriptErrors.length > 0}
+                    className="w-full rounded-md bg-teal-700 px-2 py-1.5 text-xs font-bold text-white hover:bg-teal-800 disabled:opacity-50"
                   >
                     Save private pattern
                   </button>
@@ -604,13 +673,7 @@ export function PatternPanel({
                     >
                       <span>
                         <span className="font-semibold text-[var(--color-ink)]">{c.name}</span>
-                        {c.candleShape
-                          ? ` · ${describeCandleShape(c.candleShape)}`
-                          : c.rules?.conditions?.length
-                            ? ` · ${describeRuleSet(c.rules)}`
-                            : c.basedOn
-                              ? ` ← ${c.basedOn}`
-                              : ' · name only'}
+                        {describeCustomPattern(c)}
                       </span>
                       <button
                         type="button"
@@ -690,7 +753,7 @@ export function PatternPanel({
                         </div>
                         {hit ? (
                           <p className="mt-0.5 text-[10px] text-[var(--color-ink-soft)]">
-                            {formatDate(hit.endT)}
+                            Started {formatDate(hit.startT)}
                             {hit.note ? ` · ${hit.note}` : ''}
                           </p>
                         ) : (

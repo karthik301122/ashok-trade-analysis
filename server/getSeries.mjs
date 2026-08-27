@@ -53,7 +53,10 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
     period1 = overlap > from ? overlap : from
   }
 
-  const fresh = await fetchChartCloses(yahooSymbol, period1)
+  const fresh = await fetchChartCloses(yahooSymbol, period1, {
+    attempts: opts.forceRefresh ? 4 : 3,
+    baseDelayMs: opts.forceRefresh ? 600 : 400,
+  })
   if (!fresh && cached?.closes?.length) {
     const closes = cached.closes.filter((b) => b.t >= fromTs)
     if (closes.length >= 15) {

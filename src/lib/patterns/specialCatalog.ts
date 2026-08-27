@@ -2,13 +2,14 @@ import type { PatternBias } from './types'
 
 export type SpecialPatternCategory =
   | 'weekly-karthik'
+  | 'livermore'
   | 'momentum'
   | 'volume'
   | 'structure'
   | 'cycle'
   | 'mean-reversion'
 
-export type SpecialPatternKind = 'snapshot' | 'weekly'
+export type SpecialPatternKind = 'snapshot' | 'weekly' | 'livermore'
 
 export type SpecialPatternDef = {
   id: string
@@ -23,6 +24,7 @@ export type SpecialPatternDef = {
 
 export const SPECIAL_PATTERN_CATEGORIES: { id: SpecialPatternCategory; label: string }[] = [
   { id: 'weekly-karthik', label: 'Weekly (Karthik)' },
+  { id: 'livermore', label: 'Livermore Desk' },
   { id: 'momentum', label: 'Momentum / RS' },
   { id: 'volume', label: 'Volume' },
   { id: 'structure', label: 'Structure / MA' },
@@ -92,6 +94,82 @@ export const KARTHIK_WEEKLY_PATTERNS: SpecialPatternDef[] = [
       'Hammer(week 0) AND Hammer(week 1); lower wick ≥ 2× body, minimal upper wick, body near top, decline into week',
     description:
       'Two consecutive valid weekly hammers after a decline — only with Stage 2 or ≥30% rally context.',
+  },
+]
+
+/** Livermore accumulation / liquidity / pivot scores — daily OHLC scan. */
+export const LIVERMORE_PATTERNS: SpecialPatternDef[] = [
+  {
+    id: 'livermore-dashboard',
+    name: 'Livermore Dashboard Rank',
+    category: 'livermore',
+    kind: 'livermore',
+    bias: 'bullish',
+    formula:
+      'Final = 35% Accumulation + 25% Liquidity Grab + 25% RS(20d) + 15% Breakout\n' +
+      '90–100 Elite · 80–90 Strong · 70–80 Emerging',
+    description: 'Full-universe Livermore composite ranking from daily OHLC.',
+  },
+  {
+    id: 'livermore-elite-setup',
+    name: 'Elite Livermore Setup',
+    category: 'livermore',
+    kind: 'livermore',
+    bias: 'bullish',
+    formula:
+      'Accumulation > 80  AND  Liquidity Grab > 70\n' +
+      'AND within 10% of 52W high  AND  EMA20 > EMA50 > EMA200  AND  RVOL > 1.5',
+    description: 'Institutional accumulation + liquidity grab near highs with trend stack.',
+  },
+  {
+    id: 'livermore-accumulation-strong',
+    name: 'Strong Accumulation',
+    category: 'livermore',
+    kind: 'livermore',
+    bias: 'bullish',
+    formula:
+      'Accumulation ≥ 85 (volume expansion + compression + higher low + RS)\n' +
+      'Volume ratio > 1.5 · ATR14/ATR50 < 0.8 · higher swing low · RS(20d) > index',
+    description: 'Livermore-style quiet accumulation with rising RS.',
+  },
+  {
+    id: 'livermore-accumulation',
+    name: 'Accumulation Zone',
+    category: 'livermore',
+    kind: 'livermore',
+    bias: 'bullish',
+    formula: 'Accumulation score ≥ 70',
+    description: 'Building institutional interest without vertical price extension.',
+  },
+  {
+    id: 'livermore-liquidity-strong',
+    name: 'Strong Liquidity Grab',
+    category: 'livermore',
+    kind: 'livermore',
+    bias: 'bullish',
+    formula:
+      'Liquidity Grab ≥ 80 — false break below support, volume surge, long lower wick, RS support',
+    description: 'High-confidence stop-run reversal under support.',
+  },
+  {
+    id: 'livermore-liquidity-grab',
+    name: 'Liquidity Grab',
+    category: 'livermore',
+    kind: 'livermore',
+    bias: 'bullish',
+    formula:
+      'Low < 10d support AND close back above · RVOL > 1.5 · lower wick > 50% of range · score ≥ 60',
+    description: 'Possible smart-money liquidity sweep and reclaim.',
+  },
+  {
+    id: 'livermore-pivot-breakout',
+    name: 'Pivot Breakout',
+    category: 'livermore',
+    kind: 'livermore',
+    bias: 'bullish',
+    formula:
+      'Close > 20-day pivot high  AND  Volume > 1.5× avg(20)  AND  RS(20d) > index',
+    description: 'Livermore pivot emergence from accumulation with volume confirmation.',
   },
 ]
 
@@ -266,6 +344,7 @@ export const SNAPSHOT_PATTERN_CATALOG: SpecialPatternDef[] = [
 
 export const SPECIAL_PATTERN_CATALOG: SpecialPatternDef[] = [
   ...KARTHIK_WEEKLY_PATTERNS,
+  ...LIVERMORE_PATTERNS,
   ...SNAPSHOT_PATTERN_CATALOG,
 ]
 

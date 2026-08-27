@@ -1,13 +1,16 @@
 import type { CustomPattern, PatternPrefs } from '../patternPrefs'
+import { getTickerLivermore } from '../livermoreCache'
 import { getTickerWeeklySpecial } from '../specialWeeklyCache'
 import { PATTERN_CATALOG } from './catalog'
 import { detectCandleShape } from './candleShape'
 import { detectCustomRule } from './customRules'
+import { rulesFromCustom } from './scanScript'
 import {
   filterHitsByWindow,
   type PatternScanWindow,
 } from './scanWindow'
-import { specialPatternByName } from './specialCatalog'
+import { livermorePatternMatch } from './livermoreScores'
+import { SPECIAL_PATTERN_CATALOG, specialPatternByName } from './specialCatalog'
 import type { KarthikPatternId } from './karthikWeekly'
 import type {
   CategorySummary,
@@ -34,8 +37,14 @@ function buildStarredCategory(
   window: PatternScanWindow,
   ticker: string | null,
 ): CategorySummary {
-  const starred = new Set(prefs.starredNames)
+  const starred = new Set(
+    prefs.starredNames.filter((n) => !specialPatternByName(n)),
+  )
   const customByName = new Map(prefs.customPatterns.map((c) => [c.name, c]))
+  const watchNames = new Set<string>([
+    ...starred,
+    ...SPECIAL_PATTERN_CATALOG.map((p) => p.name),
+  ])
 
   const hitByName = new Map<string, PatternHit>()
   for (const h of allHits) {
@@ -53,30 +62,48 @@ function buildStarredCategory(
 
   if (ticker) {
     const weekly = getTickerWeeklySpecial(ticker)
-    for (const name of starred) {
-      const sp = specialPatternByName(name)
-      if (!sp || sp.kind !== 'weekly') continue
-      const wh = weekly?.hits.find((h) => h.patternId === (sp.id as KarthikPatternId))
-      if (!wh) continue
-      const startT = wh.weekStartT ?? wh.weekEndT ?? 0
-      const endT = wh.weekEndT ?? startT
-      const asOf = bars?.length ? bars[bars.length - 1].t : endT
-      const hit: PatternHit = {
-        id: `special-${sp.id}-${startT}`,
-        category: 'starred',
-        name: sp.name,
-        bias: sp.bias,
-        startT,
-        endT: startT,
-        confidence: 0.85,
-        note: 'Special / weekly pattern',
+    const asOf = bars?.length ? bars[bars.length - 1].t : Math.floor(Date.now() / 1000)
+    for (const sp of SPECIAL_PATTERN_CATALOG) {
+      if (sp.kind === 'weekly') {
+        const wh = weekly?.hits.find((h) => h.patternId === (sp.id as KarthikPatternId))
+        if (!wh) continue
+        const startT = wh.weekStartT ?? wh.weekEndT ?? 0
+        const endT = wh.weekEndT ?? startT
+        const hit: PatternHit = {
+          id: `special-${sp.id}-${startT}`,
+          category: 'starred',
+          name: sp.name,
+          bias: sp.bias,
+          startT,
+          endT,
+          confidence: 0.85,
+          note: 'Special / weekly pattern',
+        }
+        const filtered = filterHitsByWindow([hit], window, asOf)
+        if (filtered[0]) hitByName.set(sp.name, filtered[0])
+        continue
       }
-      const filtered = filterHitsByWindow([hit], window, asOf)
-      if (filtered[0]) hitByName.set(name, filtered[0])
+      if (sp.kind === 'livermore') {
+        const lm = getTickerLivermore(ticker)
+        if (!lm?.scores || !livermorePatternMatch(sp.id, lm.scores)) continue
+        const now = Math.floor(Date.now() / 1000)
+        const hit: PatternHit = {
+          id: `livermore-${sp.id}-${now}`,
+          category: 'starred',
+          name: sp.name,
+          bias: sp.bias,
+          startT: now - 30 * 86400,
+          endT: now,
+          confidence: lm.scores.finalScore / 100,
+          note: `Final ${lm.scores.finalScore}`,
+        }
+        const filtered = filterHitsByWindow([hit], window, asOf)
+        if (filtered[0]) hitByName.set(sp.name, filtered[0])
+      }
     }
   }
 
-  const names = [...starred]
+  const names = [...watchNames]
   const rows: PatternScanRow[] = names
     .map((name) => {
       const custom = customByName.get(name)
@@ -110,7 +137,7 @@ function buildStarredCategory(
     analyzed: names.length,
     note:
       names.length === 0
-        ? 'Star chart or Special Patterns — they appear here and on the Sector Table'
+        ? 'Star chart patterns for ★ — all Special Patterns always on Sector Table (✦)'
         : undefined,
   }
 }
@@ -131,24 +158,27 @@ function resolveCustomHit(
       description: c.description,
       candleShape: c.candleShape,
     })
-  } else if (c.rules?.conditions?.length && bars?.length) {
-    hit = detectCustomRule(bars, {
-      id: c.id,
-      name: c.name,
-      bias: c.bias,
-      description: c.description,
-      rules: c.rules,
-    })
-  } else if (c.basedOn) {
-    const src = hitByName.get(c.basedOn)
-    if (!src) return null
-    hit = cloneHit(src, {
-      id: `custom-${c.id}-${src.endT}`,
-      category: 'custom',
-      name: c.name,
-      bias: c.bias,
-      note: c.description || `Based on ${c.basedOn}`,
-    })
+  } else {
+    const rules = rulesFromCustom(c.rules, c.scanScript)
+    if (rules?.conditions?.length && bars?.length) {
+      hit = detectCustomRule(bars, {
+        id: c.id,
+        name: c.name,
+        bias: c.bias,
+        description: c.description,
+        rules,
+      })
+    } else if (c.basedOn) {
+      const src = hitByName.get(c.basedOn)
+      if (!src) return null
+      hit = cloneHit(src, {
+        id: `custom-${c.id}-${src.endT}`,
+        category: 'custom',
+        name: c.name,
+        bias: c.bias,
+        note: c.description || `Based on ${c.basedOn}`,
+      })
+    }
   }
   if (!hit || asOf == null) return hit
   const filtered = filterHitsByWindow([hit], window, asOf)

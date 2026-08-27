@@ -22,6 +22,7 @@ import type { CustomRuleSet } from '../../lib/patterns/customRules'
 import type { CandleShapeSpec } from '../../lib/patterns/candleShape'
 import type { PatternScanWindow } from '../../lib/patterns/scanWindow'
 import {
+  clearAllPatternHits,
   getManyTickerPatternHits,
   getTickerPatternHits,
   setTickerPatternHits,
@@ -33,7 +34,7 @@ import {
   hasStarredWeeklySpecial,
   mergeOverviewHits,
   resolveOverviewHits,
-  resolveStarredSpecialHitsForTicker,
+  resolveSpecialHitsForTicker,
 } from '../../lib/overviewPatternHits'
 import type { StockMetrics } from '../../data/types'
 
@@ -48,6 +49,7 @@ type Ctx = {
     basedOn: string | null
     rules?: CustomRuleSet | null
     candleShape?: CandleShapeSpec | null
+    scanScript?: string | null
   }) => void
   deleteCustom: (id: string) => void
   customPatterns: CustomPattern[]
@@ -60,7 +62,7 @@ type Ctx = {
     hits: CachedPatternHit[],
     meta?: { scanWindow?: PatternScanWindow; asOf?: number | null },
   ) => void
-  /** Hits for starred + My Patterns + starred Special Patterns on Sector Table */
+  /** Hits for chart patterns (starred) + all specials + My Patterns on Sector Table */
   overviewHitsFor: (
     ticker: string,
     extras?: {
@@ -84,6 +86,10 @@ type Ctx = {
   hasOverviewWatch: boolean
   /** True when any starred Special Pattern is weekly (needs OHLC scan) */
   hasStarredWeeklySpecial: boolean
+  /** Bumps when hit cache is wiped so industry scan re-runs immediately */
+  hitsScanEpoch: number
+  /** Clear pattern-hit cache (disk + memory) and force a fresh scan */
+  clearHitsAndRescan: () => void
 }
 
 const PatternPrefsContext = createContext<Ctx | null>(null)
@@ -99,6 +105,27 @@ export function PatternPrefsProvider({
   const [hitsByTicker, setHitsByTicker] = useState<Map<string, TickerPatternCache>>(
     () => new Map(),
   )
+  const [hitsScanEpoch, setHitsScanEpoch] = useState(0)
+
+  const clearHitsAndRescan = useCallback(() => {
+    clearAllPatternHits()
+    setHitsByTicker(new Map())
+    setHitsScanEpoch((n) => n + 1)
+  }, [])
+
+  // One-time: drop pre-startT caches so Sector Table rescans with start dates.
+  useEffect(() => {
+    const flag = 'asx-pattern-hits-startT-cleared'
+    try {
+      if (localStorage.getItem(flag)) return
+      clearAllPatternHits()
+      setHitsByTicker(new Map())
+      setHitsScanEpoch((n) => n + 1)
+      localStorage.setItem(flag, '1')
+    } catch {
+      clearHitsAndRescan()
+    }
+  }, [clearHitsAndRescan])
 
   useEffect(() => {
     setPrefs(loadPatternPrefs(user))
@@ -125,6 +152,7 @@ export function PatternPrefsProvider({
       basedOn: string | null
       rules?: CustomRuleSet | null
       candleShape?: CandleShapeSpec | null
+      scanScript?: string | null
     }) => {
       setPrefs((p) => addCustomPattern(p, input))
     },
@@ -168,16 +196,20 @@ export function PatternPrefsProvider({
         indexM3?: number
         universe?: StockMetrics[]
         weeklyVersion?: number
+        livermoreVersion?: number
       },
     ): CachedPatternHit[] => {
       void extras?.weeklyVersion
+      void extras?.livermoreVersion
       const key = ticker.toUpperCase()
       const cached = hitsByTicker.get(key) ?? getTickerPatternHits(key)
       const chart = resolveOverviewHits(cached?.hits ?? [], prefs)
-      const special = resolveStarredSpecialHitsForTicker(ticker, prefs, {
+      const special = resolveSpecialHitsForTicker(ticker, {
         stock: extras?.stock,
         indexM3: extras?.indexM3,
         universe: extras?.universe,
+        weeklyVersion: extras?.weeklyVersion,
+        livermoreVersion: extras?.livermoreVersion,
       })
       return mergeOverviewHits(chart, special)
     },
@@ -205,6 +237,8 @@ export function PatternPrefsProvider({
       starredHitsFor,
       hasOverviewWatch,
       hasStarredWeeklySpecial: hasStarredWeekly,
+      hitsScanEpoch,
+      clearHitsAndRescan,
     }),
     [
       prefs,
@@ -219,6 +253,8 @@ export function PatternPrefsProvider({
       hasOverviewWatch,
       hasStarredWeekly,
       setScanWindow,
+      hitsScanEpoch,
+      clearHitsAndRescan,
     ],
   )
 

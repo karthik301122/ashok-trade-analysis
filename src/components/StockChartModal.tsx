@@ -170,6 +170,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
       [...builtIn, ...customHits].map((h) => ({
         name: h.name,
         bias: h.bias,
+        startT: h.startT,
         endT: h.endT,
         confidence: h.confidence,
       })),

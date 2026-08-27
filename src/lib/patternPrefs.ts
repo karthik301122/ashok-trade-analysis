@@ -8,6 +8,10 @@ import {
   type CandleShapeSpec,
 } from './patterns/candleShape'
 import {
+  compileScanScript,
+  rulesFromCustom,
+} from './patterns/scanScript'
+import {
   DEFAULT_PATTERN_SCAN_WINDOW,
   parsePatternScanWindow,
   type PatternScanWindow,
@@ -24,6 +28,8 @@ export type CustomPattern = {
   rules: CustomRuleSet | null
   /** Candle geometry builder (daily/weekly). Preferred over rules when set. */
   candleShape: CandleShapeSpec | null
+  /** ScanScript source — compiled to rules on save. */
+  scanScript: string | null
   createdAt: number
 }
 
@@ -51,7 +57,7 @@ function parseCustom(p: unknown): CustomPattern | null {
   if (typeof o.id !== 'string' || typeof o.name !== 'string') return null
   const bias: PatternBias =
     o.bias === 'bearish' || o.bias === 'neutral' || o.bias === 'bullish' ? o.bias : 'neutral'
-  return {
+  const custom: CustomPattern = {
     id: o.id,
     name: o.name,
     bias,
@@ -59,8 +65,14 @@ function parseCustom(p: unknown): CustomPattern | null {
     basedOn: typeof o.basedOn === 'string' && o.basedOn.trim() ? o.basedOn.trim() : null,
     rules: normalizeRuleSet(o.rules),
     candleShape: normalizeCandleShape(o.candleShape),
+    scanScript: typeof o.scanScript === 'string' && o.scanScript.trim() ? o.scanScript.trim() : null,
     createdAt: typeof o.createdAt === 'number' ? o.createdAt : Date.now(),
   }
+  const rules = rulesFromCustom(custom.rules, custom.scanScript)
+  if (rules && !custom.rules?.conditions?.length) {
+    custom.rules = rules
+  }
+  return custom
 }
 
 export function loadPatternPrefs(user: string | null): PatternPrefs {
@@ -102,13 +114,30 @@ export function addCustomPattern(
     basedOn: string | null
     rules?: CustomRuleSet | null
     candleShape?: CandleShapeSpec | null
+    scanScript?: string | null
   },
 ): PatternPrefs {
   const name = input.name.trim()
   if (!name) return prefs
   const candleShape = normalizeCandleShape(input.candleShape)
-  const rules = candleShape ? null : normalizeRuleSet(input.rules)
-  const basedOn = candleShape || rules ? null : input.basedOn?.trim() || null
+  let scanScript =
+    typeof input.scanScript === 'string' && input.scanScript.trim()
+      ? input.scanScript.trim()
+      : null
+  let rules = candleShape ? null : normalizeRuleSet(input.rules)
+  const basedOn = candleShape || rules || scanScript ? null : input.basedOn?.trim() || null
+
+  if (scanScript && !candleShape) {
+    const compiled = compileScanScript(scanScript)
+    if (!compiled.ok) return prefs
+    rules = compiled.rules
+    if (compiled.bias) {
+      input = { ...input, bias: compiled.bias }
+    }
+  } else if (!candleShape && !rules) {
+    scanScript = null
+  }
+
   const custom: CustomPattern = {
     id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name,
@@ -117,6 +146,7 @@ export function addCustomPattern(
     basedOn,
     rules,
     candleShape,
+    scanScript,
     createdAt: Date.now(),
   }
   return { ...prefs, customPatterns: [...prefs.customPatterns, custom] }

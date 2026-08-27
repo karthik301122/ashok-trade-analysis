@@ -11,6 +11,7 @@ import {
   maybeStartBackgroundSnapshot,
   readMarketSnapshotRow,
   runUniverseSnapshot,
+  runRetryFailedSnapshot,
 } from './snapshotJob.mjs'
 import {
   createAlertRule,
@@ -151,6 +152,28 @@ export async function handleConnectApi(req, res, send) {
             }
           : null,
       })
+      return true
+    }
+    send(405, { error: 'Method not allowed' })
+    return true
+  }
+
+  if (url.pathname === '/api/snapshot/retry-failed') {
+    if (requireAuthConnect(req, send)) return true
+    if (req.method === 'POST') {
+      const status = getSnapshotJobStatus()
+      if (status.status === 'running') {
+        log('info', 'snapshot.retry_failed', { alreadyRunning: true })
+        send(202, { ok: true, job: status })
+        return true
+      }
+      log('info', 'snapshot.retry_failed', { started: true })
+      void runRetryFailedSnapshot().catch((err) => {
+        log('error', 'snapshot.retry_failed.error', {
+          message: err instanceof Error ? err.message : String(err),
+        })
+      })
+      send(202, { ok: true, started: true, job: getSnapshotJobStatus() })
       return true
     }
     send(405, { error: 'Method not allowed' })
@@ -396,6 +419,24 @@ export function mountExpressApi(app) {
     log('info', 'snapshot.refresh', { started: true, force })
     void runUniverseSnapshot({ force }).catch((err) => {
       log('error', 'snapshot.refresh.error', {
+        message: err instanceof Error ? err.message : String(err),
+      })
+    })
+    return res.status(202).json({ ok: true, started: true, job: getSnapshotJobStatus() })
+  })
+
+  app.post('/api/snapshot/retry-failed', (req, res) => {
+    if (authEnabled() && !getUserFromRequest(req)) {
+      return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    }
+    const status = getSnapshotJobStatus()
+    if (status.status === 'running') {
+      log('info', 'snapshot.retry_failed', { alreadyRunning: true })
+      return res.status(202).json({ ok: true, job: status })
+    }
+    log('info', 'snapshot.retry_failed', { started: true })
+    void runRetryFailedSnapshot().catch((err) => {
+      log('error', 'snapshot.retry_failed.error', {
         message: err instanceof Error ? err.message : String(err),
       })
     })

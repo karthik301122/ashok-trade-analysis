@@ -2,6 +2,8 @@ import YahooFinance from 'yahoo-finance2'
 
 const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] })
 
+const CHART_OPTS = { validateResult: false }
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
@@ -9,17 +11,24 @@ function sleep(ms) {
 /**
  * @param {string} symbol Yahoo symbol e.g. CBA.AX or ^AXJO
  * @param {string} [period1] ISO date
+ * @param {{ attempts?: number, baseDelayMs?: number }} [opts]
  */
-export async function fetchChartCloses(symbol, period1 = '2023-01-01') {
+export async function fetchChartCloses(symbol, period1 = '2023-01-01', opts = {}) {
+  const attempts = Number(opts.attempts) || 3
+  const baseDelayMs = Number(opts.baseDelayMs) || 400
   let lastErr = null
-  for (let attempt = 0; attempt < 3; attempt++) {
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      const result = await yf.chart(symbol, {
-        period1,
-        interval: '1d',
-      })
+      const result = await yf.chart(
+        symbol,
+        {
+          period1,
+          interval: '1d',
+        },
+        CHART_OPTS,
+      )
       const quotes = (result.quotes || []).filter((q) => q.close != null && Number.isFinite(q.close))
-      // Allow thin history for microcaps (was 30 — too strict)
       if (quotes.length < 15) return null
 
       const closes = quotes.map((q) => {
@@ -54,15 +63,15 @@ export async function fetchChartCloses(symbol, period1 = '2023-01-01') {
       }
     } catch (err) {
       lastErr = err
-      await sleep(400 * (attempt + 1) + Math.random() * 300)
+      await sleep(baseDelayMs * (attempt + 1) + Math.random() * 300)
     }
   }
   if (lastErr) return null
   return null
 }
 
-export async function fetchAsxTicker(ticker, period1) {
-  return fetchChartCloses(`${String(ticker).toUpperCase()}.AX`, period1)
+export async function fetchAsxTicker(ticker, period1, opts) {
+  return fetchChartCloses(`${String(ticker).toUpperCase()}.AX`, period1, opts)
 }
 
 export async function fetchAsx200(period1) {

@@ -111,7 +111,7 @@ export function seriesToCachedPerf(series, indexM3) {
   }
 }
 
-export async function mapPool(items, concurrency, fn, onProgress) {
+export async function mapPool(items, concurrency, fn, onProgress, delayMs = 20) {
   const results = new Array(items.length)
   let next = 0
   let done = 0
@@ -121,7 +121,7 @@ export async function mapPool(items, concurrency, fn, onProgress) {
       results[i] = await fn(items[i], i)
       done++
       onProgress?.(done, items.length)
-      await new Promise((r) => setTimeout(r, 20))
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs))
     }
   }
   await Promise.all(

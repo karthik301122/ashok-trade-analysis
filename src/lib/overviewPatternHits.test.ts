@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest'
 import type { CachedPatternHit } from './patternHitsCache'
 import type { PatternPrefs } from './patternPrefs'
 import {
+  catalogSpecialPatterns,
+  hasOverviewChartWatch,
   hasOverviewPatternWatch,
   hasStarredWeeklySpecial,
   mergeOverviewHits,
   overviewWatchNames,
   resolveOverviewHits,
-  starredSpecialPatterns,
 } from './overviewPatternHits'
 
 const prefs: PatternPrefs = {
@@ -37,23 +38,26 @@ const prefs: PatternPrefs = {
   scanWindow: '1m',
 }
 
+const emptyPrefs: PatternPrefs = {
+  starredNames: [],
+  customPatterns: [],
+  scanWindow: '1m',
+}
+
 describe('overviewPatternHits', () => {
-  it('detects watch list from stars and detectable customs', () => {
-    expect(hasOverviewPatternWatch(prefs)).toBe(true)
-    expect(overviewWatchNames(prefs).sort()).toEqual([
-      '3 Weeks Tight',
-      'Hammer',
-      'My Flag',
-      'My RVOL',
-    ])
+  it('always watches special patterns on the desk', () => {
+    expect(hasOverviewPatternWatch(emptyPrefs)).toBe(true)
+    expect(catalogSpecialPatterns().length).toBeGreaterThan(10)
+    expect(hasStarredWeeklySpecial(emptyPrefs)).toBe(true)
   })
 
-  it('flags starred weekly specials', () => {
-    expect(hasStarredWeeklySpecial(prefs)).toBe(true)
-    expect(starredSpecialPatterns(prefs).map((p) => p.id)).toEqual(['three-weeks-tight'])
+  it('chart watch names exclude specials from star list', () => {
+    expect(overviewWatchNames(prefs).sort()).toEqual(['Hammer', 'My Flag', 'My RVOL'])
+    expect(hasOverviewChartWatch(prefs)).toBe(true)
+    expect(hasOverviewChartWatch(emptyPrefs)).toBe(false)
   })
 
-  it('resolves starred, custom rule, and alias hits', () => {
+  it('resolves starred chart, custom rule, and alias hits', () => {
     const cached: CachedPatternHit[] = [
       { name: 'Hammer', bias: 'bullish', endT: 100, confidence: 0.8 },
       { name: 'My RVOL', bias: 'bullish', endT: 99, confidence: 0.7 },
@@ -76,7 +80,7 @@ describe('overviewPatternHits', () => {
     ])
   })
 
-  it('returns empty when nothing watched matches', () => {
-    expect(resolveOverviewHits([], prefs)).toEqual([])
+  it('returns empty chart hits when nothing watched', () => {
+    expect(resolveOverviewHits([], emptyPrefs)).toEqual([])
   })
 })
