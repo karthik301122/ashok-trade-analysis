@@ -7,7 +7,7 @@ import { formatPct, formatVsIndex, perfCellClass } from '../lib/format'
 import { copyTickersToTradingView } from '../lib/tradingview'
 import { Sparkline } from './Sparkline'
 import { StockChartModal } from './StockChartModal'
-import { usePatternPrefs } from './patterns/PatternPrefsContext'
+import { usePatternPrefs } from './patterns/usePatternPrefs'
 import { useIndustryPatternScan } from './patterns/useIndustryPatternScan'
 import type { CachedPatternHit } from '../lib/patternHitsCache'
 import {

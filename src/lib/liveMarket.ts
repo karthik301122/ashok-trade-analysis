@@ -40,7 +40,7 @@ function minSnapshotRatio(config: DeskServerConfig) {
   return config.productionMode ? 0.35 : 0.5
 }
 
-function useServerSnapshot(
+function parseServerSnapshot(
   json: ServerSnapshotJson,
   tickers: string[],
   config: DeskServerConfig,
@@ -351,7 +351,7 @@ export async function loadLiveMarketSnapshot(
   const tryServer = async (acceptStale: boolean) => {
     const json = await fetchServerSnapshotJson(signal)
     if (!json) return null
-    const parsed = useServerSnapshot(json, tickers, config, acceptStale)
+    const parsed = parseServerSnapshot(json, tickers, config, acceptStale)
     if (!parsed) return null
     return finishFromServer(parsed, !forceRefresh)
   }

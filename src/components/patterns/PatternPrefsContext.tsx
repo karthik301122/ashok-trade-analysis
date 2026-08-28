@@ -1,7 +1,5 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useState,
@@ -14,7 +12,6 @@ import {
   savePatternPrefs,
   setPatternScanWindow,
   toggleStarredName,
-  type CustomPattern,
   type PatternPrefs,
 } from '../../lib/patternPrefs'
 import type { PatternBias } from '../../lib/patterns'
@@ -23,7 +20,6 @@ import type { CandleShapeSpec } from '../../lib/patterns/candleShape'
 import type { PatternScanWindow } from '../../lib/patterns/scanWindow'
 import {
   clearAllPatternHits,
-  getManyTickerPatternHits,
   getTickerPatternHits,
   setTickerPatternHits,
   type CachedPatternHit,
@@ -37,62 +33,7 @@ import {
   resolveSpecialHitsForTicker,
 } from '../../lib/overviewPatternHits'
 import type { StockMetrics } from '../../data/types'
-
-type Ctx = {
-  prefs: PatternPrefs
-  isStarred: (name: string) => boolean
-  toggleStar: (name: string) => void
-  createCustom: (input: {
-    name: string
-    bias: PatternBias
-    description: string
-    basedOn: string | null
-    rules?: CustomRuleSet | null
-    candleShape?: CandleShapeSpec | null
-    scanScript?: string | null
-  }) => void
-  deleteCustom: (id: string) => void
-  customPatterns: CustomPattern[]
-  scanWindow: PatternScanWindow
-  setScanWindow: (window: PatternScanWindow) => void
-  /** Live map of ticker → last scan hits (memory + localStorage) */
-  hitsByTicker: Map<string, TickerPatternCache>
-  rememberHits: (
-    ticker: string,
-    hits: CachedPatternHit[],
-    meta?: { scanWindow?: PatternScanWindow; asOf?: number | null },
-  ) => void
-  /** Hits for chart patterns (starred) + all specials + My Patterns on Sector Table */
-  overviewHitsFor: (
-    ticker: string,
-    extras?: {
-      stock?: StockMetrics
-      indexM3?: number
-      universe?: StockMetrics[]
-      /** Bump when weekly special cache updates */
-      weeklyVersion?: number
-    },
-  ) => CachedPatternHit[]
-  /** @deprecated use overviewHitsFor */
-  starredHitsFor: (
-    ticker: string,
-    extras?: {
-      stock?: StockMetrics
-      indexM3?: number
-      universe?: StockMetrics[]
-      weeklyVersion?: number
-    },
-  ) => CachedPatternHit[]
-  hasOverviewWatch: boolean
-  /** True when any starred Special Pattern is weekly (needs OHLC scan) */
-  hasStarredWeeklySpecial: boolean
-  /** Bumps when hit cache is wiped so industry scan re-runs immediately */
-  hitsScanEpoch: number
-  /** Clear pattern-hit cache (disk + memory) and force a fresh scan */
-  clearHitsAndRescan: () => void
-}
-
-const PatternPrefsContext = createContext<Ctx | null>(null)
+import { PatternPrefsContext } from './patternPrefsContext'
 
 export function PatternPrefsProvider({
   user,
@@ -261,15 +202,4 @@ export function PatternPrefsProvider({
   return (
     <PatternPrefsContext.Provider value={value}>{children}</PatternPrefsContext.Provider>
   )
-}
-
-export function usePatternPrefs() {
-  const ctx = useContext(PatternPrefsContext)
-  if (!ctx) throw new Error('usePatternPrefs requires PatternPrefsProvider')
-  return ctx
-}
-
-/** Prefetch cache entries into memory for a list of tickers (no network). */
-export function hydrateHitsFromStorage(tickers: string[]) {
-  return getManyTickerPatternHits(tickers)
 }

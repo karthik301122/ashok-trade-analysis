@@ -14,7 +14,7 @@ import { aggregateLivermoreHits, type LivermoreHit } from '../lib/livermoreCache
 import { copyTickersToTradingView } from '../lib/tradingview'
 import { useKarthikWeeklyScan } from './patterns/useKarthikWeeklyScan'
 import { useLivermoreScan } from './patterns/useLivermoreScan'
-import { usePatternPrefs } from './patterns/PatternPrefsContext'
+import { usePatternPrefs } from './patterns/usePatternPrefs'
 import { StockChartModal, type ChartPatternFocus } from './StockChartModal'
 
 type Props = { snapshot: MarketSnapshot }

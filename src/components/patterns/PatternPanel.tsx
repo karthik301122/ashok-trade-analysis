@@ -35,7 +35,7 @@ import {
   type CandleShapeSpec,
   type CandleTimeframe,
 } from '../../lib/patterns'
-import { usePatternPrefs } from './PatternPrefsContext'
+import { usePatternPrefs } from './usePatternPrefs'
 
 type Props = {
   loading: boolean

@@ -3,7 +3,7 @@ import { fetchYahooOhlc } from '../../lib/yahoo'
 import { detectAllCustomRules, filterHitsByWindow, scanPatterns } from '../../lib/patterns'
 import { cacheMissingStartT, getTickerPatternHits } from '../../lib/patternHitsCache'
 import { hasOverviewChartWatch } from '../../lib/overviewPatternHits'
-import { usePatternPrefs } from './PatternPrefsContext'
+import { usePatternPrefs } from './usePatternPrefs'
 
 const CONCURRENCY = 2
 /** Re-scan if older than 12h or scan window changed */

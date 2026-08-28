@@ -87,7 +87,7 @@ export async function handleConnectApi(req, res, send) {
     if (rateLimitOrSend(req, send, 'series', seriesRateLimitPerMinute())) return true
     try {
       const ticker = decodeURIComponent(url.pathname.replace('/api/series/', '')).toUpperCase()
-      if (!ticker || !/^[A-Z0-9.^=\-]{1,20}$/.test(ticker)) {
+      if (!ticker || !/^[A-Z0-9.^=-]{1,20}$/.test(ticker)) {
         send(400, { error: 'Invalid ticker' })
         return true
       }
@@ -405,7 +405,7 @@ export function mountExpressApi(app) {
     }
     try {
       const ticker = decodeURIComponent(req.params.ticker).toUpperCase()
-      if (!ticker || !/^[A-Z0-9.^=\-]{1,20}$/.test(ticker)) {
+      if (!ticker || !/^[A-Z0-9.^=-]{1,20}$/.test(ticker)) {
         return res.status(400).json({ error: 'Invalid ticker' })
       }
       const from = typeof req.query.from === 'string' ? req.query.from : defaultFromIso()

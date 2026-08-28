@@ -113,7 +113,7 @@ export function TradingViewChart({
 
     return () => {
       cancelled = true
-      if (hostRef.current) hostRef.current.innerHTML = ''
+      if (host) host.innerHTML = ''
     }
   }, [ticker, containerId, pxHeight, dark, range])
 

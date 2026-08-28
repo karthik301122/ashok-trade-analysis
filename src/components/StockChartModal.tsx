@@ -18,7 +18,7 @@ import {
 import { TradingViewChart } from './TradingViewChart'
 import { PatternPanel } from './patterns/PatternPanel'
 import { AnnotatedPatternChart } from './patterns/AnnotatedPatternChart'
-import { usePatternPrefs } from './patterns/PatternPrefsContext'
+import { usePatternPrefs } from './patterns/usePatternPrefs'
 
 /** Open chart already zoomed/annotated to a special (or other) pattern hit. */
 export type ChartPatternFocus = {
@@ -141,13 +141,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
     return () => {
       cancelled = true
     }
-  }, [
-    ticker,
-    initialFocus?.name,
-    initialFocus?.bias,
-    initialFocus?.startT,
-    initialFocus?.endT,
-  ])
+  }, [ticker, initialFocus])
 
   const scanResult = useMemo(() => {
     if (!bars?.length) return null
