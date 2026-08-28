@@ -17,7 +17,7 @@
     "lint": "oxlint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "preview": "vite preview"
+    "preview": "node server/prod.mjs"
   },
   "engines": {
     "node": ">=22"

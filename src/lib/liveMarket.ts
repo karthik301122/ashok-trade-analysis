@@ -61,15 +61,58 @@ function parseServerSnapshot(
   }
 }
 
-async function waitForServerSnapshotJob(signal?: AbortSignal) {
+async function probeDeskApi(signal?: AbortSignal): Promise<boolean> {
+  try {
+    const res = await fetch('/api/health', { credentials: 'include', signal })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+async function waitForServerSnapshotJob(
+  signal?: AbortSignal,
+  onProgress?: (p: LiveLoadProgress) => void,
+  total = 0,
+  tryReady?: () => Promise<{
+    snapshot: MarketSnapshot
+    fromCache: boolean
+    loaded: number
+    failed: number
+    source?: 'server-sqlite' | 'browser-yahoo'
+  } | null>,
+): Promise<{
+  snapshot: MarketSnapshot
+  fromCache: boolean
+  loaded: number
+  failed: number
+  source?: 'server-sqlite' | 'browser-yahoo'
+} | null> {
   for (let i = 0; i < 300; i++) {
     if (signal?.aborted) throw new Error('Aborted')
+    if (tryReady) {
+      const ready = await tryReady()
+      if (ready) return ready
+    }
     const res = await fetch('/api/snapshot/refresh', { credentials: 'include', signal })
     if (!res.ok) break
-    const json = (await res.json()) as { job?: { status?: string } }
-    if (json.job?.status !== 'running') return
+    const json = (await res.json()) as {
+      job?: { status?: string; loaded?: number; total?: number; message?: string }
+    }
+    const job = json.job
+    if (job?.status !== 'running') return null
+    const loaded = job.loaded ?? 0
+    const jobTotal = job.total ?? total
+    onProgress?.({
+      done: loaded,
+      total: jobTotal > 0 ? jobTotal + 1 : total,
+      phase: 'cache',
+      loaded,
+      remaining: Math.max(0, jobTotal - loaded),
+    })
     await sleep(2000)
   }
+  return null
 }
 
 async function fetchServerSnapshotJson(signal?: AbortSignal): Promise<ServerSnapshotJson | null> {
@@ -373,7 +416,8 @@ export async function loadLiveMarketSnapshot(
       maybeStartBackgroundSnapshotClient()
     }
     onProgress?.({ done: 0, total, phase: 'cache', loaded: 0, remaining: tickers.length })
-    await waitForServerSnapshotJob(signal)
+    const waited = await waitForServerSnapshotJob(signal, onProgress, total, () => tryServer(true))
+    if (waited) return waited
     const got = await tryServer(true)
     if (got) return got
     throw new Error(
@@ -382,6 +426,12 @@ export async function loadLiveMarketSnapshot(
   }
 
   // Dev / local fallback: progressive browser fetch (never used when productionMode)
+  if (!await probeDeskApi(signal)) {
+    throw new Error(
+      'Desk API is not available (GET /api/health failed). Use npm run dev — not vite preview — or npm run build && npm start. The app needs the Node server for market data.',
+    )
+  }
+
   const stockPerfs = new Map<string, CachedPerf>()
   let indexPerf: CachedPerf | null = null
   let fromCache = false
