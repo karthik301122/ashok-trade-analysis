@@ -5,7 +5,8 @@ import { cacheMissingStartT, getTickerPatternHits } from '../../lib/patternHitsC
 import { hasOverviewChartWatch } from '../../lib/overviewPatternHits'
 import { usePatternPrefs } from './usePatternPrefs'
 
-const CONCURRENCY = 2
+const CONCURRENCY = import.meta.env.PROD ? 1 : 2
+const SCAN_CAP = import.meta.env.PROD ? 60 : 500
 /** Re-scan if older than 12h or scan window changed */
 const STALE_MS = 12 * 60 * 60 * 1000
 
@@ -43,7 +44,9 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
       )
     })
 
-    if (!need.length) {
+    const scanList = need.slice(0, SCAN_CAP)
+
+    if (!scanList.length) {
       setScanning(false)
       setDone(0)
       setTotal(0)
@@ -55,13 +58,13 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
     let finished = 0
     setScanning(true)
     setDone(0)
-    setTotal(need.length)
+    setTotal(scanList.length)
 
     const worker = async () => {
       while (!cancelled && gen === queueGen.current) {
         const i = idx++
-        if (i >= need.length) break
-        const ticker = need[i]
+        if (i >= scanList.length) break
+        const ticker = scanList[i]
         try {
           const ohlc = await fetchYahooOhlc(ticker)
           if (cancelled || gen !== queueGen.current) return

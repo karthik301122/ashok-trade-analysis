@@ -171,15 +171,24 @@ async function fetchServerSnapshotJson(
   let offset = 0
 
   while (offset < stockTotal) {
-    const chunk = await fetchDeskJson<{
+    let chunk: {
       stocks?: Record<string, CachedPerf>
       count?: number
       total?: number
-    }>(
-      `/api/snapshot/stocks?offset=${offset}&limit=${chunkSize}`,
-      signal,
-      SNAPSHOT_FETCH_MS,
-    )
+    } | null = null
+    for (let attempt = 0; attempt < 4; attempt++) {
+      chunk = await fetchDeskJson<{
+        stocks?: Record<string, CachedPerf>
+        count?: number
+        total?: number
+      }>(
+        `/api/snapshot/stocks?offset=${offset}&limit=${chunkSize}`,
+        signal,
+        SNAPSHOT_FETCH_MS,
+      )
+      if (chunk?.stocks) break
+      if (attempt < 3) await sleep(2000 * (attempt + 1))
+    }
     if (!chunk?.stocks) break
     Object.assign(stocks, chunk.stocks)
     offset += chunk.count ?? chunkSize

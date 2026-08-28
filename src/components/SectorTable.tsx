@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Copy, Search, Star } from 'lucide-react'
 import type { IndustryMetrics, MarketSnapshot, Mood, StockMetrics } from '../data/types'
+import { ASX_UNIVERSE_COUNT } from '../data/universe'
 import type { PatternPrefs } from '../lib/patternPrefs'
 import { CYCLE_LABEL, MOOD_LABEL } from '../lib/market'
 import { formatPct, formatVsIndex, perfCellClass } from '../lib/format'
@@ -90,15 +91,18 @@ export function SectorTable({ snapshot }: Props) {
   const [chartStock, setChartStock] = useState<{ ticker: string; name: string } | null>(null)
   const { prefs, overviewHitsFor } = usePatternPrefs()
 
+  const heavyPatternScans =
+    snapshot.stocks.length >= Math.floor(ASX_UNIVERSE_COUNT * 0.85)
+
   const { scanning: weeklyScanning, done: weeklyDone, total: weeklyTotal, version: weeklyVersion } =
-    useKarthikWeeklyScan(snapshot.stocks, true)
+    useKarthikWeeklyScan(snapshot.stocks, heavyPatternScans)
 
   const {
     scanning: livermoreScanning,
     done: livermoreDone,
     total: livermoreTotal,
     version: livermoreVersion,
-  } = useLivermoreScan(snapshot.stocks, true)
+  } = useLivermoreScan(snapshot.stocks, heavyPatternScans)
 
   const indexM3 = snapshot.benchmarkPerf.m3
   const universe = snapshot.stocks

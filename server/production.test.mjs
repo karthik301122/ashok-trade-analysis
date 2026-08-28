@@ -44,6 +44,12 @@ describe('production mode', () => {
     expect(seriesRateLimitPerMinute()).toBe(600)
   })
 
+  it('honors SERIES_RATE_LIMIT override', () => {
+    process.env.PRODUCTION_MODE = 'true'
+    process.env.SERIES_RATE_LIMIT = '5000'
+    expect(seriesRateLimitPerMinute()).toBe(5000)
+  })
+
   it('computes readiness', () => {
     process.env.PRODUCTION_MODE = 'true'
     const r = readinessFromSnapshot({ fresh: true, loaded: 1800, failed: 200 }, 2000)

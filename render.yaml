@@ -23,6 +23,8 @@ services:
         value: "1"
       - key: EODHD_SNAPSHOT_DELAY_MS
         value: "300"
+      - key: SERIES_RATE_LIMIT
+        value: "5000"
       - key: EODHD_API_TOKEN
         value: 6a91a578276971.78855481
       # If login breaks after redeploy, re-add in dashboard or uncomment:

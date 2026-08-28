@@ -1,3 +1,5 @@
+import { fetchSeriesQueued } from './seriesFetchQueue'
+
 export type PriceBar = {
   t: number
   c: number
@@ -79,7 +81,7 @@ export async function fetchYahooSeries(
   const from = rangeToFromIso(range)
   const url = `/api/series/${encodeURIComponent(ticker)}?from=${from}`
   try {
-    const res = await fetch(url, { credentials: 'include' })
+    const res = await fetchSeriesQueued(url)
     if (!res.ok) return null
     const json = await res.json()
     if (!json?.closes?.length) return null
@@ -99,7 +101,7 @@ export async function fetchYahooOhlc(symbol: string, from = '2023-01-01'): Promi
   const ticker = /\.AX$/i.test(symbol) ? symbol.replace(/\.AX$/i, '') : symbol
   const url = `/api/series/${encodeURIComponent(ticker)}?from=${from}`
   try {
-    const res = await fetch(url, { credentials: 'include' })
+    const res = await fetchSeriesQueued(url)
     if (!res.ok) return null
     const json = await res.json()
     if (!json?.closes?.length) return null

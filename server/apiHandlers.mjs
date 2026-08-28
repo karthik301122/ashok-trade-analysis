@@ -62,7 +62,29 @@ function rateLimitOrSend(req, send, route, limit) {
   const result = checkRateLimit(key, { limit, windowMs: 60_000 })
   if (!result.ok) {
     log('warn', 'rate_limited', { route, key: clientKey(req), retryAfterMs: result.retryAfterMs })
-    send(429, {
+    const retrySec = Math.max(1, Math.ceil((result.retryAfterMs ?? 10_000) / 1000))
+    send(
+      429,
+      {
+        error: 'Too many requests',
+        retryAfterMs: result.retryAfterMs,
+      },
+      { 'Retry-After': String(retrySec) },
+    )
+    return true
+  }
+  return false
+}
+
+function seriesRateLimitOrExpress(req, res) {
+  pruneRateLimitBuckets()
+  const key = `${clientKey(req)}:series`
+  const result = checkRateLimit(key, { limit: seriesRateLimitPerMinute(), windowMs: 60_000 })
+  if (!result.ok) {
+    const retrySec = Math.max(1, Math.ceil((result.retryAfterMs ?? 10_000) / 1000))
+    log('warn', 'rate_limited', { route: 'series', key: clientKey(req), retryAfterMs: result.retryAfterMs })
+    res.setHeader('Retry-After', String(retrySec))
+    res.status(429).json({
       error: 'Too many requests',
       retryAfterMs: result.retryAfterMs,
     })
@@ -427,14 +449,7 @@ export function mountExpressApi(app) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     const started = Date.now()
-    if (
-      rateLimitOrSend(
-        req,
-        (status, body) => res.status(status).json(body),
-        'series',
-        seriesRateLimitPerMinute(),
-      )
-    ) {
+    if (seriesRateLimitOrExpress(req, res)) {
       return
     }
     try {
