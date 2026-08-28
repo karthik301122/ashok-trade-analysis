@@ -34,17 +34,17 @@ jobs:
       - name: Prune dev dependencies for deploy
         run: npm prune --omit=dev
 
+      - name: Create deploy zip
+        run: |
+          mkdir -p release
+          cp -r dist server src/data package.json package-lock.json node_modules release/
+          cd release && zip -rq ../release.zip .
+
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: |
-            dist
-            server
-            src/data
-            package.json
-            package-lock.json
-            node_modules
+          path: release.zip
 
   deploy:
     runs-on: ubuntu-latest
@@ -67,17 +67,10 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_D02CFFC9A5364EE097DF7EF14707DB48 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_4A4D9B7D11C74E9681799027E579F19B }}
 
-      - name: Skip Oryx rebuild (CI already built dist)
-        run: |
-          az webapp config appsettings set \
-            --name tradersscope-app \
-            --resource-group tradersscope-rg \
-            --settings SCM_DO_BUILD_DURING_DEPLOYMENT=false
-
       - name: Deploy to Azure Web App
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
           app-name: tradersscope-app
           slot-name: Production
-          package: deploy
+          package: deploy/release.zip
