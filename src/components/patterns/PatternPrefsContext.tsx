@@ -33,7 +33,7 @@ import {
   resolveSpecialHitsForTicker,
 } from '../../lib/overviewPatternHits'
 import type { StockMetrics } from '../../data/types'
-import { PatternPrefsContext } from './patternPrefsContext'
+import { PatternPrefsContext, type PatternPrefsContextValue } from './patternPrefsCtx'
 
 export function PatternPrefsProvider({
   user,
@@ -162,7 +162,7 @@ export function PatternPrefsProvider({
   const hasOverviewWatch = hasOverviewPatternWatch(prefs)
   const hasStarredWeekly = hasStarredWeeklySpecial(prefs)
 
-  const value = useMemo<Ctx>(
+  const value = useMemo<PatternPrefsContextValue>(
     () => ({
       prefs,
       isStarred,
