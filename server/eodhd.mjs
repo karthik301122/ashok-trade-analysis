@@ -1,4 +1,5 @@
 import { loadEnvFile } from './loadEnv.mjs'
+import { withEodhdThrottle, parseRetryAfterMs } from './eodhdThrottle.mjs'
 
 loadEnvFile()
 
@@ -71,9 +72,12 @@ function rowsToBars(rows) {
 export async function fetchEodhdChart(symbol, period1 = '2023-01-01', opts = {}) {
   const token = getEodhdToken()
   if (!token) return null
+  return withEodhdThrottle(() => fetchEodhdChartInner(symbol, period1, opts, token))
+}
 
+async function fetchEodhdChartInner(symbol, period1, opts, token) {
   const eodSymbol = toEodhdSymbol(symbol)
-  const attempts = Number(opts.attempts) || 3
+  const attempts = Number(opts.attempts) || 5
   const baseDelayMs = Number(opts.baseDelayMs) || 400
   const url = new URL(`${BASE}/${encodeURIComponent(eodSymbol)}`)
   url.searchParams.set('api_token', token)
@@ -82,10 +86,21 @@ export async function fetchEodhdChart(symbol, period1 = '2023-01-01', opts = {})
   url.searchParams.set('order', 'a')
 
   let lastErr = null
+  let extra429Retries = 3
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(45000) })
       if (res.status === 404) return null
+      if (res.status === 429) {
+        const waitMs = parseRetryAfterMs(res.headers)
+        console.warn(`[eodhd] ${symbol}: rate limited — waiting ${Math.round(waitMs / 1000)}s`)
+        await sleep(waitMs)
+        if (extra429Retries > 0) {
+          extra429Retries--
+          attempt--
+        }
+        continue
+      }
       if (!res.ok) {
         const text = await res.text()
         throw new Error(`EODHD ${res.status}: ${text.slice(0, 120)}`)

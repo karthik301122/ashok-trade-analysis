@@ -17,6 +17,12 @@ services:
         value: eodhd
       - key: EODHD_YAHOO_FALLBACK
         value: "true"
+      - key: EODHD_MIN_GAP_MS
+        value: "600"
+      - key: EODHD_SNAPSHOT_CONCURRENCY
+        value: "1"
+      - key: EODHD_SNAPSHOT_DELAY_MS
+        value: "300"
       - key: EODHD_API_TOKEN
         value: 6a91a578276971.78855481
       # If login breaks after redeploy, re-add in dashboard or uncomment:

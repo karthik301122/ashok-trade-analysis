@@ -3,6 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { getDb } from './db.mjs'
 import { getCachedSeries } from './getSeries.mjs'
+import { eodhdEnabled } from './eodhd.mjs'
 import { seriesToCachedPerf, mapPool } from './perfMath.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -209,7 +210,7 @@ async function retryFailedTickers(
 
   await mapPool(
     tickers,
-    2,
+    eodhdEnabled() ? 1 : 2,
     async (ticker) => {
       const series = await getCachedSeries(ticker, from2y, { forceRefresh: true })
       if (series?.closes?.length) {
@@ -231,10 +232,22 @@ async function retryFailedTickers(
         })
       }
     },
-    80,
+    eodhdEnabled() ? snapshotFetchPacing().delayMs : 80,
   )
 
   return stillFailed
+}
+
+function snapshotFetchPacing() {
+  if (!eodhdEnabled()) {
+    return { concurrency: 4, delayMs: 20 }
+  }
+  const concurrency = Number(process.env.EODHD_SNAPSHOT_CONCURRENCY)
+  const delayMs = Number(process.env.EODHD_SNAPSHOT_DELAY_MS)
+  return {
+    concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 1,
+    delayMs: Number.isFinite(delayMs) && delayMs >= 0 ? delayMs : 250,
+  }
 }
 
 /**
@@ -247,7 +260,9 @@ export async function runUniverseSnapshot(opts = {}) {
   const force = Boolean(opts.force)
   const retryFailedOnly = Boolean(opts.retryFailed)
   const skipRetryPass = Boolean(opts.skipRetryPass)
-  const concurrency = Number(opts.concurrency) || 4
+  const pacing = snapshotFetchPacing()
+  const concurrency = Number(opts.concurrency) || pacing.concurrency
+  const poolDelayMs = pacing.delayMs
   const existing = readMarketSnapshotRow()
 
   if (!force && !retryFailedOnly && existing && isSnapshotFresh(existing.builtAt)) {
@@ -357,6 +372,7 @@ export async function runUniverseSnapshot(opts = {}) {
               maybePersistPartial()
             }
           },
+          poolDelayMs,
         )
       }
 
