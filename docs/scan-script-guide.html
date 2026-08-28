@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ScanScript Guide — ASX Sector Intelligence</title>
+  <style>
+    :root {
+      --ink: #1a1f2e;
+      --muted: #5c6578;
+      --border: #d8dee9;
+      --accent: #0369a1;
+      --accent-bg: #f0f9ff;
+      --code-bg: #f4f6f9;
+      --green: #047857;
+      --red: #be123c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--ink);
+      line-height: 1.55;
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 40px 48px 56px;
+      font-size: 11pt;
+    }
+    h1 {
+      font-size: 26pt;
+      font-weight: 700;
+      margin: 0 0 6px;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 12pt;
+      margin-bottom: 28px;
+    }
+    h2 {
+      font-size: 14pt;
+      margin: 28px 0 10px;
+      padding-bottom: 4px;
+      border-bottom: 2px solid var(--accent);
+      color: var(--accent);
+    }
+    h3 {
+      font-size: 11.5pt;
+      margin: 18px 0 8px;
+      color: var(--ink);
+    }
+    p { margin: 8px 0; }
+    ul, ol { margin: 8px 0; padding-left: 22px; }
+    li { margin: 4px 0; }
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 9.5pt;
+      background: var(--code-bg);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 16px;
+      font-size: 9.5pt;
+      line-height: 1.45;
+      overflow-x: auto;
+      margin: 10px 0;
+    }
+    pre code { background: none; padding: 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 10pt;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: var(--accent-bg);
+      font-weight: 600;
+      color: var(--accent);
+    }
+    tr:nth-child(even) td { background: #fafbfc; }
+    .callout {
+      background: var(--accent-bg);
+      border-left: 4px solid var(--accent);
+      padding: 12px 14px;
+      margin: 14px 0;
+      border-radius: 0 6px 6px 0;
+      font-size: 10pt;
+    }
+    .steps {
+      counter-reset: step;
+      list-style: none;
+      padding: 0;
+    }
+    .steps li {
+      counter-increment: step;
+      padding: 10px 0 10px 44px;
+      position: relative;
+      border-bottom: 1px solid var(--border);
+    }
+    .steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 10px;
+      width: 28px;
+      height: 28px;
+      background: var(--accent);
+      color: white;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 28px;
+      font-weight: 700;
+      font-size: 10pt;
+    }
+    .footer {
+      margin-top: 36px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      font-size: 9pt;
+      color: var(--muted);
+    }
+    @media print {
+      body { padding: 24px 32px; }
+      h2 { break-after: avoid; }
+      pre, table { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+
+<h1>ScanScript Guide</h1>
+<p class="subtitle">How to write pattern scripts for full ASX universe scans · ASX Sector Intelligence</p>
+
+<div class="callout">
+  <strong>ScanScript</strong> is the desk’s text language for defining <em>My Patterns</em>. You write simple rules in a text box; the app compiles them into scanner conditions and runs them across every ASX stock — no TradingView Pine, no webhooks, no code execution.
+</div>
+
+<h2>1. Quick start — create a pattern in the app</h2>
+<ol class="steps">
+  <li>Open any stock chart (or the main desk) and open the <strong>Pattern Analysis</strong> panel on the right.</li>
+  <li>Under <strong>Create my pattern</strong>, click <strong>New</strong>.</li>
+  <li>Enter a <strong>pattern name</strong>, choose <strong>Bullish / Bearish / Neutral</strong>, and optional notes.</li>
+  <li>Under <strong>How to detect</strong>, select <strong>ScanScript (text rules)</strong>.</li>
+  <li>Type your script in the text area. Red errors appear if syntax is wrong; a green <em>Compiles to…</em> line shows the parsed rules.</li>
+  <li>Click <strong>Save private pattern</strong>. The scanner runs on charts and on the full industry scan.</li>
+</ol>
+
+<h2>2. Script structure</h2>
+<p>A script is plain text, one statement per line. Empty lines and lines starting with <code>#</code> are ignored.</p>
+
+<pre><code># Oversold with volume — example header comments
+bias bullish
+match all
+
+rsi(14) &lt;= 35
+rvol &gt;= 1.5
+above_sma(50)
+</code></pre>
+
+<h3>Optional headers</h3>
+<table>
+  <tr><th>Line</th><th>Meaning</th></tr>
+  <tr><td><code>match all</code></td><td>Every condition must be true (AND). Default if omitted.</td></tr>
+  <tr><td><code>match any</code></td><td>At least one condition must be true (OR).</td></tr>
+  <tr><td><code>bias bullish</code></td><td>Sets pattern bias to bullish (overrides the form dropdown).</td></tr>
+  <tr><td><code>bias bearish</code></td><td>Sets pattern bias to bearish.</td></tr>
+  <tr><td><code>bias neutral</code></td><td>Sets pattern bias to neutral.</td></tr>
+</table>
+<p>Headers accept an optional colon: <code>match: all</code> and <code>bias: bullish</code> also work.</p>
+
+<h2>3. Conditions reference</h2>
+<p>Each condition line compares a metric to a number using <code>&gt;</code>, <code>&gt;=</code>, <code>&lt;</code>, <code>&lt;=</code> (Unicode <code>≥</code> / <code>≤</code> also accepted).</p>
+
+<h3>RSI</h3>
+<pre><code>rsi(14) &lt;= 30
+rsi(14) &gt;= 70</code></pre>
+<p>14-period RSI on daily closes. Range 0–100. Only period <strong>14</strong> is supported. Aliases: <code>rsi14</code>.</p>
+
+<h3>Relative volume (RVOL)</h3>
+<pre><code>rvol &gt;= 1.5
+relative_volume &gt;= 2</code></pre>
+<p>Today’s volume divided by the average of the previous 20 sessions. <code>1.5</code> = 50% above average. Aliases: <code>relative_volume</code>, <code>rel_volume</code>.</p>
+
+<h3>Percent above moving averages</h3>
+<pre><code>above_sma(50)
+below_sma(200)
+above_ema(21)
+below_ema(21)</code></pre>
+<p>Shorthand: <code>above_sma(50)</code> means close is above the 50-day SMA (≥ 0% above). <code>below_sma(50)</code> means below (&lt; 0%).</p>
+<p>With explicit threshold:</p>
+<pre><code>above_sma(50) &gt;= 2    # at least 2% above 50 SMA
+below_sma(20) &lt;= -3   # at least 3% below 20 SMA</code></pre>
+<table>
+  <tr><th>Function</th><th>Periods</th><th>Meaning</th></tr>
+  <tr><td><code>above_sma(n)</code> / <code>below_sma(n)</code></td><td>20, 50, 200</td><td>% distance of close from SMA</td></tr>
+  <tr><td><code>above_ema(n)</code> / <code>below_ema(n)</code></td><td>21 only</td><td>% distance of close from EMA</td></tr>
+</table>
+<p>Negative values mean price is below the average (e.g. <code>-2</code> = 2% below).</p>
+
+<h3>Percent change</h3>
+<pre><code>pct_chg(5) &gt;= 5
+pct_chg(20) &gt;= 10
+pct_change(5d) &gt;= 3</code></pre>
+<p>Percentage change over 5 or 20 trading days. Aliases: <code>pct_change</code>, <code>change</code>. Optional <code>d</code> suffix on the argument (<code>5d</code>).</p>
+
+<h2>4. Limits and behaviour</h2>
+<table>
+  <tr><th>Topic</th><th>Detail</th></tr>
+  <tr><td>Max conditions</td><td><strong>8</strong> per script (form UI allows 4; ScanScript allows more).</td></tr>
+  <tr><td>Lookback</td><td>A hit fires if conditions are true on <strong>any of the last ~10 daily bars</strong> within your scan window.</td></tr>
+  <tr><td>Scan window</td><td>Use Pattern panel buttons (e.g. 1M, 3M, 6M) — only hits whose <strong>start date</strong> falls in that window count.</td></tr>
+  <tr><td>Data</td><td>Daily OHLC from Yahoo. Stocks without data are skipped (same as other scanners).</td></tr>
+  <tr><td>Security</td><td>Scripts compile to fixed metrics only — no loops, functions, or arbitrary code.</td></tr>
+</table>
+
+<h2>5. Example scripts</h2>
+
+<h3>Oversold bounce (bullish)</h3>
+<pre><code>bias bullish
+match all
+
+rsi(14) &lt;= 35
+rvol &gt;= 1.5
+above_sma(200)</code></pre>
+<p>RSI oversold, elevated volume, still above long-term trend.</p>
+
+<h3>Stage-style trend (bullish)</h3>
+<pre><code>match all
+
+above_sma(50)
+above_sma(200)
+pct_chg(20) &gt;= 8
+rsi(14) &gt;= 45
+rsi(14) &lt;= 75</code></pre>
+<p>Above 50 and 200 SMA, 20-day momentum, RSI not extended.</p>
+
+<h3>Volume breakout</h3>
+<pre><code>match all
+
+rvol &gt;= 2
+pct_chg(5) &gt;= 3
+above_sma(20)</code></pre>
+
+<h3>Bearish weakness</h3>
+<pre><code>bias bearish
+match all
+
+rsi(14) &gt;= 70
+below_sma(50)
+pct_chg(5) &lt;= -3</code></pre>
+
+<h3>Flexible filter (OR)</h3>
+<pre><code>match any
+
+rsi(14) &lt;= 30
+rsi(14) &gt;= 70</code></pre>
+<p>Flags either oversold or overbought extremes.</p>
+
+<h2>6. Where results appear</h2>
+<ul>
+  <li><strong>Chart modal</strong> — Pattern Analysis → <strong>My Patterns</strong> category shows hits for the open stock.</li>
+  <li><strong>Sector Table</strong> — My Pattern hits appear as chips on each stock row (labelled with your pattern name).</li>
+  <li><strong>Industry scan</strong> — Background scan evaluates all tickers when OHLC is loaded; results are cached locally.</li>
+</ul>
+<p>My Patterns are <strong>private</strong> (stored in your browser). They are separate from <strong>Special Patterns</strong> (✦) and starred chart patterns (★).</p>
+
+<h2>7. Troubleshooting</h2>
+<table>
+  <tr><th>Error / issue</th><th>Fix</th></tr>
+  <tr><td><code>invalid syntax</code></td><td>Check operators and parentheses. One condition per line.</td></tr>
+  <tr><td><code>Add at least one condition</code></td><td>Script has only headers/comments — add metric lines.</td></tr>
+  <tr><td><code>max 8 conditions</code></td><td>Split into two patterns or simplify rules.</td></tr>
+  <tr><td><code>pct_chg supports 5 or 20</code></td><td>Use <code>pct_chg(5)</code> or <code>pct_chg(20)</code> only.</td></tr>
+  <tr><td>No hits on desk</td><td>Widen scan window; confirm Yahoo data exists for tickers; conditions may be too strict.</td></tr>
+  <tr><td>Save button disabled</td><td>Fix red validation errors in the script editor first.</td></tr>
+</table>
+
+<h2>8. ScanScript vs other pattern types</h2>
+<table>
+  <tr><th>Method</th><th>Best for</th></tr>
+  <tr><td><strong>ScanScript</strong></td><td>Multi-condition RSI / volume / MA / momentum filters across full ASX.</td></tr>
+  <tr><td><strong>My conditions (form)</strong></td><td>Same metrics, up to 4 rules, no typing.</td></tr>
+  <tr><td><strong>Candle shape builder</strong></td><td>Hammer, engulfing-style geometry on daily/weekly candles.</td></tr>
+  <tr><td><strong>Reuse built-in scanner</strong></td><td>Alias an existing catalog pattern under your own name.</td></tr>
+  <tr><td><strong>Special Patterns (✦)</strong></td><td>Desk-maintained weekly/snapshot rules — not user-editable.</td></tr>
+</table>
+
+<div class="footer">
+  ASX Sector Intelligence · ScanScript v1 · Generated for desk pattern authoring<br />
+  For the latest metrics and UI, refer to the Pattern Analysis panel in the app.
+</div>
+
+</body>
+</html>

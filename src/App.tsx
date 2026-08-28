@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Header } from './components/Header'
 import { ViewTabs, type ViewId } from './components/ViewTabs'
 import { SectorTable } from './components/SectorTable'
@@ -14,9 +14,11 @@ import { VolumeScan } from './components/VolumeScan'
 import { LoginPage } from './components/LoginPage'
 import { COMMODITIES, CRYPTO } from './data/altAssets'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
+import { fetchDeskServerConfig, type DeskServerConfig } from './lib/deskConfig'
 import { fetchAuthMe, logout as apiLogout } from './lib/auth'
 import type { MarketSnapshot } from './data/types'
 import { ASX_UNIVERSE_COUNT } from './data/universe'
+import { applyStocksOnlyFilter, STOCKS_ONLY_LS_KEY } from './lib/instrumentFilter'
 import { RefreshCw } from 'lucide-react'
 import { PatternPrefsProvider } from './components/patterns/PatternPrefsContext'
 
@@ -39,6 +41,10 @@ export default function App() {
     source?: string
   } | null>(null)
   const [retryingFailed, setRetryingFailed] = useState(false)
+  const [deskConfig, setDeskConfig] = useState<DeskServerConfig | null>(null)
+  const [stocksOnly, setStocksOnly] = useState(
+    () => localStorage.getItem(STOCKS_ONLY_LS_KEY) === '1',
+  )
   const abortRef = useRef<AbortController | null>(null)
   const startedLoad = useRef(false)
 
@@ -46,6 +52,15 @@ export default function App() {
     document.documentElement.classList.toggle('dark', dark)
     localStorage.setItem('theme', dark ? 'dark' : 'light')
   }, [dark])
+
+  useEffect(() => {
+    localStorage.setItem(STOCKS_ONLY_LS_KEY, stocksOnly ? '1' : '0')
+  }, [stocksOnly])
+
+  const displaySnapshot = useMemo(
+    () => (snapshot ? applyStocksOnlyFilter(snapshot, stocksOnly) : null),
+    [snapshot, stocksOnly],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -66,6 +81,9 @@ export default function App() {
     const ac = new AbortController()
     abortRef.current = ac
 
+    const config = deskConfig ?? await fetchDeskServerConfig(ac.signal)
+    if (!deskConfig) setDeskConfig(config)
+
     setLoading(true)
     setBackfilling(true)
     setError(null)
@@ -73,6 +91,7 @@ export default function App() {
     try {
       const result = await loadLiveMarketSnapshot({
         forceRefresh,
+        deskConfig: config,
         signal: ac.signal,
         onProgress: setProgress,
         onPartial: (partial, loaded, failed) => {
@@ -108,7 +127,7 @@ export default function App() {
         setProgress(null)
       }
     }
-  }, [])
+  }, [deskConfig])
 
   const waitForSnapshotJob = useCallback(async () => {
     for (let i = 0; i < 600; i++) {
@@ -145,7 +164,29 @@ export default function App() {
     }
   }, [load, waitForSnapshotJob])
 
+  const refreshLive = useCallback(async () => {
+    const config = deskConfig ?? await fetchDeskServerConfig()
+    if (!deskConfig) setDeskConfig(config)
+    if (config.productionMode) {
+      if (config.isAdmin) {
+        await fetch('/api/snapshot/refresh?force=1', {
+          method: 'POST',
+          credentials: 'include',
+        })
+        await waitForSnapshotJob()
+      }
+      await load(false)
+      return
+    }
+    await load(true)
+  }, [deskConfig, load, waitForSnapshotJob])
+
   const canUseApp = !authChecking && (!authRequired || Boolean(user))
+
+  useEffect(() => {
+    if (!canUseApp) return
+    void fetchDeskServerConfig().then(setDeskConfig)
+  }, [canUseApp])
 
   useEffect(() => {
     if (!canUseApp || startedLoad.current) return
@@ -218,8 +259,9 @@ export default function App() {
               Loading full ASX universe
             </h2>
             <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
-              First ~50 stocks show quickly, then it keeps filling all{' '}
-              {ASX_UNIVERSE_COUNT.toLocaleString()} names (can take several minutes).
+              {deskConfig?.productionMode
+                ? 'Loading server snapshot for the full ASX universe (shared for all users).'
+                : `First ~50 stocks show quickly, then it keeps filling all ${ASX_UNIVERSE_COUNT.toLocaleString()} names (can take several minutes).`}
             </p>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-[var(--color-muted)]">
               <div className="h-full bg-teal-600 transition-all" style={{ width: `${pct}%` }} />
@@ -236,8 +278,8 @@ export default function App() {
               Live data unavailable
             </h2>
             <p className="mt-2 text-sm text-[var(--color-ink-soft)]">
-              Could not load ASX prices from Yahoo. No synthetic demo market is shown — retry when
-              the API is reachable.
+              Could not load the shared server snapshot. In production mode the browser does not
+              crawl Yahoo per user — retry after the server build finishes.
             </p>
             {error && (
               <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
@@ -246,7 +288,7 @@ export default function App() {
             )}
             <button
               type="button"
-              onClick={() => void load(true)}
+              onClick={() => void refreshLive()}
               className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-teal-600 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-800 dark:bg-teal-950/40 dark:text-teal-200"
             >
               <RefreshCw size={14} />
@@ -282,27 +324,42 @@ export default function App() {
               </span>
               {meta && (
                 <span className="text-[var(--color-ink-soft)]">
-                  {meta.loaded.toLocaleString()} / {ASX_UNIVERSE_COUNT.toLocaleString()} stocks
+                  {meta.loaded.toLocaleString()} / {ASX_UNIVERSE_COUNT.toLocaleString()} instruments
                   loaded
+                  {displaySnapshot && stocksOnly
+                    ? ` · showing ${displaySnapshot.stocks.length.toLocaleString()} stocks`
+                    : ''}
                   {meta.failed
                     ? ` · ${meta.failed} failed (${Math.round((meta.failed / ASX_UNIVERSE_COUNT) * 100)}%)`
                     : ''}
                   {statusLine}
                 </span>
               )}
+              <button
+                type="button"
+                onClick={() => setStocksOnly((v) => !v)}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-semibold transition ${
+                  stocksOnly
+                    ? 'border-teal-600 bg-teal-50 text-teal-800 dark:bg-teal-950/40 dark:text-teal-200'
+                    : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-ink-soft)] hover:border-teal-400'
+                }`}
+                title="Hide ETFs, funds, notes, and other non-equity instruments"
+              >
+                Stocks only
+              </button>
               {error && <span className="text-rose-600">{error}</span>}
               {backfilling && (
                 <div className="h-1.5 w-28 overflow-hidden rounded-full bg-[var(--color-muted)]">
                   <div className="h-full bg-teal-600 transition-all" style={{ width: `${pct}%` }} />
                 </div>
               )}
-              {meta && meta.failed > 0 && (
+              {meta && meta.failed > 0 && deskConfig?.isAdmin && (
                 <button
                   type="button"
                   disabled={backfilling || retryingFailed}
                   onClick={() => void retryFailedLoads()}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-amber-600 bg-amber-50 px-2.5 py-1 font-semibold text-amber-900 disabled:opacity-50 dark:bg-amber-950/40 dark:text-amber-200"
-                  title="Slow re-fetch of missing tickers from Yahoo (server snapshot)"
+                  title="Admin: re-fetch missing tickers on the server"
                 >
                   <RefreshCw size={12} className={retryingFailed ? 'animate-spin' : ''} />
                   {retryingFailed ? 'Retrying failed…' : `Retry ${meta.failed} failed`}
@@ -311,20 +368,24 @@ export default function App() {
               <button
                 type="button"
                 disabled={backfilling || retryingFailed}
-                onClick={() => void load(true)}
+                onClick={() => void refreshLive()}
                 className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-teal-600 bg-teal-50 px-2.5 py-1 font-semibold text-teal-800 disabled:opacity-50 dark:bg-teal-950/40 dark:text-teal-200"
               >
                 <RefreshCw size={12} className={backfilling ? 'animate-spin' : ''} />
-                {backfilling ? 'Loading…' : 'Refresh live'}
+                {backfilling
+                  ? 'Loading…'
+                  : deskConfig?.productionMode && !deskConfig?.isAdmin
+                    ? 'Reload snapshot'
+                    : 'Refresh live'}
               </button>
             </div>
 
             {page === 'alerts' ? (
               <AlertsPanel />
             ) : page === 'special-patterns' ? (
-              <SpecialPatternsPanel snapshot={snapshot} />
+              <SpecialPatternsPanel snapshot={displaySnapshot!} />
             ) : page === 'breadth' ? (
-              <BreadthAnalysis snapshot={snapshot} />
+              <BreadthAnalysis snapshot={displaySnapshot!} />
             ) : (
               <div className="space-y-4">
                 <div>
@@ -332,22 +393,25 @@ export default function App() {
                     Market Sector Intelligence
                   </h1>
                   <p className="text-sm text-[var(--color-ink-soft)]">
-                    {snapshot.industries.length} industries · {snapshot.stocks.length} ASX stocks ·{' '}
-                    {snapshot.asOf} · vs {snapshot.benchmark} · universe{' '}
+                    {displaySnapshot!.industries.length} industries ·{' '}
+                    {displaySnapshot!.stocks.length.toLocaleString()}
+                    {stocksOnly ? ' stocks' : ' instruments'} · {displaySnapshot!.asOf} · vs{' '}
+                    {displaySnapshot!.benchmark} · universe{' '}
                     {ASX_UNIVERSE_COUNT.toLocaleString()}
+                    {stocksOnly ? ' · stocks-only filter on' : ''}
                     {backfilling ? ' · still filling…' : ''}
                   </p>
                 </div>
 
-                <ViewTabs active={view} onChange={setView} mood={snapshot.moodCounts} />
+                <ViewTabs active={view} onChange={setView} mood={displaySnapshot!.moodCounts} />
 
                 <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm md:p-5">
-                  {view === 'sector-table' && <SectorTable snapshot={snapshot} />}
-                  {view === 'money-rotation' && <MoneyRotation snapshot={snapshot} />}
-                  {view === 'rotation-clock' && <RotationClock snapshot={snapshot} />}
-                  {view === 'sector-analytics' && <SectorAnalytics snapshot={snapshot} />}
-                  {view === 'industry-analytics' && <IndustryAnalytics snapshot={snapshot} />}
-                  {view === 'volume-scan' && <VolumeScan snapshot={snapshot} />}
+                  {view === 'sector-table' && <SectorTable snapshot={displaySnapshot!} />}
+                  {view === 'money-rotation' && <MoneyRotation snapshot={displaySnapshot!} />}
+                  {view === 'rotation-clock' && <RotationClock snapshot={displaySnapshot!} />}
+                  {view === 'sector-analytics' && <SectorAnalytics snapshot={displaySnapshot!} />}
+                  {view === 'industry-analytics' && <IndustryAnalytics snapshot={displaySnapshot!} />}
+                  {view === 'volume-scan' && <VolumeScan snapshot={displaySnapshot!} />}
                   {view === 'commodities' && (
                     <AltAssetsPanel
                       title="Commodities Desk"

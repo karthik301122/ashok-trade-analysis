@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+.env.*
+!.env.example
 
 # Local probe / download scratch + SQLite (universe JSON lives in src/data)
 /data/

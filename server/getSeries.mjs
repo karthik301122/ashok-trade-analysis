@@ -1,4 +1,4 @@
-import { fetchChartCloses } from './yf.mjs'
+import { fetchChartCloses } from './fetchSeries.mjs'
 import { seriesSymbolCount } from './db.mjs'
 import {
   readSeriesCache,
@@ -21,7 +21,7 @@ export function resolveYahooSymbol(ticker) {
 }
 
 /**
- * Fetch series with SQLite cache + incremental Yahoo refresh.
+ * Fetch series with SQLite cache + incremental provider refresh (EODHD / Yahoo).
  * @param {string} ticker
  * @param {string} from ISO date
  * @param {{ forceRefresh?: boolean }} [opts]

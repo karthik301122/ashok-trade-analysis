@@ -24,6 +24,8 @@ export interface StockRaw {
   sector: string
   industry: string
   weight: number
+  /** EODHD instrument type: Common Stock, ETF, FUND, Notes, etc. */
+  instrumentType?: string
 }
 
 export interface StockMetrics extends StockRaw, PerfBundle {

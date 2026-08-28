@@ -7,6 +7,7 @@ import type {
   StockMetrics,
   StockRaw,
 } from '../data/types'
+import { fetchDeskServerConfig, type DeskServerConfig } from './deskConfig'
 import { avgPerf, classifyCycle, classifyMood, round1 } from './market'
 import {
   type CachedPerf,
@@ -22,6 +23,60 @@ import {
 } from './yahoo'
 
 const INDEX_SYMBOL = '^AXJO'
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+type ServerSnapshotJson = {
+  fresh?: boolean
+  loaded?: number
+  failed?: number
+  indexPerf?: CachedPerf
+  stocks?: Record<string, CachedPerf>
+}
+
+function minSnapshotRatio(config: DeskServerConfig) {
+  return config.productionMode ? 0.35 : 0.5
+}
+
+function useServerSnapshot(
+  json: ServerSnapshotJson,
+  tickers: string[],
+  config: DeskServerConfig,
+  acceptStale: boolean,
+): { stockPerfs: Map<string, CachedPerf>; indexPerf: CachedPerf; failed: number } | null {
+  const stockCount = json.stocks ? Object.keys(json.stocks).length : 0
+  const minRatio = minSnapshotRatio(config)
+  const enough = stockCount >= tickers.length * minRatio
+  const freshOk = Boolean(json.fresh) && enough
+  const staleOk = acceptStale && Boolean(json.indexPerf) && enough
+  if (!json.indexPerf || (!freshOk && !staleOk)) return null
+  const stockPerfs = new Map<string, CachedPerf>()
+  for (const [t, p] of Object.entries(json.stocks || {})) stockPerfs.set(t, p)
+  return {
+    stockPerfs,
+    indexPerf: json.indexPerf,
+    failed: json.failed ?? tickers.length - stockPerfs.size,
+  }
+}
+
+async function waitForServerSnapshotJob(signal?: AbortSignal) {
+  for (let i = 0; i < 300; i++) {
+    if (signal?.aborted) throw new Error('Aborted')
+    const res = await fetch('/api/snapshot/refresh', { credentials: 'include', signal })
+    if (!res.ok) break
+    const json = (await res.json()) as { job?: { status?: string } }
+    if (json.job?.status !== 'running') return
+    await sleep(2000)
+  }
+}
+
+async function fetchServerSnapshotJson(signal?: AbortSignal): Promise<ServerSnapshotJson | null> {
+  const res = await fetch('/api/snapshot', { credentials: 'include', signal })
+  if (!res.ok) return null
+  return (await res.json()) as ServerSnapshotJson
+}
 
 function seriesToCachedPerf(series: SeriesResult, indexM3: number): CachedPerf {
   const closes = series.closes.map((b) => b.c)
@@ -254,6 +309,7 @@ export async function loadLiveMarketSnapshot(
   opts: {
     forceRefresh?: boolean
     signal?: AbortSignal
+    deskConfig?: DeskServerConfig
     onProgress?: (p: LiveLoadProgress) => void
     onPartial?: (snapshot: MarketSnapshot, loaded: number, failed: number) => void
   } = {},
@@ -265,50 +321,67 @@ export async function loadLiveMarketSnapshot(
   source?: 'server-sqlite' | 'browser-yahoo'
 }> {
   const { forceRefresh = false, signal, onProgress, onPartial } = opts
+  const config = opts.deskConfig ?? await fetchDeskServerConfig(signal)
   const tickers = ASX_UNIVERSE.map((s) => s.ticker)
   const total = tickers.length + 1
 
-  // Prefer server SQLite universe snapshot when fresh (avoids browser crawling ~2k tickers)
-  if (!forceRefresh) {
-    try {
-      onProgress?.({ done: 0, total, phase: 'cache', loaded: 0, remaining: tickers.length })
-      const res = await fetch('/api/snapshot', { credentials: 'include', signal })
-      if (res.ok) {
-        const json = (await res.json()) as {
-          fresh?: boolean
-          loaded?: number
-          failed?: number
-          indexPerf?: CachedPerf
-          stocks?: Record<string, CachedPerf>
-        }
-        const stockCount = json.stocks ? Object.keys(json.stocks).length : 0
-        if (json.fresh && json.indexPerf && stockCount >= tickers.length * 0.5) {
-          const stockPerfs = new Map<string, CachedPerf>()
-          for (const [t, p] of Object.entries(json.stocks || {})) stockPerfs.set(t, p)
-          const snapshot = assembleSnapshotFromPerfs(stockPerfs, json.indexPerf)
-          persist(stockPerfs, json.indexPerf)
-          onProgress?.({
-            done: total,
-            total,
-            phase: 'done',
-            loaded: stockPerfs.size,
-            remaining: 0,
-          })
-          onPartial?.(snapshot, stockPerfs.size, json.failed ?? 0)
-          return {
-            snapshot,
-            fromCache: true,
-            loaded: stockPerfs.size,
-            failed: json.failed ?? tickers.length - stockPerfs.size,
-            source: 'server-sqlite',
-          }
-        }
-      }
-    } catch {
-      // fall through to progressive Yahoo pull
+  const finishFromServer = (
+    parsed: { stockPerfs: Map<string, CachedPerf>; indexPerf: CachedPerf; failed: number },
+    fromCache: boolean,
+  ) => {
+    const snapshot = assembleSnapshotFromPerfs(parsed.stockPerfs, parsed.indexPerf)
+    persist(parsed.stockPerfs, parsed.indexPerf)
+    onProgress?.({
+      done: total,
+      total,
+      phase: 'done',
+      loaded: parsed.stockPerfs.size,
+      remaining: 0,
+    })
+    onPartial?.(snapshot, parsed.stockPerfs.size, parsed.failed)
+    return {
+      snapshot,
+      fromCache,
+      loaded: parsed.stockPerfs.size,
+      failed: parsed.failed,
+      source: 'server-sqlite' as const,
     }
   }
 
+  const tryServer = async (acceptStale: boolean) => {
+    const json = await fetchServerSnapshotJson(signal)
+    if (!json) return null
+    const parsed = useServerSnapshot(json, tickers, config, acceptStale)
+    if (!parsed) return null
+    return finishFromServer(parsed, !forceRefresh)
+  }
+
+  if (!forceRefresh) {
+    onProgress?.({ done: 0, total, phase: 'cache', loaded: 0, remaining: tickers.length })
+    const got = await tryServer(config.productionMode)
+    if (got) return got
+  }
+
+  if (!config.browserUniverseFetch) {
+    if (forceRefresh && config.isAdmin) {
+      await fetch('/api/snapshot/refresh?force=1', {
+        method: 'POST',
+        credentials: 'include',
+        signal,
+      })
+    } else if (!forceRefresh) {
+      maybeStartBackgroundSnapshotClient()
+    }
+    onProgress?.({ done: 0, total, phase: 'cache', loaded: 0, remaining: tickers.length })
+    await waitForServerSnapshotJob(signal)
+    const got = await tryServer(true)
+    if (got) return got
+    throw new Error(
+      'Server snapshot is still building. Wait a few minutes and reload — browser universe fetch is disabled in production mode.',
+    )
+  }
+
+  // Dev / local fallback: progressive browser fetch (never used when productionMode)
   const stockPerfs = new Map<string, CachedPerf>()
   let indexPerf: CachedPerf | null = null
   let fromCache = false
@@ -412,4 +485,9 @@ export async function loadLiveMarketSnapshot(
     failed: tickers.length - stockPerfs.size,
     source: 'browser-yahoo',
   }
+}
+
+/** Hint server to start background snapshot when GET /api/snapshot returns 404. */
+function maybeStartBackgroundSnapshotClient() {
+  void fetch('/api/snapshot', { credentials: 'include' }).catch(() => {})
 }

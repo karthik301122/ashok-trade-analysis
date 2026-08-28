@@ -9,8 +9,11 @@ import {
   verifyCredentials,
 } from './auth.mjs'
 import { mountExpressApi } from './apiHandlers.mjs'
+import { loadEnvFile } from './loadEnv.mjs'
 import { maybeStartBackgroundSnapshot } from './snapshotJob.mjs'
 import { dbPath } from './db.mjs'
+
+loadEnvFile()
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')

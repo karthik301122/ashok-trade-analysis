@@ -210,7 +210,7 @@ export async function runUniverseSnapshot(opts = {}) {
     setJob('running', {
       started_at: started,
       finished_at: null,
-      message: retryFailedOnly ? 'Retrying failed tickers' : 'Fetching Yahoo via SQLite cache',
+      message: retryFailedOnly ? 'Retrying failed tickers' : 'Fetching market data via SQLite cache',
       loaded: existing?.loaded ?? 0,
       failed: existing?.failed ?? 0,
       total,

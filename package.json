@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:universe": "node scripts/build-universe.mjs",
+    "merge:eodhd-universe": "node scripts/merge-eodhd-universe.mjs",
+    "build:universe:full": "node scripts/build-universe.mjs && node scripts/merge-eodhd-universe.mjs",
     "fetch:asx200": "node scripts/fetch-asx200-ioz.mjs",
     "build:members": "node scripts/build-index-members.mjs",
     "refresh:asx200": "node scripts/fetch-asx200-ioz.mjs && node scripts/build-index-members.mjs",

@@ -1,8 +1,11 @@
 /**
- * Vite middleware: ASX prices via yahoo-finance2 + SQLite cache/snapshot.
+ * Vite middleware: ASX prices via EODHD (or Yahoo fallback) + SQLite cache/snapshot.
  */
 import { handleConnectApi } from './apiHandlers.mjs'
+import { loadEnvFile } from './loadEnv.mjs'
 import { maybeStartBackgroundSnapshot } from './snapshotJob.mjs'
+
+loadEnvFile()
 
 function sendJson(res, status, body, extraHeaders = {}) {
   res.statusCode = status
