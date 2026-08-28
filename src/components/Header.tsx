@@ -5,11 +5,13 @@ type Props = {
   onToggleDark: () => void
   page: 'sector' | 'breadth' | 'alerts' | 'special-patterns'
   onPage: (p: 'sector' | 'breadth' | 'alerts' | 'special-patterns') => void
+  authRequired?: boolean
   user?: string | null
   onLogout?: () => void
 }
 
-export function Header({ dark, onToggleDark, page, onPage, user, onLogout }: Props) {
+export function Header({ dark, onToggleDark, page, onPage, authRequired, user, onLogout }: Props) {
+  const showSession = Boolean(authRequired && user)
   const initials = user
     ? user
         .split(/[.\s_-]+/)
@@ -17,7 +19,7 @@ export function Header({ dark, onToggleDark, page, onPage, user, onLogout }: Pro
         .slice(0, 2)
         .map((p) => p[0]?.toUpperCase() ?? '')
         .join('') || user.slice(0, 2).toUpperCase()
-    : 'AB'
+    : ''
 
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur">
@@ -92,25 +94,25 @@ export function Header({ dark, onToggleDark, page, onPage, user, onLogout }: Pro
             {dark ? <Sun size={16} /> : <Moon size={16} />}
             <span className="hidden sm:inline">{dark ? 'Light' : 'Dark'}</span>
           </button>
-          <div className="flex items-center gap-2 rounded-full border border-[var(--color-border)] py-1 pl-1 pr-2 sm:pr-3">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-700 text-xs font-semibold text-white">
-              {initials}
-            </span>
-            <span className="hidden max-w-[140px] truncate text-sm sm:inline">
-              {user || 'Ashok Bhimaraju'}
-            </span>
-            <User size={14} className="text-[var(--color-ink-soft)] sm:hidden" />
-            {onLogout && (
-              <button
-                type="button"
-                onClick={onLogout}
-                title="Sign out"
-                className="ml-0.5 rounded-full p-1.5 text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)] hover:text-[var(--color-ink)]"
-              >
-                <LogOut size={14} />
-              </button>
-            )}
-          </div>
+          {showSession && (
+            <div className="flex items-center gap-2 rounded-full border border-[var(--color-border)] py-1 pl-1 pr-2 sm:pr-3">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-700 text-xs font-semibold text-white">
+                {initials}
+              </span>
+              <span className="hidden max-w-[140px] truncate text-sm sm:inline">{user}</span>
+              <User size={14} className="text-[var(--color-ink-soft)] sm:hidden" />
+              {onLogout && (
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  title="Sign out"
+                  className="ml-0.5 rounded-full p-1.5 text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)] hover:text-[var(--color-ink)]"
+                >
+                  <LogOut size={14} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </header>

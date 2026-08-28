@@ -243,6 +243,7 @@ export default function App() {
         onToggleDark={() => setDark((d) => !d)}
         page={page}
         onPage={setPage}
+        authRequired={authRequired}
         user={user}
         onLogout={authRequired ? handleLogout : undefined}
       />
