@@ -65,7 +65,7 @@ export function requireAdminOrSend(req, send) {
 export function seriesRateLimitPerMinute() {
   const n = Number(process.env.SERIES_RATE_LIMIT ?? process.env.API_RATE_LIMIT)
   if (Number.isFinite(n) && n > 0) return n
-  return isProductionMode() ? 600 : 180
+  return isProductionMode() ? 2000 : 180
 }
 
 export function snapshotRateLimitPerMinute() {

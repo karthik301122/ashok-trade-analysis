@@ -41,13 +41,13 @@ describe('production mode', () => {
     delete process.env.SERIES_RATE_LIMIT
     delete process.env.API_RATE_LIMIT
     process.env.PRODUCTION_MODE = 'true'
-    expect(seriesRateLimitPerMinute()).toBe(600)
+    expect(seriesRateLimitPerMinute()).toBe(2000)
   })
 
   it('honors SERIES_RATE_LIMIT override', () => {
     process.env.PRODUCTION_MODE = 'true'
-    process.env.SERIES_RATE_LIMIT = '5000'
-    expect(seriesRateLimitPerMinute()).toBe(5000)
+    process.env.SERIES_RATE_LIMIT = '3000'
+    expect(seriesRateLimitPerMinute()).toBe(3000)
   })
 
   it('computes readiness', () => {
