@@ -81,7 +81,7 @@ export default function App() {
     const ac = new AbortController()
     abortRef.current = ac
 
-    const config = deskConfig ?? await fetchDeskServerConfig(ac.signal)
+    const config = deskConfig ?? await fetchDeskServerConfig()
     if (!deskConfig) setDeskConfig(config)
 
     setLoading(true)
@@ -128,6 +128,9 @@ export default function App() {
       }
     }
   }, [deskConfig])
+
+  const loadRef = useRef(load)
+  loadRef.current = load
 
   const waitForSnapshotJob = useCallback(async () => {
     for (let i = 0; i < 600; i++) {
@@ -191,9 +194,9 @@ export default function App() {
   useEffect(() => {
     if (!canUseApp || startedLoad.current) return
     startedLoad.current = true
-    void load(false)
+    void loadRef.current(false)
     return () => abortRef.current?.abort()
-  }, [canUseApp, load])
+  }, [canUseApp])
 
   const handleLogin = (u: string) => {
     startedLoad.current = false
