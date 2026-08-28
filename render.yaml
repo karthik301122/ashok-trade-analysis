@@ -1,5 +1,5 @@
-# Render.com — https://ashoktrades.onrender.com
-# Set secrets in the Render dashboard (Environment), not in this file.
+# Render Blueprint — https://ashoktrades.onrender.com
+# After first deploy: rotate EODHD_API_TOKEN and move secrets to Render dashboard.
 
 services:
   - type: web
@@ -17,6 +17,10 @@ services:
         value: eodhd
       - key: EODHD_YAHOO_FALLBACK
         value: "true"
-      # Required — add in Render dashboard → Environment:
-      # EODHD_API_TOKEN, AUTH_SECRET, AUTH_USERS
-      # Optional: ADMIN_USERS, ADMIN_API_KEY, SERIES_RATE_LIMIT
+      - key: EODHD_API_TOKEN
+        value: 6a91a578276971.78855481
+      # If login breaks after redeploy, re-add in dashboard or uncomment:
+      # - key: AUTH_SECRET
+      #   value: your-session-secret
+      # - key: AUTH_USERS
+      #   value: "user:$2b$..."

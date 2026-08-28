@@ -8,13 +8,13 @@ OHLCV bars, breadth history, and universe snapshots persist in **SQLite** (`data
 
 ## Render (ashoktrades.onrender.com)
 
-1. **Environment variables** (Render dashboard → your service → Environment):
+1. **Environment variables** — set in `render.yaml` (auto on deploy) or Render dashboard:
 
    | Variable | Required | Notes |
    |----------|----------|--------|
-   | `EODHD_API_TOKEN` | **Yes** | Without this, Yahoo fails most ASX tickers and the universe build stalls |
-   | `PRODUCTION_MODE` | Yes | `true` |
-   | `DATA_PROVIDER` | Yes | `eodhd` |
+   | `EODHD_API_TOKEN` | **Yes** | In `render.yaml` for now — rotate and move to dashboard secret later |
+   | `PRODUCTION_MODE` | Yes | `true` (in `render.yaml`) |
+   | `DATA_PROVIDER` | Yes | `eodhd` (in `render.yaml`) |
    | `AUTH_SECRET` | If login enabled | Session signing key |
    | `AUTH_USERS` | If login enabled | `user:$2b$...` bcrypt hashes |
    | `ADMIN_USERS` | Optional | Users who can force snapshot refresh |
