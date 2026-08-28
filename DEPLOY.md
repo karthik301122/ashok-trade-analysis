@@ -12,7 +12,7 @@ OHLCV bars, breadth history, and universe snapshots persist in **SQLite** (`data
 
    | Variable | Required | Notes |
    |----------|----------|--------|
-   | `EODHD_API_TOKEN` | **Yes** | In `render.yaml` for now — rotate and move to dashboard secret later |
+   | `EODHD_API_TOKEN` | **Yes** | Set in host dashboard only — never commit |
    | `PRODUCTION_MODE` | Yes | `true` (in `render.yaml`) |
    | `DATA_PROVIDER` | Yes | `eodhd` (in `render.yaml`) |
    | `AUTH_SECRET` | If login enabled | Session signing key |

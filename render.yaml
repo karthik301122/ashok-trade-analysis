@@ -1,5 +1,5 @@
-# Render Blueprint — https://ashoktrades.onrender.com
-# After first deploy: rotate EODHD_API_TOKEN and move secrets to Render dashboard.
+# Render Blueprint — optional; production is on Azure (tradersscope.com).
+# Set secrets in the Render dashboard — never commit API tokens.
 
 services:
   - type: web
@@ -26,9 +26,4 @@ services:
       - key: SERIES_RATE_LIMIT
         value: "2000"
       - key: EODHD_API_TOKEN
-        value: 6a91a578276971.78855481
-      # If login breaks after redeploy, re-add in dashboard or uncomment:
-      # - key: AUTH_SECRET
-      #   value: your-session-secret
-      # - key: AUTH_USERS
-      #   value: "user:$2b$..."
+        sync: false
