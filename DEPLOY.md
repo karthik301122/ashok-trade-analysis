@@ -3,8 +3,42 @@
 Live ASX prices come from **EODHD** when `EODHD_API_TOKEN` is set (optional Yahoo fallback).
 OHLCV bars, breadth history, and universe snapshots persist in **SQLite** (`data/asx.sqlite` by default).
 
-> Render is no longer the recommended host for this app (ephemeral disk). Prefer
-> a machine/VPS with durable storage.
+> Render works but needs **EODHD_API_TOKEN** and a first snapshot build. Disk is
+> ephemeral — snapshot is rebuilt after deploy (see `render.yaml`).
+
+## Render (ashoktrades.onrender.com)
+
+1. **Environment variables** (Render dashboard → your service → Environment):
+
+   | Variable | Required | Notes |
+   |----------|----------|--------|
+   | `EODHD_API_TOKEN` | **Yes** | Without this, Yahoo fails most ASX tickers and the universe build stalls |
+   | `PRODUCTION_MODE` | Yes | `true` |
+   | `DATA_PROVIDER` | Yes | `eodhd` |
+   | `AUTH_SECRET` | If login enabled | Session signing key |
+   | `AUTH_USERS` | If login enabled | `user:$2b$...` bcrypt hashes |
+   | `ADMIN_USERS` | Optional | Users who can force snapshot refresh |
+   | `ADMIN_API_KEY` | Optional | Cron header `x-admin-key` for `POST /api/snapshot/refresh` |
+
+2. **After deploy**, check readiness:
+
+   ```text
+   https://ashoktrades.onrender.com/api/health
+   ```
+
+   Wait until `readiness.snapshotAcceptable` is `true` (first build ~5–10 min).
+
+3. **Force rebuild** (admin):
+
+   ```bash
+   curl -X POST -H "x-admin-key: YOUR_ADMIN_API_KEY" \
+     "https://ashoktrades.onrender.com/api/snapshot/refresh?force=1"
+   ```
+
+4. **Ephemeral disk**: SQLite is wiped on redeploy. Schedule a daily cron on Render
+   (or external) to `POST /api/snapshot/refresh` with `x-admin-key`.
+
+> For production at scale, prefer a VPS with persistent disk (see below).
 
 ## Requirements
 

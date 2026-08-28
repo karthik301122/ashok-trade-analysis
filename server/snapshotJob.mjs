@@ -236,6 +236,20 @@ export async function runUniverseSnapshot(opts = {}) {
       const stocks = retryFailedOnly && existing?.stocks ? { ...existing.stocks } : {}
       const failedTickers = []
 
+      const maybePersistPartial = (() => {
+        let lastPersist = Object.keys(stocks).length
+        return () => {
+          const loaded = Object.keys(stocks).length
+          if (loaded === 0 || loaded - lastPersist < 75) return
+          lastPersist = loaded
+          persistSnapshot(stocks, indexPerf, loaded, total - loaded)
+        }
+      })()
+
+      if (indexPerf && Object.keys(stocks).length === 0 && !retryFailedOnly) {
+        persistSnapshot(stocks, indexPerf, 0, total)
+      }
+
       const tickersToFetch = retryFailedOnly
         ? allTickers.filter((t) => !stocks[t])
         : allTickers
@@ -280,6 +294,7 @@ export async function runUniverseSnapshot(opts = {}) {
                 failed: total - Object.keys(stocks).length,
                 total,
               })
+              maybePersistPartial()
             }
           },
         )

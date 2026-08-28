@@ -1,0 +1,22 @@
+# Render.com — https://ashoktrades.onrender.com
+# Set secrets in the Render dashboard (Environment), not in this file.
+
+services:
+  - type: web
+    name: ashok-trades
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PRODUCTION_MODE
+        value: "true"
+      - key: DATA_PROVIDER
+        value: eodhd
+      - key: EODHD_YAHOO_FALLBACK
+        value: "true"
+      # Required — add in Render dashboard → Environment:
+      # EODHD_API_TOKEN, AUTH_SECRET, AUTH_USERS
+      # Optional: ADMIN_USERS, ADMIN_API_KEY, SERIES_RATE_LIMIT

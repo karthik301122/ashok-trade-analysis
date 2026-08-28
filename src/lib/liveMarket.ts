@@ -62,7 +62,8 @@ type ServerSnapshotJson = {
   store?: string
 }
 
-function minSnapshotRatio(config: DeskServerConfig) {
+function minSnapshotRatio(config: DeskServerConfig, fromServerStore = false) {
+  if (fromServerStore) return 0.15
   return config.productionMode ? 0.35 : 0.5
 }
 
@@ -78,7 +79,7 @@ function parseServerSnapshot(
       : json.stocks
         ? Object.keys(json.stocks).length
         : 0
-  const minRatio = minSnapshotRatio(config)
+  const minRatio = minSnapshotRatio(config, json.store === 'sqlite')
   const enough = stockCount >= tickers.length * minRatio
   const freshOk = Boolean(json.fresh) && enough
   const staleOk = acceptStale && Boolean(json.indexPerf) && enough

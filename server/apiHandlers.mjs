@@ -120,7 +120,6 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/snapshot') {
-    if (requireAuthConnect(req, send)) return true
     if (req.method === 'GET') {
       if (rateLimitOrSend(req, send, 'snapshot', snapshotRateLimitPerMinute())) return true
       const row = readMarketSnapshotRow()
@@ -152,6 +151,21 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/snapshot/refresh') {
+    if (req.method === 'GET') {
+      const row = readMarketSnapshotRow()
+      send(200, {
+        job: getSnapshotJobStatus(),
+        snapshot: row
+          ? {
+              builtAt: row.builtAt,
+              loaded: row.loaded,
+              failed: row.failed,
+              fresh: isSnapshotFresh(row.builtAt),
+            }
+          : null,
+      })
+      return true
+    }
     if (requireAuthConnect(req, send)) return true
     if (req.method === 'POST') {
       if (requireAdminOrSend(req, send)) return true
@@ -170,21 +184,6 @@ export async function handleConnectApi(req, res, send) {
         })
       })
       send(202, { ok: true, started: true, job: getSnapshotJobStatus() })
-      return true
-    }
-    if (req.method === 'GET') {
-      const row = readMarketSnapshotRow()
-      send(200, {
-        job: getSnapshotJobStatus(),
-        snapshot: row
-          ? {
-              builtAt: row.builtAt,
-              loaded: row.loaded,
-              failed: row.failed,
-              fresh: isSnapshotFresh(row.builtAt),
-            }
-          : null,
-      })
       return true
     }
     send(405, { error: 'Method not allowed' })
@@ -434,9 +433,6 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/snapshot', (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
-      return res.status(401).json({ error: 'Unauthorized', authRequired: true })
-    }
     if (
       rateLimitOrSend(
         req,
@@ -471,9 +467,6 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/snapshot/refresh', (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
-      return res.status(401).json({ error: 'Unauthorized', authRequired: true })
-    }
     const row = readMarketSnapshotRow()
     return res.json({
       job: getSnapshotJobStatus(),
