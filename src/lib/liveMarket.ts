@@ -28,12 +28,38 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
+const API_FETCH_MS = 20_000
+
+async function fetchDeskJson<T>(url: string, signal?: AbortSignal): Promise<T | null> {
+  const timeout = new AbortController()
+  const onAbort = () => timeout.abort()
+  if (signal) {
+    if (signal.aborted) return null
+    signal.addEventListener('abort', onAbort)
+  }
+  const timer = setTimeout(() => timeout.abort(), API_FETCH_MS)
+  try {
+    const res = await fetch(url, {
+      credentials: 'include',
+      signal: signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal,
+    })
+    if (!res.ok) return null
+    return (await res.json()) as T
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+    if (signal) signal.removeEventListener('abort', onAbort)
+  }
+}
+
 type ServerSnapshotJson = {
   fresh?: boolean
   loaded?: number
   failed?: number
   indexPerf?: CachedPerf
   stocks?: Record<string, CachedPerf>
+  store?: string
 }
 
 function minSnapshotRatio(config: DeskServerConfig) {
@@ -46,12 +72,19 @@ function parseServerSnapshot(
   config: DeskServerConfig,
   acceptStale: boolean,
 ): { stockPerfs: Map<string, CachedPerf>; indexPerf: CachedPerf; failed: number } | null {
-  const stockCount = json.stocks ? Object.keys(json.stocks).length : 0
+  const stockCount =
+    typeof json.loaded === 'number' && json.loaded > 0
+      ? json.loaded
+      : json.stocks
+        ? Object.keys(json.stocks).length
+        : 0
   const minRatio = minSnapshotRatio(config)
   const enough = stockCount >= tickers.length * minRatio
   const freshOk = Boolean(json.fresh) && enough
   const staleOk = acceptStale && Boolean(json.indexPerf) && enough
-  if (!json.indexPerf || (!freshOk && !staleOk)) return null
+  const serverStore = json.store === 'sqlite'
+  const serverOk = serverStore && Boolean(json.indexPerf) && enough
+  if (!json.indexPerf || (!freshOk && !staleOk && !serverOk)) return null
   const stockPerfs = new Map<string, CachedPerf>()
   for (const [t, p] of Object.entries(json.stocks || {})) stockPerfs.set(t, p)
   return {
@@ -62,12 +95,8 @@ function parseServerSnapshot(
 }
 
 async function probeDeskApi(signal?: AbortSignal): Promise<boolean> {
-  try {
-    const res = await fetch('/api/health', { credentials: 'include', signal })
-    return res.ok
-  } catch {
-    return false
-  }
+  const json = await fetchDeskJson<{ ok?: boolean }>('/api/health', signal)
+  return Boolean(json?.ok)
 }
 
 async function waitForServerSnapshotJob(
@@ -94,7 +123,10 @@ async function waitForServerSnapshotJob(
       const ready = await tryReady()
       if (ready) return ready
     }
-    const res = await fetch('/api/snapshot/refresh', { credentials: 'include', signal })
+    const res = await fetch('/api/snapshot/refresh', {
+      credentials: 'include',
+      signal,
+    })
     if (!res.ok) break
     const json = (await res.json()) as {
       job?: { status?: string; loaded?: number; total?: number; message?: string }
@@ -116,9 +148,7 @@ async function waitForServerSnapshotJob(
 }
 
 async function fetchServerSnapshotJson(signal?: AbortSignal): Promise<ServerSnapshotJson | null> {
-  const res = await fetch('/api/snapshot', { credentials: 'include', signal })
-  if (!res.ok) return null
-  return (await res.json()) as ServerSnapshotJson
+  return fetchDeskJson<ServerSnapshotJson>('/api/snapshot', signal)
 }
 
 function seriesToCachedPerf(series: SeriesResult, indexM3: number): CachedPerf {
@@ -368,6 +398,31 @@ export async function loadLiveMarketSnapshot(
   const tickers = ASX_UNIVERSE.map((s) => s.ticker)
   const total = tickers.length + 1
 
+  // Show cached universe immediately while server snapshot loads (dev / repeat visits).
+  if (!forceRefresh) {
+    const browserCached = loadPerfCache()
+    if (browserCached?.index) {
+      const cachedPerfs = new Map<string, CachedPerf>()
+      for (const t of tickers) {
+        if (browserCached.stocks[t]) cachedPerfs.set(t, browserCached.stocks[t])
+      }
+      if (cachedPerfs.size >= tickers.length * 0.15) {
+        onPartial?.(
+          assembleSnapshotFromPerfs(cachedPerfs, browserCached.index),
+          cachedPerfs.size,
+          tickers.length - cachedPerfs.size,
+        )
+        onProgress?.({
+          done: cachedPerfs.size,
+          total,
+          phase: 'cache',
+          loaded: cachedPerfs.size,
+          remaining: tickers.length - cachedPerfs.size,
+        })
+      }
+    }
+  }
+
   const finishFromServer = (
     parsed: { stockPerfs: Map<string, CachedPerf>; indexPerf: CachedPerf; failed: number },
     fromCache: boolean,
@@ -401,7 +456,7 @@ export async function loadLiveMarketSnapshot(
 
   if (!forceRefresh) {
     onProgress?.({ done: 0, total, phase: 'cache', loaded: 0, remaining: tickers.length })
-    const got = await tryServer(config.productionMode)
+    const got = await tryServer(true)
     if (got) return got
   }
 
@@ -428,7 +483,7 @@ export async function loadLiveMarketSnapshot(
   // Dev / local fallback: progressive browser fetch (never used when productionMode)
   if (!await probeDeskApi(signal)) {
     throw new Error(
-      'Desk API is not available (GET /api/health failed). Use npm run dev — not vite preview — or npm run build && npm start. The app needs the Node server for market data.',
+      `Desk API is not available on ${window.location.origin} (GET /api/health failed or timed out). Stop other dev servers on this port and run npm run dev, or use npm run build && npm start. The app needs the Node API — not vite preview alone.`,
     )
   }
 

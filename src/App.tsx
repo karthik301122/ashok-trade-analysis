@@ -271,6 +271,14 @@ export default function App() {
                 ? `${progress.phase} · ${progress.done}/${progress.total} (${pct}%)`
                 : 'Starting…'}
             </p>
+            {progress?.phase === 'cache' && progress.done === 0 && (
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                Stuck at 0% usually means this URL has no desk API (wrong port or vite preview).
+                Use <span className="font-mono">npm run dev</span> at{' '}
+                <span className="font-mono">http://localhost:5173</span> — check{' '}
+                <span className="font-mono">/api/health</span> in the browser.
+              </p>
+            )}
           </div>
         ) : !snapshot ? (
           <div className="mx-auto mt-16 max-w-lg rounded-2xl border border-rose-300 bg-[var(--color-surface)] p-6 shadow-sm dark:border-rose-800">

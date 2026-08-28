@@ -17,8 +17,13 @@ const DEFAULT_CONFIG: DeskServerConfig = {
 export async function fetchDeskServerConfig(
   signal?: AbortSignal,
 ): Promise<DeskServerConfig> {
+  const timeout = new AbortController()
+  const timer = setTimeout(() => timeout.abort(), 8000)
+  const linked = signal
+    ? AbortSignal.any([signal, timeout.signal])
+    : timeout.signal
   try {
-    const res = await fetch('/api/health', { credentials: 'include', signal })
+    const res = await fetch('/api/health', { credentials: 'include', signal: linked })
     if (!res.ok) return DEFAULT_CONFIG
     const j = (await res.json()) as Partial<DeskServerConfig> & { provider?: string }
     return {
@@ -29,5 +34,7 @@ export async function fetchDeskServerConfig(
     }
   } catch {
     return DEFAULT_CONFIG
+  } finally {
+    clearTimeout(timer)
   }
 }
