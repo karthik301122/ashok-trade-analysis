@@ -105,14 +105,14 @@ export function getUserFromRequest(req) {
   return verifySessionToken(cookies[COOKIE_NAME] || '')
 }
 
-function useSecureCookies() {
+function secureCookiesEnabled() {
   if (process.env.RENDER === 'true') return true
   if (process.env.FORCE_SECURE_COOKIES === 'true') return true
   return process.env.NODE_ENV === 'production'
 }
 
 export function sessionSetCookieHeader(token) {
-  const secure = useSecureCookies()
+  const secure = secureCookiesEnabled()
   const parts = [
     `${COOKIE_NAME}=${encodeURIComponent(token)}`,
     'Path=/',
@@ -125,7 +125,7 @@ export function sessionSetCookieHeader(token) {
 }
 
 export function sessionClearCookieHeader() {
-  const secure = useSecureCookies()
+  const secure = secureCookiesEnabled()
   const parts = [`${COOKIE_NAME}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0']
   if (secure) parts.push('Secure')
   return parts.join('; ')
