@@ -1,4 +1,5 @@
 import { getUserFromRequest } from './auth.mjs'
+import { isDbAdmin } from './userStore.mjs'
 
 function envBool(name, defaultValue = false) {
   const raw = process.env[name]?.trim().toLowerCase()
@@ -32,6 +33,7 @@ function adminUserSet() {
 
 export function isAdminUser(username) {
   if (!username) return false
+  if (isDbAdmin(username)) return true
   const admins = adminUserSet()
   if (!admins.size) return false
   return admins.has(String(username).trim().toLowerCase())

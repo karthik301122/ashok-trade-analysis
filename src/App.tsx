@@ -11,7 +11,7 @@ import { AltAssetsPanel } from './components/AltAssetsPanel'
 import { AlertsPanel } from './components/AlertsPanel'
 import { SpecialPatternsPanel } from './components/SpecialPatternsPanel'
 import { VolumeScan } from './components/VolumeScan'
-import { LoginPage } from './components/LoginPage'
+import { AuthPage } from './components/AuthPage'
 import { COMMODITIES, CRYPTO } from './data/altAssets'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
 import { fetchDeskServerConfig, type DeskServerConfig } from './lib/deskConfig'
@@ -255,7 +255,7 @@ export default function App() {
             <p className="text-sm text-[var(--color-ink-soft)]">Checking session…</p>
           </div>
         ) : authRequired && !user ? (
-          <LoginPage onSuccess={handleLogin} />
+          <AuthPage onSuccess={handleLogin} />
         ) : loading && !snapshot ? (
           <div className="mx-auto mt-16 max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-sm">
             <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-teal-200 border-t-teal-600" />

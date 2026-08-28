@@ -104,6 +104,12 @@ export function getDb() {
       eps REAL,
       raw_json TEXT
     );
+    CREATE TABLE IF NOT EXISTS users (
+      username TEXT PRIMARY KEY,
+      password_hash TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      is_admin INTEGER NOT NULL DEFAULT 0
+    );
   `)
   dbSingleton = db
   return db

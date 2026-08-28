@@ -9,12 +9,36 @@
  */
 import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
+import {
+  countDbUsers,
+  createDbUser,
+  normalizeUsername,
+  verifyDbCredentials,
+} from './userStore.mjs'
 
 export const COOKIE_NAME = 'asx_sid'
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
+/** Auth is on when AUTH_SECRET is set (users from env and/or SQLite). */
 export function authEnabled() {
-  return Boolean(process.env.AUTH_SECRET?.trim() && process.env.AUTH_USERS?.trim())
+  return Boolean(process.env.AUTH_SECRET?.trim())
+}
+
+export function registrationAllowed() {
+  const raw = process.env.ALLOW_REGISTRATION?.trim().toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes'
+}
+
+export function registrationInviteRequired() {
+  return Boolean(process.env.REGISTRATION_INVITE_CODE?.trim())
+}
+
+export function authPublicConfig() {
+  return {
+    authRequired: authEnabled(),
+    registrationOpen: authEnabled() && registrationAllowed(),
+    inviteRequired: registrationInviteRequired(),
+  }
 }
 
 /** @returns {Map<string, string>} username → bcrypt hash */
@@ -36,10 +60,32 @@ export function loadUsers() {
 export async function verifyCredentials(username, password) {
   if (!username || !password) return null
   const users = loadUsers()
-  const hash = users.get(String(username).trim().toLowerCase())
-  if (!hash) return null
-  const ok = await bcrypt.compare(String(password), hash)
-  return ok ? String(username).trim().toLowerCase() : null
+  const key = normalizeUsername(username)
+  const envHash = users.get(key)
+  if (envHash) {
+    const ok = await bcrypt.compare(String(password), envHash)
+    if (ok) return key
+  }
+  return verifyDbCredentials(username, password)
+}
+
+export async function registerAccount(username, password, inviteCode) {
+  if (!authEnabled()) return { ok: false, error: 'Auth is not configured on this server' }
+  if (!registrationAllowed()) return { ok: false, error: 'Registration is disabled' }
+
+  const secret = process.env.REGISTRATION_INVITE_CODE?.trim()
+  if (secret && String(inviteCode ?? '').trim() !== secret) {
+    return { ok: false, error: 'Invalid invite code' }
+  }
+
+  const max = Number(process.env.REGISTRATION_MAX_USERS)
+  if (Number.isFinite(max) && max > 0 && countDbUsers() >= max) {
+    return { ok: false, error: 'Registration limit reached' }
+  }
+
+  const envUsers = loadUsers()
+  const firstAccount = countDbUsers() === 0 && envUsers.size === 0
+  return createDbUser(username, password, { isAdmin: firstAccount })
 }
 
 function b64url(buf) {
@@ -167,6 +213,26 @@ export async function handleAuthApi(req, res, send) {
     const user = getUserFromRequest(req)
     if (!user) return send(401, { user: null, authRequired: true })
     return send(200, { user, authRequired: true })
+  }
+
+  if (path === '/api/auth/config' && method === 'GET') {
+    return send(200, authPublicConfig())
+  }
+
+  if (path === '/api/auth/register' && method === 'POST') {
+    if (!authEnabled()) {
+      return send(400, { error: 'Auth is not configured on this server' })
+    }
+    let body
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return send(400, { error: 'Invalid JSON' })
+    }
+    const result = await registerAccount(body.username, body.password, body.inviteCode)
+    if (!result.ok) return send(400, { error: result.error })
+    const token = createSessionToken(result.user)
+    return send(200, { user: result.user }, { 'Set-Cookie': sessionSetCookieHeader(token) })
   }
 
   if (path === '/api/auth/login' && method === 'POST') {
