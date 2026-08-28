@@ -105,9 +105,14 @@ export function getUserFromRequest(req) {
   return verifySessionToken(cookies[COOKIE_NAME] || '')
 }
 
+function useSecureCookies() {
+  if (process.env.RENDER === 'true') return true
+  if (process.env.FORCE_SECURE_COOKIES === 'true') return true
+  return process.env.NODE_ENV === 'production'
+}
+
 export function sessionSetCookieHeader(token) {
-  // Only force Secure on Render (HTTPS). Local `npm start` stays HTTP-friendly.
-  const secure = process.env.RENDER === 'true'
+  const secure = useSecureCookies()
   const parts = [
     `${COOKIE_NAME}=${encodeURIComponent(token)}`,
     'Path=/',
@@ -120,7 +125,7 @@ export function sessionSetCookieHeader(token) {
 }
 
 export function sessionClearCookieHeader() {
-  const secure = process.env.RENDER === 'true'
+  const secure = useSecureCookies()
   const parts = [`${COOKIE_NAME}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0']
   if (secure) parts.push('Secure')
   return parts.join('; ')
