@@ -74,6 +74,65 @@ export function readMarketSnapshotRow() {
   }
 }
 
+/** In-memory cache so chunked stock reads don't re-parse the full JSON blob each time. */
+let stocksPerfCache = null
+let stocksPerfBuiltAt = 0
+
+function loadStocksPerfMap(builtAt, stocksJson) {
+  if (stocksPerfCache && stocksPerfBuiltAt === builtAt) return stocksPerfCache
+  stocksPerfCache = JSON.parse(stocksJson)
+  stocksPerfBuiltAt = builtAt
+  return stocksPerfCache
+}
+
+export function clearStocksPerfCache() {
+  stocksPerfCache = null
+  stocksPerfBuiltAt = 0
+}
+
+/** Fast metadata without parsing the large stocks JSON column. */
+export function readMarketSnapshotMeta() {
+  const row = getDb()
+    .prepare(
+      'SELECT built_at, as_of, loaded, failed, index_perf_json FROM market_snapshot WHERE id = 1',
+    )
+    .get()
+  if (!row) return null
+  const builtAt = Number(row.built_at)
+  return {
+    builtAt,
+    asOf: row.as_of,
+    loaded: Number(row.loaded),
+    failed: Number(row.failed),
+    fresh: isSnapshotFresh(builtAt),
+    indexPerf: JSON.parse(row.index_perf_json),
+    store: 'sqlite',
+  }
+}
+
+/** Paginated stock perfs for browsers that cannot download one giant /api/snapshot payload. */
+export function readMarketSnapshotStocksChunk(offset, limit) {
+  const row = getDb()
+    .prepare('SELECT built_at, stocks_perf_json FROM market_snapshot WHERE id = 1')
+    .get()
+  if (!row) return null
+  const builtAt = Number(row.built_at)
+  const map = loadStocksPerfMap(builtAt, row.stocks_perf_json)
+  const keys = Object.keys(map)
+  const safeOffset = Math.max(0, Math.min(offset, keys.length))
+  const safeLimit = Math.max(1, Math.min(limit, 800))
+  const slice = keys.slice(safeOffset, safeOffset + safeLimit)
+  const stocks = {}
+  for (const k of slice) stocks[k] = map[k]
+  return {
+    offset: safeOffset,
+    limit: safeLimit,
+    total: keys.length,
+    count: slice.length,
+    stocks,
+  }
+}
+
 export function isSnapshotFresh(builtAt, now = Date.now()) {
   return Number.isFinite(builtAt) && now - builtAt < SNAPSHOT_FRESH_MS
 }
@@ -119,6 +178,7 @@ function persistSnapshot(stocks, indexPerf, loaded, failed) {
       JSON.stringify(stocks),
     )
 
+  clearStocksPerfCache()
   return { builtAt, asOf }
 }
 

@@ -260,7 +260,7 @@ export default function App() {
             </h2>
             <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
               {deskConfig?.productionMode
-                ? 'Loading server snapshot for the full ASX universe (shared for all users).'
+                ? 'Downloading server snapshot for the full ASX universe (shared for all users).'
                 : `First ~50 stocks show quickly, then it keeps filling all ${ASX_UNIVERSE_COUNT.toLocaleString()} names (can take several minutes).`}
             </p>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-[var(--color-muted)]">

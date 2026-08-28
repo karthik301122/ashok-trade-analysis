@@ -9,7 +9,9 @@ import {
   getSnapshotJobStatus,
   isSnapshotFresh,
   maybeStartBackgroundSnapshot,
+  readMarketSnapshotMeta,
   readMarketSnapshotRow,
+  readMarketSnapshotStocksChunk,
   runUniverseSnapshot,
   runRetryFailedSnapshot,
 } from './snapshotJob.mjs'
@@ -117,6 +119,39 @@ export async function handleConnectApi(req, res, send) {
       send(500, { error: message })
       return true
     }
+  }
+
+  if (url.pathname === '/api/snapshot/meta' && req.method === 'GET') {
+    if (rateLimitOrSend(req, send, 'snapshot', snapshotRateLimitPerMinute())) return true
+    const meta = readMarketSnapshotMeta()
+    if (!meta) {
+      maybeStartBackgroundSnapshot()
+      send(404, {
+        error: 'No snapshot yet',
+        job: getSnapshotJobStatus(),
+        hint: 'POST /api/snapshot/refresh or wait for background build',
+      })
+      return true
+    }
+    send(200, {
+      ...meta,
+      browserUniverseFetch: browserUniverseFetchEnabled(),
+      productionMode: isProductionMode(),
+    })
+    return true
+  }
+
+  if (url.pathname === '/api/snapshot/stocks' && req.method === 'GET') {
+    if (rateLimitOrSend(req, send, 'snapshot', snapshotRateLimitPerMinute())) return true
+    const offset = Number(url.searchParams.get('offset') || 0)
+    const limit = Number(url.searchParams.get('limit') || 500)
+    const chunk = readMarketSnapshotStocksChunk(offset, limit)
+    if (!chunk) {
+      send(404, { error: 'No snapshot yet', job: getSnapshotJobStatus() })
+      return true
+    }
+    send(200, chunk)
+    return true
   }
 
   if (url.pathname === '/api/snapshot') {
@@ -430,6 +465,53 @@ export function mountExpressApi(app) {
       log('error', 'series.error', { message, ms: Date.now() - started })
       return res.status(500).json({ error: message })
     }
+  })
+
+  app.get('/api/snapshot/meta', (req, res) => {
+    if (
+      rateLimitOrSend(
+        req,
+        (status, body) => res.status(status).json(body),
+        'snapshot',
+        snapshotRateLimitPerMinute(),
+      )
+    ) {
+      return
+    }
+    const meta = readMarketSnapshotMeta()
+    if (!meta) {
+      maybeStartBackgroundSnapshot()
+      return res.status(404).json({
+        error: 'No snapshot yet',
+        job: getSnapshotJobStatus(),
+        hint: 'POST /api/snapshot/refresh or wait for background build',
+      })
+    }
+    return res.json({
+      ...meta,
+      browserUniverseFetch: browserUniverseFetchEnabled(),
+      productionMode: isProductionMode(),
+    })
+  })
+
+  app.get('/api/snapshot/stocks', (req, res) => {
+    if (
+      rateLimitOrSend(
+        req,
+        (status, body) => res.status(status).json(body),
+        'snapshot',
+        snapshotRateLimitPerMinute(),
+      )
+    ) {
+      return
+    }
+    const offset = Number(req.query.offset || 0)
+    const limit = Number(req.query.limit || 500)
+    const chunk = readMarketSnapshotStocksChunk(offset, limit)
+    if (!chunk) {
+      return res.status(404).json({ error: 'No snapshot yet', job: getSnapshotJobStatus() })
+    }
+    return res.json(chunk)
   })
 
   app.get('/api/snapshot', (req, res) => {

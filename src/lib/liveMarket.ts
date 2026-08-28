@@ -29,15 +29,20 @@ function sleep(ms: number) {
 }
 
 const API_FETCH_MS = 20_000
+const SNAPSHOT_FETCH_MS = 120_000
 
-async function fetchDeskJson<T>(url: string, signal?: AbortSignal): Promise<T | null> {
+async function fetchDeskJson<T>(
+  url: string,
+  signal?: AbortSignal,
+  timeoutMs = API_FETCH_MS,
+): Promise<T | null> {
   const timeout = new AbortController()
   const onAbort = () => timeout.abort()
   if (signal) {
     if (signal.aborted) return null
     signal.addEventListener('abort', onAbort)
   }
-  const timer = setTimeout(() => timeout.abort(), API_FETCH_MS)
+  const timer = setTimeout(() => timeout.abort(), timeoutMs)
   try {
     const res = await fetch(url, {
       credentials: 'include',
@@ -57,6 +62,7 @@ type ServerSnapshotJson = {
   fresh?: boolean
   loaded?: number
   failed?: number
+  builtAt?: number
   indexPerf?: CachedPerf
   stocks?: Record<string, CachedPerf>
   store?: string
@@ -148,8 +154,61 @@ async function waitForServerSnapshotJob(
   return null
 }
 
-async function fetchServerSnapshotJson(signal?: AbortSignal): Promise<ServerSnapshotJson | null> {
-  return fetchDeskJson<ServerSnapshotJson>('/api/snapshot', signal)
+async function fetchServerSnapshotJson(
+  signal?: AbortSignal,
+  onProgress?: (p: LiveLoadProgress) => void,
+  total = 0,
+): Promise<ServerSnapshotJson | null> {
+  const meta = await fetchDeskJson<ServerSnapshotJson>('/api/snapshot/meta', signal, 15_000)
+  if (!meta?.indexPerf) {
+    // Older servers without /meta — fall back to monolithic snapshot.
+    return fetchDeskJson<ServerSnapshotJson>('/api/snapshot', signal, SNAPSHOT_FETCH_MS)
+  }
+
+  const stocks: Record<string, CachedPerf> = {}
+  const stockTotal = meta.loaded ?? 0
+  const chunkSize = 400
+  let offset = 0
+
+  while (offset < stockTotal) {
+    const chunk = await fetchDeskJson<{
+      stocks?: Record<string, CachedPerf>
+      count?: number
+      total?: number
+    }>(
+      `/api/snapshot/stocks?offset=${offset}&limit=${chunkSize}`,
+      signal,
+      SNAPSHOT_FETCH_MS,
+    )
+    if (!chunk?.stocks) break
+    Object.assign(stocks, chunk.stocks)
+    offset += chunk.count ?? chunkSize
+    const loaded = Object.keys(stocks).length
+    onProgress?.({
+      done: loaded,
+      total,
+      phase: 'cache',
+      loaded,
+      remaining: Math.max(0, stockTotal - loaded),
+    })
+    if ((chunk.count ?? 0) < chunkSize) break
+  }
+
+  if (Object.keys(stocks).length === 0) {
+    const full = await fetchDeskJson<ServerSnapshotJson>('/api/snapshot', signal, SNAPSHOT_FETCH_MS)
+    if (full?.stocks && Object.keys(full.stocks).length > 0) return full
+    return null
+  }
+
+  return {
+    builtAt: meta.builtAt,
+    loaded: meta.loaded,
+    failed: meta.failed,
+    fresh: meta.fresh,
+    indexPerf: meta.indexPerf,
+    stocks,
+    store: 'sqlite',
+  }
 }
 
 function seriesToCachedPerf(series: SeriesResult, indexM3: number): CachedPerf {
@@ -448,7 +507,7 @@ export async function loadLiveMarketSnapshot(
   }
 
   const tryServer = async (acceptStale: boolean) => {
-    const json = await fetchServerSnapshotJson(signal)
+    const json = await fetchServerSnapshotJson(signal, onProgress, total)
     if (!json) return null
     const parsed = parseServerSnapshot(json, tickers, config, acceptStale)
     if (!parsed) return null

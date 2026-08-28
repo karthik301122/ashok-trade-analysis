@@ -17,24 +17,25 @@ const DEFAULT_CONFIG: DeskServerConfig = {
 export async function fetchDeskServerConfig(
   signal?: AbortSignal,
 ): Promise<DeskServerConfig> {
-  const timeout = new AbortController()
-  const timer = setTimeout(() => timeout.abort(), 8000)
-  const linked = signal
-    ? AbortSignal.any([signal, timeout.signal])
-    : timeout.signal
-  try {
-    const res = await fetch('/api/health', { credentials: 'include', signal: linked })
-    if (!res.ok) return DEFAULT_CONFIG
-    const j = (await res.json()) as Partial<DeskServerConfig> & { provider?: string }
-    return {
-      productionMode: Boolean(j.productionMode),
-      browserUniverseFetch: Boolean(j.browserUniverseFetch),
-      isAdmin: Boolean(j.isAdmin),
-      provider: typeof j.provider === 'string' ? j.provider : undefined,
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const timeout = new AbortController()
+    const timer = setTimeout(() => timeout.abort(), 12_000)
+    const linked = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal
+    try {
+      const res = await fetch('/api/health', { credentials: 'include', signal: linked })
+      clearTimeout(timer)
+      if (!res.ok) continue
+      const j = (await res.json()) as Partial<DeskServerConfig> & { provider?: string }
+      return {
+        productionMode: Boolean(j.productionMode),
+        browserUniverseFetch: Boolean(j.browserUniverseFetch),
+        isAdmin: Boolean(j.isAdmin),
+        provider: typeof j.provider === 'string' ? j.provider : undefined,
+      }
+    } catch {
+      clearTimeout(timer)
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 1500))
     }
-  } catch {
-    return DEFAULT_CONFIG
-  } finally {
-    clearTimeout(timer)
   }
+  return DEFAULT_CONFIG
 }
