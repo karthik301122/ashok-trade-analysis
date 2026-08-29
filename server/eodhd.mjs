@@ -1,18 +1,20 @@
 import { loadEnvFile } from './loadEnv.mjs'
 import { withEodhdThrottle, parseRetryAfterMs } from './eodhdThrottle.mjs'
 import { sanitizeOhlcBars } from './ohlcSanitize.mjs'
+import {
+  aggregateOhlcBars,
+  eodhdAggregateMinutes,
+  eodhdSourceInterval,
+} from './ohlcAggregate.mjs'
 
 loadEnvFile()
 
 const BASE = 'https://eodhd.com/api/eod'
 const INTRADAY_BASE = 'https://eodhd.com/api/intraday'
 
-/** EODHD intraday supports 1m, 5m, 1h — map client intervals (e.g. 30m) to nearest. */
+/** EODHD intraday supports 1m, 5m, 1h — 15m/30m are built from 5m bars. */
 export function normalizeEodhdIntradayInterval(interval) {
-  const raw = String(interval || '5m').toLowerCase()
-  if (raw === '1m') return '1m'
-  if (raw === '1h' || raw === '60m') return '1h'
-  return '5m'
+  return eodhdSourceInterval(interval)
 }
 
 function sleep(ms) {
@@ -221,7 +223,9 @@ export async function fetchEodhdIntraday(symbol, interval, fromTs, toTs, opts = 
 
 async function fetchEodhdIntradayInner(symbol, interval, fromTs, toTs, opts, token) {
   const eodSymbol = toEodhdSymbol(symbol)
-  const iv = normalizeEodhdIntradayInterval(interval)
+  const requested = String(interval || '5m').toLowerCase()
+  const iv = eodhdSourceInterval(requested)
+  const aggMinutes = eodhdAggregateMinutes(requested)
   const attempts = Number(opts.attempts) || 4
   const baseDelayMs = Number(opts.baseDelayMs) || 400
   const url = new URL(`${INTRADAY_BASE}/${encodeURIComponent(eodSymbol)}`)
@@ -257,16 +261,28 @@ async function fetchEodhdIntradayInner(symbol, interval, fromTs, toTs, opts, tok
       }
       const parsed = rowsToIntradayBars(data)
       if (!parsed) return null
+      let closes = parsed.closes
+      if (aggMinutes && iv === '5m') {
+        closes = aggregateOhlcBars(closes, aggMinutes)
+        if (closes.length < 5) return null
+        closes = sanitizeOhlcBars(closes)
+        if (closes.length < 5) return null
+      }
+      const last = closes[closes.length - 1].c
+      const yearAgo = closes[closes.length - 1].t - 365 * 24 * 3600
+      const lastYear = closes.filter((b) => b.t >= yearAgo)
+      const high52 = Math.max(...lastYear.map((b) => b.h ?? b.c), last)
       return {
         symbol,
-        closes: parsed.closes,
-        last: parsed.last,
-        high52: parsed.high52,
+        closes,
+        last,
+        high52,
         meta: {
           provider: 'eodhd',
           eodSymbol,
-          interval: iv,
+          interval: aggMinutes ? requested : iv,
           requestedInterval: interval,
+          sourceInterval: iv,
           intraday: true,
         },
       }

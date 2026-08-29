@@ -221,7 +221,11 @@ export function PatternPanel({
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {onChartIntervalChange && (
-            <ChartIntervalDropdown value={chartInterval} onChange={onChartIntervalChange} />
+            <ChartIntervalDropdown
+              value={chartInterval}
+              onChange={onChartIntervalChange}
+              effectiveBarInterval={chartBarInterval}
+            />
           )}
         </div>
         <div className="mt-2 flex flex-wrap gap-1">

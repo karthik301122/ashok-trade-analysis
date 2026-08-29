@@ -9,9 +9,11 @@ import {
 type Props = {
   value: ChartIntervalPref
   onChange: (interval: ChartIntervalPref) => void
+  /** Desk API interval when different from picker (e.g. EODHD 5m vs 30m). */
+  effectiveBarInterval?: string
 }
 
-export function ChartIntervalDropdown({ value, onChange }: Props) {
+export function ChartIntervalDropdown({ value, onChange, effectiveBarInterval }: Props) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -24,6 +26,13 @@ export function ChartIntervalDropdown({ value, onChange }: Props) {
     return () => document.removeEventListener('mousedown', close)
   }, [open])
 
+  const buttonLabel =
+    effectiveBarInterval && effectiveBarInterval !== '1d' && value !== 'auto' && value !== '1d'
+      ? chartIntervalButtonLabel(
+          effectiveBarInterval === '60m' ? '1h' : (effectiveBarInterval as ChartIntervalPref),
+        )
+      : chartIntervalButtonLabel(value)
+
   return (
     <div ref={ref} className="relative">
       <button
@@ -32,7 +41,7 @@ export function ChartIntervalDropdown({ value, onChange }: Props) {
         className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[10px] font-bold text-[var(--color-ink)] hover:border-sky-400"
         title="Chart bar interval (pattern scans stay on daily)"
       >
-        {chartIntervalButtonLabel(value)}
+        {buttonLabel}
         <ChevronDown size={12} className={open ? 'rotate-180' : ''} />
       </button>
       {open && (

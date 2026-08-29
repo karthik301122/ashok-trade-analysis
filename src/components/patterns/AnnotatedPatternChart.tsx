@@ -11,6 +11,7 @@ import {
   type Time,
   type IPriceLine,
   type UTCTimestamp,
+  type AutoscaleInfoProvider,
 } from 'lightweight-charts'
 import type { OhlcBar, PatternHit } from '../../lib/patterns'
 import { sanitizeOhlcBars } from '../../lib/ohlcSanitize'
@@ -93,20 +94,38 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
       low: b.l,
       close: b.c,
     }))
+    const intradayAutoscale: AutoscaleInfoProvider = (original) => {
+      const res = original()
+      if (!res?.priceRange) return res
+      const { minValue, maxValue } = res.priceRange
+      const mid = (maxValue + minValue) / 2
+      const span = maxValue - minValue
+      const minSpan = Math.max(mid * 0.012, 0.05)
+      if (span >= minSpan) return res
+      return {
+        priceRange: {
+          minValue: mid - minSpan / 2,
+          maxValue: mid + minSpan / 2,
+        },
+      }
+    }
+
     const candle = chart.addSeries(CandlestickSeries, {
       upColor: '#059669',
       downColor: '#e11d48',
       borderVisible: false,
       wickUpColor: '#059669',
       wickDownColor: '#e11d48',
-      autoscaleInfoProvider: priceRange
-        ? () => ({
-            priceRange: {
-              minValue: priceRange.minValue,
-              maxValue: priceRange.maxValue,
-            },
-          })
-        : undefined,
+      autoscaleInfoProvider: intraday
+        ? intradayAutoscale
+        : priceRange
+          ? () => ({
+              priceRange: {
+                minValue: priceRange.minValue,
+                maxValue: priceRange.maxValue,
+              },
+            })
+          : undefined,
     })
     const line = chart.addSeries(LineSeries, {
       color: '#0ea5e9',
@@ -116,11 +135,10 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
     })
     candle.setData(data)
     if (intraday && clean.length > 40) {
-      const spacing = 6
       chart.timeScale().applyOptions({
-        barSpacing: spacing,
-        minBarSpacing: spacing,
-        maxBarSpacing: spacing,
+        barSpacing: 6,
+        minBarSpacing: 4,
+        maxBarSpacing: 10,
       })
     }
     chart.priceScale('right').applyOptions({
@@ -211,8 +229,8 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
     })
     priceLinesRef.current.push(pl)
 
-    const fromT = Math.min(selected.startT, selected.endT) - 40 * 86400
-    const toT = Math.max(selected.startT, selected.endT) + 15 * 86400
+    const fromT = Math.min(selected.startT, selected.endT) - (intraday ? 6 * 3600 : 40 * 86400)
+    const toT = Math.max(selected.startT, selected.endT) + (intraday ? 2 * 3600 : 15 * 86400)
     try {
       chart.timeScale().setVisibleRange({
         from: fromT as UTCTimestamp,
@@ -221,7 +239,7 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
     } catch {
       chart.timeScale().fitContent()
     }
-  }, [selected, bars])
+  }, [selected, bars, intraday])
 
   return <div ref={wrapRef} className="h-full w-full" />
 }
