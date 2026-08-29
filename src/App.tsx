@@ -19,6 +19,7 @@ import { fetchAuthMe, logout as apiLogout } from './lib/auth'
 import type { MarketSnapshot } from './data/types'
 import { ASX_UNIVERSE_COUNT } from './data/universe'
 import { applyStocksOnlyFilter, STOCKS_ONLY_LS_KEY } from './lib/instrumentFilter'
+import { APP_NAME } from './lib/brand'
 import { RefreshCw } from 'lucide-react'
 import { PatternPrefsProvider } from './components/patterns/PatternPrefsContext'
 
@@ -224,7 +225,11 @@ export default function App() {
 
   const statusLine = (() => {
     if (!meta) return null
-    if (meta.source === 'server-sqlite') return ' · server SQLite snapshot'
+    if (meta.source === 'server-sqlite') {
+      const prov = deskConfig?.provider
+      if (deskConfig?.eodhdOnly || prov === 'eodhd') return ' · EODHD snapshot'
+      return ' · server SQLite snapshot'
+    }
     if (meta.fromCache && !backfilling) return ' · cached (6h)'
     if (backfilling) {
       const rem = progress?.remaining
@@ -232,6 +237,7 @@ export default function App() {
         ? ` · downloading… ${meta.loaded.toLocaleString()}/${ASX_UNIVERSE_COUNT.toLocaleString()} (${rem} left)`
         : ` · downloading… ${meta.loaded.toLocaleString()}/${ASX_UNIVERSE_COUNT.toLocaleString()}`
     }
+    if (deskConfig?.eodhdOnly || deskConfig?.provider === 'eodhd') return ' · EODHD'
     return ' · yahoo-finance2'
   })()
 
@@ -309,7 +315,7 @@ export default function App() {
           </div>
         ) : snapshot ? (
           <>
-            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs">
+            <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs">
               <span
                 className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-semibold ${
                   backfilling
@@ -329,39 +335,35 @@ export default function App() {
                   }`}
                 />
                 {backfilling
-                  ? 'LOADING'
+                  ? 'Loading'
                   : meta && meta.loaded < ASX_UNIVERSE_COUNT * 0.98
-                    ? 'PARTIAL'
-                    : 'LIVE'}
+                    ? 'Partial'
+                    : 'Live'}
               </span>
               {meta && (
                 <span className="text-[var(--color-ink-soft)]">
-                  {meta.loaded.toLocaleString()} / {ASX_UNIVERSE_COUNT.toLocaleString()} instruments
-                  loaded
-                  {displaySnapshot && stocksOnly
-                    ? ` · showing ${displaySnapshot.stocks.length.toLocaleString()} stocks`
-                    : ''}
-                  {meta.failed
-                    ? ` · ${meta.failed} failed (${Math.round((meta.failed / ASX_UNIVERSE_COUNT) * 100)}%)`
-                    : ''}
+                  {displaySnapshot
+                    ? `${displaySnapshot.stocks.length.toLocaleString()} shown`
+                    : `${meta.loaded.toLocaleString()} loaded`}
+                  {meta.failed > 0 ? ` · ${meta.failed} failed` : ''}
                   {statusLine}
                 </span>
               )}
               <button
                 type="button"
                 onClick={() => setStocksOnly((v) => !v)}
-                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-semibold transition ${
+                className={`rounded-lg border px-2.5 py-1 font-semibold transition ${
                   stocksOnly
                     ? 'border-teal-600 bg-teal-50 text-teal-800 dark:bg-teal-950/40 dark:text-teal-200'
-                    : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-ink-soft)] hover:border-teal-400'
+                    : 'border-[var(--color-border)] hover:border-teal-400'
                 }`}
-                title="Hide ETFs, funds, notes, and other non-equity instruments"
+                title="Hide ETFs, funds, and other non-equity instruments"
               >
-                Stocks only
+                {stocksOnly ? 'Stocks only' : 'All instruments'}
               </button>
               {error && <span className="text-rose-600">{error}</span>}
               {backfilling && (
-                <div className="h-1.5 w-28 overflow-hidden rounded-full bg-[var(--color-muted)]">
+                <div className="h-1.5 w-24 overflow-hidden rounded-full bg-[var(--color-muted)]">
                   <div className="h-full bg-teal-600 transition-all" style={{ width: `${pct}%` }} />
                 </div>
               )}
@@ -370,11 +372,11 @@ export default function App() {
                   type="button"
                   disabled={backfilling || retryingFailed}
                   onClick={() => void retryFailedLoads()}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-amber-600 bg-amber-50 px-2.5 py-1 font-semibold text-amber-900 disabled:opacity-50 dark:bg-amber-950/40 dark:text-amber-200"
+                  className="rounded-lg border border-amber-600/80 px-2.5 py-1 font-semibold text-amber-900 disabled:opacity-50 dark:text-amber-200"
                   title="Admin: re-fetch missing tickers on the server"
                 >
                   <RefreshCw size={12} className={retryingFailed ? 'animate-spin' : ''} />
-                  {retryingFailed ? 'Retrying failed…' : `Retry ${meta.failed} failed`}
+                  {retryingFailed ? 'Retrying…' : `Retry ${meta.failed}`}
                 </button>
               )}
               <button
@@ -384,11 +386,7 @@ export default function App() {
                 className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-teal-600 bg-teal-50 px-2.5 py-1 font-semibold text-teal-800 disabled:opacity-50 dark:bg-teal-950/40 dark:text-teal-200"
               >
                 <RefreshCw size={12} className={backfilling ? 'animate-spin' : ''} />
-                {backfilling
-                  ? 'Loading…'
-                  : deskConfig?.productionMode && !deskConfig?.isAdmin
-                    ? 'Reload snapshot'
-                    : 'Refresh live'}
+                {backfilling ? 'Refreshing…' : 'Refresh'}
               </button>
             </div>
 
@@ -402,16 +400,12 @@ export default function App() {
               <div className="space-y-4">
                 <div>
                   <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold tracking-tight md:text-3xl">
-                    Market Sector Intelligence
+                    {APP_NAME}
                   </h1>
                   <p className="text-sm text-[var(--color-ink-soft)]">
-                    {displaySnapshot!.industries.length} industries ·{' '}
-                    {displaySnapshot!.stocks.length.toLocaleString()}
-                    {stocksOnly ? ' stocks' : ' instruments'} · {displaySnapshot!.asOf} · vs{' '}
-                    {displaySnapshot!.benchmark} · universe{' '}
-                    {ASX_UNIVERSE_COUNT.toLocaleString()}
-                    {stocksOnly ? ' · stocks-only filter on' : ''}
-                    {backfilling ? ' · still filling…' : ''}
+                    {displaySnapshot!.asOf} · vs {displaySnapshot!.benchmark} ·{' '}
+                    {displaySnapshot!.industries.length} industries
+                    {backfilling ? ' · updating…' : ''}
                   </p>
                 </div>
 

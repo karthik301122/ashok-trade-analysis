@@ -138,10 +138,12 @@ export function PatternPrefsProvider({
         universe?: StockMetrics[]
         weeklyVersion?: number
         livermoreVersion?: number
+        scriptScanVersion?: number
       },
     ): CachedPatternHit[] => {
       void extras?.weeklyVersion
       void extras?.livermoreVersion
+      void extras?.scriptScanVersion
       const key = ticker.toUpperCase()
       const cached = hitsByTicker.get(key) ?? getTickerPatternHits(key)
       const chart = resolveOverviewHits(cached?.hits ?? [], prefs)
@@ -151,6 +153,7 @@ export function PatternPrefsProvider({
         universe: extras?.universe,
         weeklyVersion: extras?.weeklyVersion,
         livermoreVersion: extras?.livermoreVersion,
+        scriptScanVersion: extras?.scriptScanVersion,
       })
       return mergeOverviewHits(chart, special)
     },

@@ -1,5 +1,6 @@
 import YahooFinance from 'yahoo-finance2'
 import { getDb } from './db.mjs'
+import { eodhdOnlyMode } from './eodhd.mjs'
 
 const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] })
 const FRESH_MS = 24 * 60 * 60 * 1000
@@ -23,6 +24,22 @@ export async function getFundamentals(ticker, opts = {}) {
       updatedAt: cached.updated_at,
       cache: 'hit',
     }
+  }
+
+  if (eodhdOnlyMode()) {
+    if (cached) {
+      return {
+        ticker: t,
+        pe: cached.pe,
+        forwardPe: cached.forward_pe,
+        dividendYield: cached.dividend_yield,
+        marketCap: cached.market_cap,
+        eps: cached.eps,
+        updatedAt: cached.updated_at,
+        cache: 'stale-eodhd-only',
+      }
+    }
+    return null
   }
 
   try {

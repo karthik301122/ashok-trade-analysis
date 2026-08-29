@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, Copy, Search, Star } from 'lucide-react'
+import { ChevronDown, ChevronRight, Search, Star } from 'lucide-react'
 import type { IndustryMetrics, MarketSnapshot, Mood, StockMetrics } from '../data/types'
 import { ASX_UNIVERSE_COUNT } from '../data/universe'
 import type { PatternPrefs } from '../lib/patternPrefs'
@@ -18,9 +18,9 @@ import {
   isSpecialOverviewHit,
   isStarredOverviewHit,
 } from '../lib/overviewPatternHits'
-import { scanWindowLabel } from '../lib/patterns'
 import { useKarthikWeeklyScan } from './patterns/useKarthikWeeklyScan'
 import { useLivermoreScan } from './patterns/useLivermoreScan'
+import { useSpecialScriptScan } from './patterns/useSpecialScriptScan'
 
 type Props = { snapshot: MarketSnapshot }
 
@@ -83,8 +83,6 @@ export function SectorTable({ snapshot }: Props) {
   const [moodFilter, setMoodFilter] = useState<Mood | 'all'>('all')
   const [starOnly, setStarOnly] = useState(false)
   const [query, setQuery] = useState('')
-  const [stocksOnly, setStocksOnly] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [copiedStars, setCopiedStars] = useState(false)
   const [copiedSectorStars, setCopiedSectorStars] = useState<string | null>(null)
   const [copiedIndustry, setCopiedIndustry] = useState<string | null>(null)
@@ -103,6 +101,13 @@ export function SectorTable({ snapshot }: Props) {
     total: livermoreTotal,
     version: livermoreVersion,
   } = useLivermoreScan(snapshot.stocks, heavyPatternScans)
+
+  const {
+    scanning: scriptScanning,
+    done: scriptDone,
+    total: scriptTotal,
+    version: scriptScanVersion,
+  } = useSpecialScriptScan(snapshot.stocks, heavyPatternScans)
 
   const indexM3 = snapshot.benchmarkPerf.m3
   const universe = snapshot.stocks
@@ -165,12 +170,12 @@ export function SectorTable({ snapshot }: Props) {
   const visibleTickers = useMemo(() => {
     const set = new Set<string>()
     for (const ind of industries) {
-      const open = expanded.has(ind.name) || stocksOnly || starOnly || searching
+      const open = expanded.has(ind.name) || starOnly || searching
       if (!open) continue
       for (const s of ind.stocks) set.add(s.ticker)
     }
     return [...set]
-  }, [industries, expanded, stocksOnly, starOnly, searching])
+  }, [industries, expanded, starOnly, searching])
 
   const { scanning: patternScanning, done: patternDone, total: patternTotal } =
     useIndustryPatternScan(visibleTickers, hasOverviewChartWatch(prefs))
@@ -195,15 +200,6 @@ export function SectorTable({ snapshot }: Props) {
 
   const expandAll = () => {
     setExpanded(new Set(industries.map((i) => i.name)))
-  }
-
-  const copyAll = async () => {
-    const tickers = industries.flatMap((i) => i.stocks.map((s) => s.ticker))
-    const ok = await copyTickersToTradingView([...new Set(tickers)])
-    if (ok) {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1600)
-    }
   }
 
   const copyStars = async () => {
@@ -355,7 +351,6 @@ export function SectorTable({ snapshot }: Props) {
           type="button"
           onClick={() => {
             setStarOnly((v) => !v)
-            setStocksOnly(true)
             setMoodFilter('all')
           }}
           className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold ${
@@ -378,91 +373,53 @@ export function SectorTable({ snapshot }: Props) {
             className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-2 pl-9 pr-3 text-sm outline-none focus:border-teal-500"
           />
         </div>
-
-        <label className="flex cursor-pointer items-center gap-2 text-xs font-medium">
-          <span
-            className={`relative h-5 w-9 rounded-full transition ${stocksOnly || starOnly ? 'bg-teal-600' : 'bg-gray-300 dark:bg-gray-600'}`}
-            onClick={() => setStocksOnly((v) => !v)}
-          >
-            <span
-              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${stocksOnly || starOnly ? 'left-4' : 'left-0.5'}`}
-            />
-          </span>
-          Stocks Only
-        </label>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 text-[11px]">
-        <span className="font-semibold text-[var(--color-ink-soft)]">Colour scale</span>
-        {[
-          ['>10%', 'bg-emerald-600 text-white'],
-          ['3–10%', 'bg-emerald-400/80'],
-          ['0–3%', 'bg-emerald-100'],
-          ['0–3%', 'bg-rose-100'],
-          ['3–10%', 'bg-rose-400/80'],
-          ['>10%', 'bg-rose-600 text-white'],
-        ].map(([label, cls], i) => (
-          <span key={i} className={`rounded px-1.5 py-0.5 font-medium ${cls}`}>
-            {i < 3 ? `↑ ${label}` : `↓ ${label}`}
-          </span>
-        ))}
-        <div className="ml-auto flex flex-wrap gap-2">
-          {!weeklyScanning && !livermoreScanning && !patternScanning ? (
-            <span className="self-center text-[10px] text-[var(--color-ink-soft)]">
-              Special patterns always on desk (✦) · star chart patterns for ★ chips
-            </span>
-          ) : weeklyScanning ? (
-            <span className="self-center text-[10px] font-medium text-amber-700 dark:text-amber-300">
-              Scanning weekly specials… {weeklyDone}/{weeklyTotal}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+        <div className="text-[var(--color-ink-soft)]">
+          {weeklyScanning ? (
+            <span className="font-medium text-amber-700 dark:text-amber-300">
+              Scanning weekly patterns… {weeklyDone}/{weeklyTotal}
             </span>
           ) : livermoreScanning ? (
-            <span className="self-center text-[10px] font-medium text-amber-700 dark:text-amber-300">
-              Scanning Livermore scores… {livermoreDone}/{livermoreTotal}
+            <span className="font-medium text-amber-700 dark:text-amber-300">
+              Scanning Livermore… {livermoreDone}/{livermoreTotal}
+            </span>
+          ) : scriptScanning ? (
+            <span className="font-medium text-amber-700 dark:text-amber-300">
+              Scanning VCP… {scriptDone}/{scriptTotal}
             </span>
           ) : patternScanning ? (
-            <span className="self-center text-[10px] font-medium text-amber-700 dark:text-amber-300">
-              Scanning patterns ({scanWindowLabel(prefs.scanWindow)})… {patternDone}/{patternTotal}
+            <span className="font-medium text-amber-700 dark:text-amber-300">
+              Pattern scan… {patternDone}/{patternTotal}
             </span>
           ) : (
-            <span className="self-center text-[10px] text-[var(--color-ink-soft)]">
-              Watching patterns · {scanWindowLabel(prefs.scanWindow)} window · chips when hit
-            </span>
+            <span>✦ Special patterns on desk · ★ when you star a chart pattern</span>
           )}
+        </div>
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={copyStars}
             disabled={starCount === 0}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 disabled:opacity-40 dark:bg-amber-950/40 dark:text-amber-200"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/80 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-900 disabled:opacity-40 dark:bg-amber-950/40 dark:text-amber-200"
           >
             <Star size={13} className="fill-amber-500 text-amber-500" />
-            {copiedStars ? 'Copied!' : `Copy ${starCount} star stocks`}
+            {copiedStars ? 'Copied!' : `Copy ${starCount} stars`}
           </button>
-          {sectorFilter && (
+          {sectorFilter && selectedSectorStars.length > 0 && (
             <button
               type="button"
               onClick={() => copySectorStars(sectorFilter)}
-              disabled={selectedSectorStars.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 disabled:opacity-40 dark:bg-amber-950/40 dark:text-amber-200"
-              title={`Star stocks in ${sectorFilter} only`}
+              className="inline-flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-xs font-semibold"
             >
-              <Star size={13} className="fill-amber-500 text-amber-500" />
-              {copiedSectorStars === sectorFilter
-                ? 'Copied!'
-                : `Copy ${selectedSectorStars.length} stars · ${sectorFilter}`}
+              {copiedSectorStars === sectorFilter ? 'Copied!' : `Copy sector stars`}
             </button>
           )}
           <button
             type="button"
-            onClick={copyAll}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-teal-600 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-800 dark:bg-teal-950/40 dark:text-teal-200"
-          >
-            <Copy size={13} />
-            {copied ? 'Copied!' : 'Copy all to TradingView'}
-          </button>
-          <button
-            type="button"
             onClick={expandAll}
-            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-semibold"
+            className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-xs font-semibold hover:bg-[var(--color-muted)]"
           >
             Expand all
           </button>
@@ -503,10 +460,10 @@ export function SectorTable({ snapshot }: Props) {
               <IndustryRows
                 key={ind.name}
                 ind={ind}
-                open={expanded.has(ind.name) || stocksOnly || starOnly || searching}
+                open={expanded.has(ind.name) || starOnly || searching}
                 onToggle={() => toggle(ind.name)}
                 benchmark={snapshot.benchmark}
-                stocksOnly={stocksOnly || starOnly}
+                flatView={starOnly}
                 onCopyStars={() =>
                   copyIndustryStars(
                     ind.name,
@@ -521,6 +478,7 @@ export function SectorTable({ snapshot }: Props) {
                 universe={universe}
                 weeklyVersion={weeklyVersion}
                 livermoreVersion={livermoreVersion}
+                scriptScanVersion={scriptScanVersion}
               />
             ))}
             {!industries.length && (
@@ -579,7 +537,7 @@ function IndustryRows({
   open,
   onToggle,
   benchmark,
-  stocksOnly,
+  flatView,
   onCopyStars,
   starsCopied,
   onOpenChart,
@@ -589,12 +547,13 @@ function IndustryRows({
   universe,
   weeklyVersion,
   livermoreVersion,
+  scriptScanVersion,
 }: {
   ind: IndustryMetrics
   open: boolean
   onToggle: () => void
   benchmark: string
-  stocksOnly: boolean
+  flatView: boolean
   onCopyStars: () => void
   starsCopied: boolean
   onOpenChart: (ticker: string, name: string) => void
@@ -606,6 +565,7 @@ function IndustryRows({
       universe?: StockMetrics[]
       weeklyVersion?: number
       livermoreVersion?: number
+      scriptScanVersion?: number
     },
   ) => CachedPatternHit[]
   prefs: PatternPrefs
@@ -613,6 +573,7 @@ function IndustryRows({
   universe: StockMetrics[]
   weeklyVersion: number
   livermoreVersion: number
+  scriptScanVersion: number
 }) {
   const cycle = CYCLE_LABEL[ind.cycle]
   const mood = MOOD_LABEL[ind.mood]
@@ -620,7 +581,7 @@ function IndustryRows({
 
   return (
     <>
-      {!stocksOnly && (
+      {!flatView && (
         <tr
           className="cursor-pointer border-t border-[var(--color-border)] hover:bg-[var(--color-muted)]/70"
           onClick={onToggle}
@@ -697,6 +658,7 @@ function IndustryRows({
             universe,
             weeklyVersion,
             livermoreVersion,
+            scriptScanVersion,
           })
           return (
           <tr key={s.ticker} className="border-t border-[var(--color-border)]/60 bg-[var(--color-muted)]/40">

@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
+import { Copy } from 'lucide-react'
 import type { MarketSnapshot, SectorMetrics } from '../data/types'
 import { formatPct } from '../lib/format'
+import { copyTickersToTradingView } from '../lib/tradingview'
 
 type Props = { snapshot: MarketSnapshot }
 type Mode = 'ma' | 'rs' | 'near52'
@@ -10,6 +12,7 @@ export function SectorAnalytics({ snapshot }: Props) {
   const [mode, setMode] = useState<Mode>('ma')
   const [maType, setMaType] = useState<MaType>('200')
   const [selected, setSelected] = useState<string>(snapshot.sectors[0]?.name ?? '')
+  const [strongCopied, setStrongCopied] = useState(false)
 
   const rows = useMemo(() => {
     return [...snapshot.sectors]
@@ -47,6 +50,15 @@ export function SectorAnalytics({ snapshot }: Props) {
     if (!active) return []
     return [...active.stocks].sort((a, b) => b.rs - a.rs).slice(0, 12)
   }, [active])
+
+  const copyStrongStocks = async () => {
+    if (!strongStocks.length) return
+    const ok = await copyTickersToTradingView(strongStocks.map((s) => s.ticker))
+    if (ok) {
+      setStrongCopied(true)
+      setTimeout(() => setStrongCopied(false), 2000)
+    }
+  }
 
   const maxVal = Math.max(...rows.map((r) => r.value), 1)
   const title =
@@ -163,7 +175,18 @@ export function SectorAnalytics({ snapshot }: Props) {
             </ul>
           </div>
           <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-muted)] p-3">
-            <h4 className="text-sm font-bold">Strong Stocks</h4>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-sm font-bold">Strong Stocks</h4>
+              <button
+                type="button"
+                disabled={!strongStocks.length}
+                onClick={() => void copyStrongStocks()}
+                className="inline-flex items-center gap-1 rounded-md border border-sky-600 bg-sky-50 px-2 py-1 text-[10px] font-bold text-sky-900 disabled:opacity-40 dark:bg-sky-950/50 dark:text-sky-100"
+              >
+                <Copy size={11} />
+                {strongCopied ? 'Copied!' : 'Copy to TradingView'}
+              </button>
+            </div>
             <p className="mb-2 text-[11px] text-[var(--color-ink-soft)]">
               Number = RS score (heuristic: 50 + (3M − index 3M) × 2.2) — not IBD RS
             </p>

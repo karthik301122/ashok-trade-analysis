@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Lock, UserPlus } from 'lucide-react'
 import { fetchAuthConfig, login, register } from '../lib/auth'
+import { APP_NAME, APP_TAGLINE } from '../lib/brand'
 
 type Props = {
   onSuccess: (user: string) => void
@@ -50,7 +51,7 @@ export function AuthPage({ onSuccess }: Props) {
   const title = mode === 'login' ? 'Sign in' : 'Create account'
   const subtitle =
     mode === 'login'
-      ? 'TradersScope — ASX market desk'
+      ? `${APP_NAME} — ${APP_TAGLINE}`
       : 'Register to access the private desk'
 
   return (

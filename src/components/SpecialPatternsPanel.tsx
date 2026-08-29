@@ -11,9 +11,11 @@ import { scanAllSpecialPatterns, type SpecialPatternHit } from '../lib/patterns/
 import type { KarthikPatternId } from '../lib/patterns/karthikWeekly'
 import { aggregateWeeklyHits, type WeeklySpecialHit } from '../lib/specialWeeklyCache'
 import { aggregateLivermoreHits, type LivermoreHit } from '../lib/livermoreCache'
+import { aggregateScriptHits, type ScriptScanRow } from '../lib/specialScriptCache'
 import { copyTickersToTradingView } from '../lib/tradingview'
 import { useKarthikWeeklyScan } from './patterns/useKarthikWeeklyScan'
 import { useLivermoreScan } from './patterns/useLivermoreScan'
+import { useSpecialScriptScan } from './patterns/useSpecialScriptScan'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
 import { StockChartModal, type ChartPatternFocus } from './StockChartModal'
 
@@ -41,10 +43,23 @@ function formatWeekDate(t: number | null) {
   })
 }
 
+function matchSectorIndustry(
+  sector: string,
+  industry: string,
+  sectorFilter: string | null,
+  industryFilter: string | null,
+) {
+  if (sectorFilter && sector !== sectorFilter) return false
+  if (industryFilter && industry !== industryFilter) return false
+  return true
+}
+
 export function SpecialPatternsPanel({ snapshot }: Props) {
   const [selectedId, setSelectedId] = useState('stage-2')
   const [category, setCategory] = useState<string>('weekly-karthik')
   const [query, setQuery] = useState('')
+  const [sectorFilter, setSectorFilter] = useState<string | null>(null)
+  const [industryFilter, setIndustryFilter] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [chartStock, setChartStock] = useState<{
     ticker: string
@@ -56,6 +71,27 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
   const indexM3 = snapshot.benchmarkPerf.m3
   const tickers = useMemo(() => snapshot.stocks.map((s) => s.ticker), [snapshot.stocks])
 
+  const stockByTicker = useMemo(() => {
+    const m = new Map<string, typeof snapshot.stocks[0]>()
+    for (const s of snapshot.stocks) m.set(s.ticker.toUpperCase(), s)
+    return m
+  }, [snapshot.stocks])
+
+  const sectors = useMemo(
+    () => snapshot.sectors.map((s) => s.name).sort((a, b) => a.localeCompare(b)),
+    [snapshot.sectors],
+  )
+
+  const industries = useMemo(() => {
+    let list = snapshot.industries
+    if (sectorFilter) list = list.filter((i) => i.sector === sectorFilter)
+    return list
+      .map((i) => i.name)
+      .sort((a, b) => a.localeCompare(b))
+  }, [snapshot.industries, sectorFilter])
+
+  const hasSectorFilter = Boolean(sectorFilter || industryFilter)
+
   const { scanning: weeklyScanning, done: weeklyDone, total: weeklyTotal, version } =
     useKarthikWeeklyScan(snapshot.stocks, true)
 
@@ -65,6 +101,13 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
     total: livermoreTotal,
     version: livermoreVersion,
   } = useLivermoreScan(snapshot.stocks, true)
+
+  const {
+    scanning: scriptScanning,
+    done: scriptDone,
+    total: scriptTotal,
+    version: scriptScanVersion,
+  } = useSpecialScriptScan(snapshot.stocks, true)
 
   const snapshotScan = useMemo(
     () => scanAllSpecialPatterns(snapshot.stocks, indexM3),
@@ -78,29 +121,83 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
   const selected =
     SPECIAL_PATTERN_CATALOG.find((p) => p.id === selectedId) ?? SPECIAL_PATTERN_CATALOG[0]
 
-  const weeklyHits = useMemo(() => {
+  const weeklyHitsAll = useMemo(() => {
     if (!selected || selected.kind !== 'weekly') return [] as WeeklySpecialHit[]
     void version
-    return aggregateWeeklyHits(tickers, selected.id as KarthikPatternId)
-  }, [selected, tickers, version])
+    return aggregateWeeklyHits(tickers, selected.id as KarthikPatternId).map((h) => {
+      const stock = stockByTicker.get(h.ticker.toUpperCase())
+      return {
+        ...h,
+        rs: h.rs ?? stock?.rs ?? 0,
+        relativeVolume: h.relativeVolume ?? stock?.relativeVolume ?? 0,
+      }
+    })
+  }, [selected, tickers, version, stockByTicker])
 
-  const snapshotHits = useMemo(() => {
+  const weeklyHits = useMemo(
+    () =>
+      weeklyHitsAll.filter((h) => matchSectorIndustry(h.sector, h.industry, sectorFilter, industryFilter)),
+    [weeklyHitsAll, sectorFilter, industryFilter],
+  )
+
+  const snapshotHitsAll = useMemo(() => {
     if (!selected || selected.kind !== 'snapshot') return [] as SpecialPatternHit[]
     return snapshotById.get(selected.id)?.hits ?? []
   }, [selected, snapshotById])
 
-  const livermoreHits = useMemo(() => {
+  const snapshotHits = useMemo(
+    () =>
+      snapshotHitsAll.filter((h) =>
+        matchSectorIndustry(h.sector, h.industry, sectorFilter, industryFilter),
+      ),
+    [snapshotHitsAll, sectorFilter, industryFilter],
+  )
+
+  const livermoreHitsAll = useMemo(() => {
     if (!selected || selected.kind !== 'livermore') return [] as LivermoreHit[]
     void livermoreVersion
     return aggregateLivermoreHits(snapshot.stocks, selected.id)
   }, [selected, snapshot.stocks, livermoreVersion])
 
-  const hitCount =
+  const livermoreHits = useMemo(
+    () =>
+      livermoreHitsAll.filter((h) =>
+        matchSectorIndustry(h.sector, h.industry, sectorFilter, industryFilter),
+      ),
+    [livermoreHitsAll, sectorFilter, industryFilter],
+  )
+
+  const scriptHitsAll = useMemo(() => {
+    if (!selected || selected.kind !== 'scan') return [] as ScriptScanRow[]
+    void scriptScanVersion
+    return aggregateScriptHits(snapshot.stocks, selected.id)
+  }, [selected, snapshot.stocks, scriptScanVersion])
+
+  const scriptHits = useMemo(
+    () =>
+      scriptHitsAll.filter((h) =>
+        matchSectorIndustry(h.sector, h.industry, sectorFilter, industryFilter),
+      ),
+    [scriptHitsAll, sectorFilter, industryFilter],
+  )
+
+  const hitCountTotal =
+    selected?.kind === 'weekly'
+      ? weeklyHitsAll.length
+      : selected?.kind === 'livermore'
+        ? livermoreHitsAll.length
+        : selected?.kind === 'scan'
+          ? scriptHitsAll.length
+          : snapshotHitsAll.length
+
+  const displayedHitCount =
     selected?.kind === 'weekly'
       ? weeklyHits.length
       : selected?.kind === 'livermore'
         ? livermoreHits.length
-        : snapshotHits.length
+        : selected?.kind === 'scan'
+          ? scriptHits.length
+          : snapshotHits.length
 
   const filteredCatalog = useMemo(() => {
     let list = SPECIAL_PATTERN_CATALOG
@@ -126,6 +223,10 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
       void livermoreVersion
       return aggregateLivermoreHits(snapshot.stocks, p.id).length
     }
+    if (p.kind === 'scan') {
+      void scriptScanVersion
+      return aggregateScriptHits(snapshot.stocks, p.id).length
+    }
     return snapshotById.get(p.id)?.count ?? 0
   }
 
@@ -135,7 +236,9 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
         ? weeklyHits.map((h) => h.ticker)
         : selected?.kind === 'livermore'
           ? livermoreHits.map((h) => h.ticker)
-          : snapshotHits.map((h) => h.ticker)
+          : selected?.kind === 'scan'
+            ? scriptHits.map((h) => h.ticker)
+            : snapshotHits.map((h) => h.ticker)
     if (!list.length) return
     const ok = await copyTickersToTradingView(list)
     if (ok) {
@@ -166,6 +269,11 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
             {livermoreScanning && (
               <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
                 Scanning Livermore scores… {livermoreDone}/{livermoreTotal}
+              </p>
+            )}
+            {scriptScanning && (
+              <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+                Scanning VCP / ScanScript patterns… {scriptDone}/{scriptTotal}
               </p>
             )}
           </div>
@@ -235,7 +343,13 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-xs font-bold">
-                            {p.kind === 'weekly' ? '📅 ' : p.kind === 'livermore' ? '◆ ' : ''}
+                            {p.kind === 'weekly'
+                              ? '📅 '
+                              : p.kind === 'livermore'
+                                ? '◆ '
+                                : p.kind === 'scan'
+                                  ? '⌗ '
+                                  : ''}
                             {p.name}
                           </span>
                           <span
@@ -246,7 +360,8 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
                             }`}
                           >
                             {(weeklyScanning && p.kind === 'weekly' && count === 0) ||
-                            (livermoreScanning && p.kind === 'livermore' && count === 0)
+                            (livermoreScanning && p.kind === 'livermore' && count === 0) ||
+                            (scriptScanning && p.kind === 'scan' && count === 0)
                               ? '…'
                               : count}
                           </span>
@@ -276,15 +391,61 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
           {selected && (
             <PatternDetail
               pattern={selected}
-              hitCount={hitCount}
+              hitCount={displayedHitCount}
               indexM3={indexM3}
               onCopy={copyHits}
               copied={copied}
-              canCopy={hitCount > 0}
+              canCopy={displayedHitCount > 0}
               starred={isStarred(selected.name)}
               onToggleStar={() => toggleStar(selected.name)}
             />
           )}
+
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
+            <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-ink-soft)]">
+              Filter
+            </label>
+            <select
+              value={sectorFilter ?? ''}
+              onChange={(e) => {
+                setSectorFilter(e.target.value || null)
+                setIndustryFilter(null)
+              }}
+              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs"
+            >
+              <option value="">All sectors</option>
+              {sectors.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+            <select
+              value={industryFilter ?? ''}
+              onChange={(e) => setIndustryFilter(e.target.value || null)}
+              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs"
+            >
+              <option value="">All industries</option>
+              {industries.map((ind) => (
+                <option key={ind} value={ind}>{ind}</option>
+              ))}
+            </select>
+            {hasSectorFilter && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSectorFilter(null)
+                  setIndustryFilter(null)
+                }}
+                className="text-[10px] font-semibold text-violet-700 hover:underline dark:text-violet-300"
+              >
+                Clear filters
+              </button>
+            )}
+            {hasSectorFilter && hitCountTotal > 0 && (
+              <span className="text-[10px] text-[var(--color-ink-soft)]">
+                Showing {displayedHitCount} of {hitCountTotal}
+              </span>
+            )}
+          </div>
 
           <div className="overflow-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
             {selected?.kind === 'weekly' ? (
@@ -303,6 +464,14 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
                 patternBias={selected.bias}
                 scanning={livermoreScanning}
                 showDashboard={selected.id === 'livermore-dashboard'}
+                onOpenChart={(ticker, name, focus) => setChartStock({ ticker, name, focus })}
+              />
+            ) : selected?.kind === 'scan' ? (
+              <ScriptHitsTable
+                hits={scriptHits}
+                patternName={selected.name}
+                patternBias={selected.bias}
+                scanning={scriptScanning}
                 onOpenChart={(ticker, name, focus) => setChartStock({ ticker, name, focus })}
               />
             ) : (
@@ -345,8 +514,8 @@ function WeeklyHitsTable({
   onOpenChart: (ticker: string, name: string, focus: ChartPatternFocus) => void
 }) {
   const headers = showTightness
-    ? ['Stock', 'Sector', 'Tightness', 'Pattern started', 'Bias']
-    : ['Stock', 'Sector', 'Pattern started', 'Bias']
+    ? ['Stock', 'Sector', 'RS', 'RVOL', 'Tightness', 'Pattern started', 'Bias']
+    : ['Stock', 'Sector', 'RS', 'RVOL', 'Pattern started', 'Bias']
 
   const open = (h: WeeklySpecialHit) => {
     const startT = h.weekStartT ?? h.weekEndT ?? Math.floor(Date.now() / 1000)
@@ -397,6 +566,8 @@ function WeeklyHitsTable({
                 <div className="text-[10px] text-[var(--color-ink-soft)]">{h.name}</div>
               </td>
               <td className="px-3 py-2 text-[var(--color-ink-soft)]">{h.sector}</td>
+              <td className="px-3 py-2 font-bold tabular-nums">{h.rs}</td>
+              <td className="px-3 py-2 tabular-nums">{h.relativeVolume.toFixed(1)}×</td>
               {showTightness && (
                 <td className="px-3 py-2 tabular-nums font-semibold">
                   {h.tightness != null ? `${(h.tightness * 100).toFixed(2)}%` : '—'}
@@ -526,6 +697,90 @@ function LivermoreHitsTable({
                   className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${tierBadge(h.scores.tier)}`}
                 >
                   {h.scores.tier}
+                </span>
+              </td>
+            </tr>
+          ))
+        )}
+      </tbody>
+    </table>
+  )
+}
+
+function ScriptHitsTable({
+  hits,
+  patternName,
+  patternBias,
+  scanning,
+  onOpenChart,
+}: {
+  hits: ScriptScanRow[]
+  patternName: string
+  patternBias: SpecialPatternDef['bias']
+  scanning: boolean
+  onOpenChart: (ticker: string, name: string, focus: ChartPatternFocus) => void
+}) {
+  const open = (h: ScriptScanRow) => {
+    onOpenChart(h.ticker, h.name, {
+      name: patternName,
+      bias: patternBias,
+      startT: h.startT,
+      endT: h.endT,
+    })
+  }
+
+  return (
+    <table className="min-w-[720px] w-full border-collapse text-left text-xs">
+      <thead className="sticky top-0 bg-[var(--color-muted)] text-[10px] uppercase tracking-wide text-[var(--color-ink-soft)]">
+        <tr>
+          {['Stock', 'Sector', 'RS', '3M', 'RVOL', 'RSI', 'Pattern started', 'Bias'].map((h) => (
+            <th key={h} className="whitespace-nowrap px-3 py-2.5 font-semibold">
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {!hits.length ? (
+          <tr>
+            <td colSpan={8} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
+              {scanning
+                ? 'Scanning daily OHLC across the universe…'
+                : 'No stocks match this ScanScript formula right now.'}
+            </td>
+          </tr>
+        ) : (
+          hits.map((h) => (
+            <tr
+              key={h.ticker}
+              className="border-t border-[var(--color-border)] hover:bg-[var(--color-muted)]/60"
+            >
+              <td className="px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => open(h)}
+                  className="font-semibold uppercase text-sky-700 hover:underline dark:text-sky-300"
+                  title="Open chart at this pattern hit"
+                >
+                  {h.ticker}
+                </button>
+                <div className="text-[10px] text-[var(--color-ink-soft)]">{h.name}</div>
+              </td>
+              <td className="px-3 py-2 text-[var(--color-ink-soft)]">{h.sector}</td>
+              <td className="px-3 py-2 font-bold tabular-nums">{h.rs}</td>
+              <td className={`px-3 py-2 tabular-nums font-medium ${perfCellClass(h.m3)}`}>
+                {formatPct(h.m3)}
+              </td>
+              <td className="px-3 py-2 tabular-nums">{h.relativeVolume.toFixed(1)}×</td>
+              <td className="px-3 py-2 tabular-nums">{h.rsi.toFixed(0)}</td>
+              <td className="px-3 py-2 tabular-nums text-[var(--color-ink-soft)]">
+                {formatWeekDate(h.startT)}
+              </td>
+              <td className="px-3 py-2">
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${biasBadge(patternBias)}`}
+                >
+                  {patternBias}
                 </span>
               </td>
             </tr>
@@ -666,6 +921,11 @@ function PatternDetail({
                 Livermore OHLC
               </span>
             )}
+            {pattern.kind === 'scan' && (
+              <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-900 dark:bg-teal-950/50 dark:text-teal-200">
+                ScanScript OHLC
+              </span>
+            )}
             {starred && (
               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
                 On Sector Table
@@ -701,6 +961,11 @@ function PatternDetail({
             Daily bars → ISO weeks (completed weeks only). Date shown = pattern{' '}
             <em>start</em> (oldest week in the setup). All weekly patterns require Stage 2 or ≥30%
             rally over ~13 weeks.
+          </p>
+        ) : pattern.kind === 'scan' ? (
+          <p className="mt-2 text-[10px] text-[var(--color-ink-soft)]">
+            Daily OHLC ScanScript scan. Breakout uses prior 4-day tightness + dry RVOL before the
+            signal bar (pct_chg(5) and rvol cannot be both low and high on the same bar).
           </p>
         ) : (
           <p className="mt-2 text-[10px] text-[var(--color-ink-soft)]">

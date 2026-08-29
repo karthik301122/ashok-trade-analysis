@@ -9,8 +9,27 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
+function envBool(name, defaultValue = false) {
+  const raw = process.env[name]?.trim().toLowerCase()
+  if (!raw) return defaultValue
+  if (raw === '1' || raw === 'true' || raw === 'yes') return true
+  if (raw === '0' || raw === 'false' || raw === 'no') return false
+  return defaultValue
+}
+
 export function eodhdEnabled() {
   return Boolean(process.env.EODHD_API_TOKEN?.trim())
+}
+
+/**
+ * EODHD-only desk: no Yahoo fallback for OHLC/series, no browser universe crawl.
+ * Set EODHD_ONLY=true or EODHD_YAHOO_FALLBACK=false (with token configured).
+ */
+export function eodhdOnlyMode() {
+  if (envBool('EODHD_ONLY')) return true
+  if (!eodhdEnabled()) return false
+  const fb = process.env.EODHD_YAHOO_FALLBACK?.trim().toLowerCase()
+  return fb === '0' || fb === 'false' || fb === 'no'
 }
 
 export function getEodhdToken() {

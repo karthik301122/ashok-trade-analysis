@@ -25,10 +25,17 @@ describe('production mode', () => {
     expect(browserUniverseFetchEnabled()).toBe(false)
   })
 
-  it('allows override with ALLOW_BROWSER_UNIVERSE_FETCH', () => {
+  it('allows override with ALLOW_BROWSER_UNIVERSE_FETCH unless EODHD_ONLY', () => {
     process.env.PRODUCTION_MODE = 'true'
     process.env.ALLOW_BROWSER_UNIVERSE_FETCH = 'true'
     expect(browserUniverseFetchEnabled()).toBe(true)
+  })
+
+  it('disables browser fetch when EODHD_ONLY even with override', () => {
+    process.env.EODHD_API_TOKEN = 'tok'
+    process.env.EODHD_ONLY = 'true'
+    process.env.ALLOW_BROWSER_UNIVERSE_FETCH = 'true'
+    expect(browserUniverseFetchEnabled()).toBe(false)
   })
 
   it('checks admin users', () => {

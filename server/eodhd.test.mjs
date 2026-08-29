@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { toEodhdSymbol } from './eodhd.mjs'
+import { describe, expect, it, beforeEach, afterEach } from 'vitest'
+import { eodhdOnlyMode, toEodhdSymbol } from './eodhd.mjs'
 
 describe('eodhd symbols', () => {
   it('maps ASX tickers', () => {
@@ -12,5 +12,36 @@ describe('eodhd symbols', () => {
     expect(toEodhdSymbol('^AXJO')).toBe('AXJO.INDX')
     expect(toEodhdSymbol('XJO')).toBe('AXJO.INDX')
     expect(toEodhdSymbol('AXJO.INDX')).toBe('AXJO.INDX')
+  })
+})
+
+describe('eodhdOnlyMode', () => {
+  const prev = { ...process.env }
+
+  beforeEach(() => {
+    process.env = { ...prev }
+  })
+
+  afterEach(() => {
+    process.env = prev
+  })
+
+  it('is true when EODHD_ONLY set', () => {
+    process.env.EODHD_ONLY = 'true'
+    expect(eodhdOnlyMode()).toBe(true)
+  })
+
+  it('is true when Yahoo fallback disabled and token set', () => {
+    delete process.env.EODHD_ONLY
+    process.env.EODHD_API_TOKEN = 'tok'
+    process.env.EODHD_YAHOO_FALLBACK = 'false'
+    expect(eodhdOnlyMode()).toBe(true)
+  })
+
+  it('is false when fallback enabled and EODHD_ONLY unset', () => {
+    delete process.env.EODHD_ONLY
+    process.env.EODHD_API_TOKEN = 'tok'
+    process.env.EODHD_YAHOO_FALLBACK = 'true'
+    expect(eodhdOnlyMode()).toBe(false)
   })
 })

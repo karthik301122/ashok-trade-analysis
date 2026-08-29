@@ -68,8 +68,7 @@ export function rangeToFromIso(range = '2y'): string {
 }
 
 /**
- * Fetch daily closes via local yahoo-finance2 middleware.
- * Provider: server-side Yahoo (yahoo-finance2) — better ASX small-cap coverage.
+ * Fetch daily closes via desk /api/series (EODHD when configured, SQLite cache on server).
  * Honors `range` via ?from= (server also disk-caches + incremental refresh).
  */
 export async function fetchYahooSeries(

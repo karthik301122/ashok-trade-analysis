@@ -14,6 +14,7 @@ import {
   buildSpecialScanContext,
   evaluateSpecialPattern,
 } from './patterns/specialDetect'
+import { getTickerScriptScan } from './specialScriptCache'
 import { getTickerWeeklySpecial } from './specialWeeklyCache'
 
 export function isDetectableCustom(c: CustomPattern): boolean {
@@ -70,6 +71,10 @@ export function hasLivermoreSpecialScan(): boolean {
   return SPECIAL_PATTERN_CATALOG.some((p) => p.kind === 'livermore')
 }
 
+export function hasSpecialScriptScan(): boolean {
+  return SPECIAL_PATTERN_CATALOG.some((p) => p.kind === 'scan')
+}
+
 export function hasStarredSnapshotSpecial(_prefs?: PatternPrefs): boolean {
   return SPECIAL_PATTERN_CATALOG.some((p) => p.kind === 'snapshot')
 }
@@ -86,10 +91,12 @@ export function resolveSpecialHitsForTicker(
     universe?: StockMetrics[]
     weeklyVersion?: number
     livermoreVersion?: number
+    scriptScanVersion?: number
   } = {},
 ): CachedPatternHit[] {
   void opts.weeklyVersion
   void opts.livermoreVersion
+  void opts.scriptScanVersion
 
   const out: CachedPatternHit[] = []
   const seen = new Set<string>()
@@ -146,6 +153,23 @@ export function resolveSpecialHitsForTicker(
     }
   }
 
+  const scriptCached = getTickerScriptScan(key)
+  if (scriptCached?.hits.length) {
+    for (const p of SPECIAL_PATTERN_CATALOG) {
+      if (p.kind !== 'scan' || seen.has(p.name)) continue
+      const hit = scriptCached.hits.find((h) => h.patternId === p.id)
+      if (!hit) continue
+      out.push({
+        name: p.name,
+        bias: p.bias,
+        startT: hit.startT,
+        endT: hit.endT,
+        confidence: 0.75,
+      })
+      seen.add(p.name)
+    }
+  }
+
   return out.sort((a, b) => b.endT - a.endT)
 }
 
@@ -159,6 +183,7 @@ export function resolveStarredSpecialHitsForTicker(
     universe?: StockMetrics[]
     weeklyVersion?: number
     livermoreVersion?: number
+    scriptScanVersion?: number
   } = {},
 ): CachedPatternHit[] {
   return resolveSpecialHitsForTicker(ticker, opts)

@@ -1,5 +1,6 @@
 import type { CustomPattern, PatternPrefs } from '../patternPrefs'
 import { getTickerLivermore } from '../livermoreCache'
+import { getTickerScriptScan } from '../specialScriptCache'
 import { getTickerWeeklySpecial } from '../specialWeeklyCache'
 import { PATTERN_CATALOG } from './catalog'
 import { detectCandleShape } from './candleShape'
@@ -96,6 +97,24 @@ function buildStarredCategory(
           endT: now,
           confidence: lm.scores.finalScore / 100,
           note: `Final ${lm.scores.finalScore}`,
+        }
+        const filtered = filterHitsByWindow([hit], window, asOf)
+        if (filtered[0]) hitByName.set(sp.name, filtered[0])
+        continue
+      }
+      if (sp.kind === 'scan') {
+        const sc = getTickerScriptScan(ticker)
+        const sh = sc?.hits.find((h) => h.patternId === sp.id)
+        if (!sh) continue
+        const hit: PatternHit = {
+          id: `special-scan-${sp.id}-${sh.startT}`,
+          category: 'starred',
+          name: sp.name,
+          bias: sp.bias,
+          startT: sh.startT,
+          endT: sh.endT,
+          confidence: 0.75,
+          note: 'Special / ScanScript pattern',
         }
         const filtered = filterHitsByWindow([hit], window, asOf)
         if (filtered[0]) hitByName.set(sp.name, filtered[0])

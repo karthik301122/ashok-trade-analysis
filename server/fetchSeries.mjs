@@ -1,16 +1,18 @@
 import { loadEnvFile } from './loadEnv.mjs'
-import { eodhdEnabled, fetchEodhdChart } from './eodhd.mjs'
+import { eodhdEnabled, eodhdOnlyMode, fetchEodhdChart } from './eodhd.mjs'
 import { fetchChartCloses as fetchYahooChart } from './yf.mjs'
 
 loadEnvFile()
 
 function yahooFallbackEnabled() {
+  if (eodhdOnlyMode()) return false
   const raw = process.env.EODHD_YAHOO_FALLBACK?.trim().toLowerCase()
   if (raw === '0' || raw === 'false' || raw === 'no') return false
   return true
 }
 
 export function seriesProviderName() {
+  if (eodhdOnlyMode()) return 'eodhd'
   const forced = process.env.DATA_PROVIDER?.trim().toLowerCase()
   if (forced === 'yahoo') return 'yahoo-finance2'
   if (forced === 'eodhd') return 'eodhd'
@@ -19,12 +21,20 @@ export function seriesProviderName() {
 }
 
 /**
- * Fetch daily OHLCV — EODHD when configured, Yahoo fallback optional.
+ * Fetch daily OHLCV — EODHD when configured, Yahoo fallback optional (disabled in EODHD-only mode).
  * @param {string} symbol Yahoo/cache symbol e.g. CBA.AX or ^AXJO
  * @param {string} [period1] ISO date
  * @param {{ attempts?: number, baseDelayMs?: number }} [opts]
  */
 export async function fetchChartCloses(symbol, period1 = '2023-01-01', opts = {}) {
+  if (eodhdOnlyMode()) {
+    if (!eodhdEnabled()) {
+      console.warn('[fetchSeries] EODHD_ONLY requires EODHD_API_TOKEN')
+      return null
+    }
+    return await fetchEodhdChart(symbol, period1, opts)
+  }
+
   const forced = process.env.DATA_PROVIDER?.trim().toLowerCase()
   const useEodhd = forced === 'eodhd' || (forced !== 'yahoo' && eodhdEnabled())
   const useYahoo = forced === 'yahoo' || (forced !== 'eodhd' && (!useEodhd || yahooFallbackEnabled()))

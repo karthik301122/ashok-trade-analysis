@@ -25,6 +25,7 @@ import {
 import { getFundamentals } from './fundamentals.mjs'
 import { checkRateLimit, clientKey, log, pruneRateLimitBuckets } from './log.mjs'
 import { seriesProviderName } from './fetchSeries.mjs'
+import { eodhdOnlyMode } from './eodhd.mjs'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -315,6 +316,7 @@ export async function handleConnectApi(req, res, send) {
       ok: true,
       provider: seriesProviderName(),
       eodhd: Boolean(process.env.EODHD_API_TOKEN?.trim()),
+      eodhdOnly: eodhdOnlyMode(),
       productionMode: isProductionMode(),
       browserUniverseFetch: browserUniverseFetchEnabled(),
       isAdmin: isAdminRequest(req),
@@ -418,6 +420,7 @@ export function mountExpressApi(app) {
       ok: true,
       provider: seriesProviderName(),
       eodhd: Boolean(process.env.EODHD_API_TOKEN?.trim()),
+      eodhdOnly: eodhdOnlyMode(),
       productionMode: isProductionMode(),
       browserUniverseFetch: browserUniverseFetchEnabled(),
       isAdmin: isAdminRequest(req),

@@ -72,6 +72,7 @@ See `.env.example`.
 | `EODHD_API_TOKEN` | EODHD API key — enables primary market data provider |
 | `DATA_PROVIDER` | `auto` (default), `eodhd`, or `yahoo` |
 | `EODHD_YAHOO_FALLBACK` | `true` (default) — Yahoo when EODHD has no bar for a ticker |
+| `EODHD_ONLY` | `true` — optional strict mode: no Yahoo fallback or browser crawl |
 | `PRODUCTION_MODE` | `true` — shared server snapshot only (recommended for multi-user) |
 | `ADMIN_USERS` | Comma list of usernames allowed to force snapshot rebuild |
 | `ADMIN_API_KEY` | Optional `x-admin-key` header for cron (`POST /api/snapshot/refresh`) |
@@ -87,6 +88,7 @@ See `.env.example`.
 # .env
 PRODUCTION_MODE=true
 EODHD_API_TOKEN=...
+EODHD_YAHOO_FALLBACK=true
 ADMIN_USERS=ops,admin
 ADMIN_API_KEY=long-random-secret   # for scheduled snapshot cron
 SERIES_RATE_LIMIT=600

@@ -1,14 +1,24 @@
 import { LogOut, Moon, Sun, User } from 'lucide-react'
+import { APP_NAME, APP_TAGLINE } from '../lib/brand'
+
+type Page = 'sector' | 'breadth' | 'alerts' | 'special-patterns'
 
 type Props = {
   dark: boolean
   onToggleDark: () => void
-  page: 'sector' | 'breadth' | 'alerts' | 'special-patterns'
-  onPage: (p: 'sector' | 'breadth' | 'alerts' | 'special-patterns') => void
+  page: Page
+  onPage: (p: Page) => void
   authRequired?: boolean
   user?: string | null
   onLogout?: () => void
 }
+
+const NAV: { id: Page; label: string }[] = [
+  { id: 'sector', label: 'Markets' },
+  { id: 'breadth', label: 'Breadth' },
+  { id: 'special-patterns', label: 'Patterns' },
+  { id: 'alerts', label: 'Alerts' },
+]
 
 export function Header({ dark, onToggleDark, page, onPage, authRequired, user, onLogout }: Props) {
   const showSession = Boolean(authRequired && user)
@@ -22,91 +32,80 @@ export function Header({ dark, onToggleDark, page, onPage, authRequired, user, o
     : ''
 
   return (
-    <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-6 px-4">
-        <div className="flex items-center gap-2.5">
-          <img src="/favicon.svg" alt="" className="h-8 w-8" />
+    <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-md">
+      <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-4 px-4">
+        <button
+          type="button"
+          onClick={() => onPage('sector')}
+          className="flex shrink-0 items-center gap-2.5 rounded-lg text-left transition hover:opacity-90"
+        >
+          <img src="/favicon.svg" alt="" className="h-9 w-9 rounded-lg" />
           <div className="leading-tight">
-            <div className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-tight">
-              Ashok Trade Analysis
+            <div className="font-[family-name:var(--font-display)] text-[15px] font-semibold tracking-tight">
+              {APP_NAME}
             </div>
-            <div className="text-[10px] uppercase tracking-wider text-[var(--color-ink-soft)]">
-              ASX Market Desk
+            <div className="text-[10px] font-medium uppercase tracking-wider text-[var(--color-ink-soft)]">
+              {APP_TAGLINE}
             </div>
           </div>
-        </div>
+        </button>
 
-        <nav className="flex items-center gap-1 text-sm">
-          <button
-            type="button"
-            onClick={() => onPage('sector')}
-            className={`rounded-md px-3 py-1.5 font-medium transition ${
-              page === 'sector'
-                ? 'text-teal-700 underline decoration-2 underline-offset-8 dark:text-teal-300'
-                : 'text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]'
-            }`}
-          >
-            Sector Intelligence
-          </button>
-          <button
-            type="button"
-            onClick={() => onPage('breadth')}
-            className={`rounded-md px-3 py-1.5 font-medium transition ${
-              page === 'breadth'
-                ? 'text-teal-700 underline decoration-2 underline-offset-8 dark:text-teal-300'
-                : 'text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]'
-            }`}
-          >
-            Breadth Analysis
-          </button>
-          <button
-            type="button"
-            onClick={() => onPage('alerts')}
-            className={`rounded-md px-3 py-1.5 font-medium transition ${
-              page === 'alerts'
-                ? 'text-teal-700 underline decoration-2 underline-offset-8 dark:text-teal-300'
-                : 'text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]'
-            }`}
-          >
-            Alerts
-          </button>
-          <button
-            type="button"
-            onClick={() => onPage('special-patterns')}
-            className={`rounded-md px-3 py-1.5 font-medium transition ${
-              page === 'special-patterns'
-                ? 'text-violet-700 underline decoration-2 underline-offset-8 dark:text-violet-300'
-                : 'text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]'
-            }`}
-          >
-            Special Patterns
-          </button>
+        <nav className="hidden items-center gap-1 sm:flex">
+          {NAV.map((item) => {
+            const active = page === item.id
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onPage(item.id)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                  active
+                    ? 'bg-teal-700 text-white shadow-sm dark:bg-teal-600'
+                    : 'text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)] hover:text-[var(--color-ink)]'
+                }`}
+              >
+                {item.label}
+              </button>
+            )
+          })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-2">
+          <nav className="flex items-center gap-0.5 sm:hidden">
+            {NAV.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onPage(item.id)}
+                className={`rounded-md px-2 py-1 text-[11px] font-semibold ${
+                  page === item.id ? 'bg-teal-700 text-white' : 'text-[var(--color-ink-soft)]'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
           <button
             type="button"
-            aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-            title={dark ? 'Light mode' : 'Dark mode'}
+            aria-label={dark ? 'Light mode' : 'Dark mode'}
             onClick={onToggleDark}
-            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border)] px-2.5 py-1.5 text-xs font-semibold text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)] hover:text-[var(--color-ink)]"
+            className="rounded-lg p-2 text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)] hover:text-[var(--color-ink)]"
           >
-            {dark ? <Sun size={16} /> : <Moon size={16} />}
-            <span className="hidden sm:inline">{dark ? 'Light' : 'Dark'}</span>
+            {dark ? <Sun size={18} /> : <Moon size={18} />}
           </button>
           {showSession && (
-            <div className="flex items-center gap-2 rounded-full border border-[var(--color-border)] py-1 pl-1 pr-2 sm:pr-3">
+            <div className="flex items-center gap-1.5 rounded-full border border-[var(--color-border)] py-1 pl-1 pr-2">
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-700 text-xs font-semibold text-white">
                 {initials}
               </span>
-              <span className="hidden max-w-[140px] truncate text-sm sm:inline">{user}</span>
-              <User size={14} className="text-[var(--color-ink-soft)] sm:hidden" />
+              <span className="hidden max-w-[120px] truncate text-sm md:inline">{user}</span>
+              <User size={14} className="text-[var(--color-ink-soft)] md:hidden" />
               {onLogout && (
                 <button
                   type="button"
                   onClick={onLogout}
                   title="Sign out"
-                  className="ml-0.5 rounded-full p-1.5 text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)] hover:text-[var(--color-ink)]"
+                  className="rounded-full p-1.5 text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]"
                 >
                   <LogOut size={14} />
                 </button>

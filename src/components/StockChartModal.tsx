@@ -9,18 +9,16 @@ import {
   filterBarsByWindow,
   filterHitsByWindow,
   scanWindowLabel,
-  tradingViewRangeForWindow,
   type PatternBias,
   type PatternCategoryId,
   type PatternHit,
   type OhlcBar,
 } from '../lib/patterns'
-import { TradingViewChart } from './TradingViewChart'
 import { PatternPanel } from './patterns/PatternPanel'
 import { AnnotatedPatternChart } from './patterns/AnnotatedPatternChart'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
 
-/** Open chart already zoomed/annotated to a special (or other) pattern hit. */
+/** Open chart zoomed/annotated to a special (or other) pattern hit. */
 export type ChartPatternFocus = {
   name: string
   bias: PatternBias
@@ -32,7 +30,6 @@ type Props = {
   ticker: string
   name?: string
   onClose: () => void
-  /** When set, open on annotated chart at this hit instead of TradingView. */
   initialFocus?: ChartPatternFocus | null
 }
 
@@ -85,7 +82,6 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
   const [error, setError] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<PatternCategoryId | null>(null)
   const [selected, setSelected] = useState<PatternHit | null>(null)
-  const [chartMode, setChartMode] = useState<'tv' | 'pattern'>(initialFocus ? 'pattern' : 'tv')
   const [fund, setFund] = useState<{
     pe: number | null
     forwardPe: number | null
@@ -99,7 +95,6 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
     setError(null)
     setSelected(null)
     setActiveCategory(null)
-    setChartMode(initialFocus ? 'pattern' : 'tv')
     setFund(null)
     const focusSnapshot = initialFocus
       ? {
@@ -126,7 +121,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
         })
       }
       if (!ohlc?.length) {
-        setError('Could not load OHLC for pattern scan')
+        setError('Could not load daily OHLC from the desk data feed')
         setBars(null)
         setLoading(false)
         return
@@ -134,7 +129,6 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
       setBars(ohlc)
       if (focusSnapshot) {
         setSelected(hitFromFocus(ohlc, focusSnapshot))
-        setChartMode('pattern')
       }
       setLoading(false)
     })()
@@ -178,28 +172,22 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
     () => (bars?.length ? filterBarsByWindow(bars, prefs.scanWindow) : null),
     [bars, prefs.scanWindow],
   )
+
   const chartBars = useMemo(() => {
     if (!bars?.length) return null
-    if (selected && chartMode === 'pattern') return barsAroundHit(bars, selected)
+    if (selected) return barsAroundHit(bars, selected)
     return windowBars
-  }, [bars, selected, chartMode, windowBars])
-
-  const tvRange = tradingViewRangeForWindow(prefs.scanWindow)
+  }, [bars, selected, windowBars])
 
   useEffect(() => {
     if (!selected) return
-    // Keep external special-pattern focus even if it isn't in the chart scan categories
     if (selected.id.startsWith('focus-')) return
     const stillVisible = categories.some((c) => c.hits.some((h) => h.id === selected.id))
-    if (!stillVisible) {
-      setSelected(null)
-      setChartMode('tv')
-    }
+    if (!stillVisible) setSelected(null)
   }, [categories, selected])
 
   const onSelectPattern = (hit: PatternHit) => {
     setSelected(hit)
-    setChartMode('pattern')
   }
 
   return (
@@ -217,9 +205,10 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
           </h2>
           <p className="text-xs text-[var(--color-ink-soft)]">
             {symbol}
-            {selected && chartMode === 'pattern'
-              ? ` · showing ${selected.name}`
-              : ` · chart range ${scanWindowLabel(prefs.scanWindow)}`}
+            {' · desk daily OHLC'}
+            {selected
+              ? ` · ${selected.name}`
+              : ` · ${scanWindowLabel(prefs.scanWindow)}`}
           </p>
           {fund && (
             <p className="mt-1 flex flex-wrap gap-3 text-[11px] font-semibold tabular-nums text-[var(--color-ink-soft)]">
@@ -241,23 +230,20 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {chartMode === 'pattern' && (
+          {selected && (
             <button
               type="button"
-              onClick={() => {
-                setChartMode('tv')
-                setSelected(null)
-              }}
-              className="rounded-lg border border-sky-500 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-800 dark:bg-sky-950 dark:text-sky-200"
+              onClick={() => setSelected(null)}
+              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-bold hover:bg-[var(--color-muted)]"
             >
-              Back to TradingView
+              Clear pattern
             </button>
           )}
           <a
             href={tvUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold hover:border-sky-400"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-sky-600 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100 dark:border-sky-500 dark:bg-sky-950/50 dark:text-sky-100"
           >
             <ExternalLink size={14} />
             Open in TradingView
@@ -278,16 +264,26 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="min-h-[50vh] min-w-0 flex-1 md:min-h-0">
-          {chartMode === 'tv' || !chartBars ? (
-            <TradingViewChart
-              key={`tv-${ticker}-${tvRange}`}
-              ticker={ticker}
-              fill
-              range={tvRange}
-            />
+          {loading ? (
+            <div className="flex h-full min-h-[50vh] items-center justify-center text-sm text-[var(--color-ink-soft)]">
+              Loading chart…
+            </div>
+          ) : error || !chartBars ? (
+            <div className="flex h-full min-h-[50vh] flex-col items-center justify-center gap-3 p-6 text-center">
+              <p className="text-sm text-[var(--color-ink-soft)]">{error ?? 'No chart data available'}</p>
+              <a
+                href={tvUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-sky-600 px-3 py-1.5 text-xs font-semibold text-sky-800 dark:text-sky-200"
+              >
+                <ExternalLink size={14} />
+                Try TradingView
+              </a>
+            </div>
           ) : (
             <AnnotatedPatternChart
-              key={`pat-${ticker}-${selected?.id ?? 'none'}`}
+              key={`desk-${ticker}-${selected?.id ?? 'full'}-${prefs.scanWindow}`}
               bars={chartBars}
               selected={selected}
             />

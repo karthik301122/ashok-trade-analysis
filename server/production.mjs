@@ -1,4 +1,5 @@
 import { getUserFromRequest } from './auth.mjs'
+import { eodhdOnlyMode } from './eodhd.mjs'
 import { isDbAdmin } from './userStore.mjs'
 
 function envBool(name, defaultValue = false) {
@@ -15,6 +16,7 @@ export function isProductionMode() {
 }
 
 export function browserUniverseFetchEnabled() {
+  if (eodhdOnlyMode()) return false
   if (envBool('ALLOW_BROWSER_UNIVERSE_FETCH', false)) return true
   if (isProductionMode()) return false
   return true

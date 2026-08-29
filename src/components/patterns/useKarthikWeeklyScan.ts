@@ -86,6 +86,8 @@ export function useKarthikWeeklyScan(stocks: StockMetrics[], enabled: boolean) {
                   name: meta.name,
                   sector: meta.sector,
                   industry: meta.industry,
+                  rs: meta.rs,
+                  relativeVolume: meta.relativeVolume,
                   tightness: r.tightness,
                   weekStartT: r.weekStartT,
                   weekEndT: r.weekEndT,

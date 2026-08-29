@@ -6,6 +6,8 @@ export type WeeklySpecialHit = {
   name: string
   sector: string
   industry: string
+  rs: number
+  relativeVolume: number
   tightness: number | null
   /** Pattern start (oldest week) — preferred for display */
   weekStartT: number | null

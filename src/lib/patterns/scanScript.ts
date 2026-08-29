@@ -16,6 +16,19 @@ above_sma(200)
 pct_chg(5) >= 3
 `
 
+/** VCP Setup — Stage 2 trend, contraction, volume dry-up, healthy RSI (daily OHLC). */
+export const VCP_SETUP_SCRIPT = `bias bullish
+match all
+
+above_sma(50)
+above_sma(200)
+pct_chg(20) <= 8
+pct_chg(5) <= 3
+rvol <= 0.8
+rsi(14) >= 45
+rsi(14) <= 70
+`
+
 export type ScanScriptCompileResult =
   | { ok: true; rules: CustomRuleSet; bias?: 'bullish' | 'bearish' | 'neutral' }
   | { ok: false; errors: string[] }

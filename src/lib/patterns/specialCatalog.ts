@@ -1,15 +1,17 @@
 import type { PatternBias } from './types'
+import { VCP_SETUP_SCRIPT } from './scanScript'
 
 export type SpecialPatternCategory =
   | 'weekly-karthik'
   | 'livermore'
+  | 'vcp'
   | 'momentum'
   | 'volume'
   | 'structure'
   | 'cycle'
   | 'mean-reversion'
 
-export type SpecialPatternKind = 'snapshot' | 'weekly' | 'livermore'
+export type SpecialPatternKind = 'snapshot' | 'weekly' | 'livermore' | 'scan'
 
 export type SpecialPatternDef = {
   id: string
@@ -20,11 +22,14 @@ export type SpecialPatternDef = {
   /** Human-readable formula shown in the Special Patterns tab */
   formula: string
   description: string
+  /** ScanScript source for kind=scan patterns (daily OHLC) */
+  scanScript?: string
 }
 
 export const SPECIAL_PATTERN_CATEGORIES: { id: SpecialPatternCategory; label: string }[] = [
   { id: 'weekly-karthik', label: 'Weekly (Karthik)' },
   { id: 'livermore', label: 'Livermore Desk' },
+  { id: 'vcp', label: 'VCP (ScanScript)' },
   { id: 'momentum', label: 'Momentum / RS' },
   { id: 'volume', label: 'Volume' },
   { id: 'structure', label: 'Structure / MA' },
@@ -170,6 +175,37 @@ export const LIVERMORE_PATTERNS: SpecialPatternDef[] = [
     formula:
       'Close > 20-day pivot high  AND  Volume > 1.5× avg(20)  AND  RS(20d) > index',
     description: 'Livermore pivot emergence from accumulation with volume confirmation.',
+  },
+]
+
+/** VCP contraction / breakout — daily OHLC via ScanScript + multi-bar breakout logic. */
+export const VCP_PATTERNS: SpecialPatternDef[] = [
+  {
+    id: 'vcp-setup',
+    name: 'VCP Setup Detector',
+    category: 'vcp',
+    kind: 'scan',
+    bias: 'bullish',
+    scanScript: VCP_SETUP_SCRIPT,
+    formula:
+      'above_sma(50)  AND  above_sma(200)\n' +
+      'pct_chg(20) ≤ 8%  AND  pct_chg(5) ≤ 3%\n' +
+      'rvol ≤ 0.8  AND  RSI(14) 45–70',
+    description:
+      'Volatility contraction setup: Stage 2 trend, tight price action, volume dry-up, healthy RSI — not extended.',
+  },
+  {
+    id: 'vcp-breakout',
+    name: 'VCP Breakout Detector',
+    category: 'vcp',
+    kind: 'scan',
+    bias: 'bullish',
+    formula:
+      'above_sma(200)\n' +
+      'Prior 4d move ≤ 2%  AND  avg RVOL (prior 4d) ≤ 0.8\n' +
+      'pct_chg(5) ≥ 3%  AND  rvol ≥ 2  AND  RSI(14) 40–75',
+    description:
+      'Final contraction then breakout: tight + dry volume before the signal bar, then price and volume surge on daily OHLC.',
   },
 ]
 
@@ -345,6 +381,7 @@ export const SNAPSHOT_PATTERN_CATALOG: SpecialPatternDef[] = [
 export const SPECIAL_PATTERN_CATALOG: SpecialPatternDef[] = [
   ...KARTHIK_WEEKLY_PATTERNS,
   ...LIVERMORE_PATTERNS,
+  ...VCP_PATTERNS,
   ...SNAPSHOT_PATTERN_CATALOG,
 ]
 

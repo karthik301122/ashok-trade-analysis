@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compileScanScript, SCANSCRIPT_EXAMPLE, validateScanScript } from './scanScript'
+import { compileScanScript, SCANSCRIPT_EXAMPLE, validateScanScript, VCP_SETUP_SCRIPT } from './scanScript'
 
 describe('scanScript', () => {
   it('compiles example script', () => {
@@ -31,5 +31,14 @@ describe('scanScript', () => {
     const r = compileScanScript('bias: bearish\nrsi(14) >= 70')
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.bias).toBe('bearish')
+  })
+
+  it('compiles VCP setup script', () => {
+    const r = compileScanScript(VCP_SETUP_SCRIPT)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.bias).toBe('bullish')
+    expect(r.rules.match).toBe('all')
+    expect(r.rules.conditions.length).toBe(7)
   })
 })
