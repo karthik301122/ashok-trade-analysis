@@ -2,7 +2,7 @@
  * Shared /api handlers for Vite middleware and Express prod server.
  */
 import { authEnabled, handleAuthApi, requireAuthOrSend, getUserFromRequest, authPublicConfig, registerAccount, createSessionToken, sessionSetCookieHeader, verifyCredentials, sessionClearCookieHeader } from './auth.mjs'
-import { getCachedSeries, seriesCacheFileCount } from './getSeries.mjs'
+import { getCachedSeries, getIntradaySeries, seriesCacheFileCount } from './getSeries.mjs'
 import { readBreadthHistory, upsertBreadthPoint, UNIVERSE_IDS } from './breadthStore.mjs'
 import { dbPath } from './db.mjs'
 import {
@@ -24,7 +24,7 @@ import {
 } from './alerts.mjs'
 import { getFundamentals } from './fundamentals.mjs'
 import { checkRateLimit, clientKey, log, pruneRateLimitBuckets } from './log.mjs'
-import { seriesProviderName } from './fetchSeries.mjs'
+import { seriesProviderName, isIntradayInterval } from './fetchSeries.mjs'
 import { eodhdOnlyMode } from './eodhd.mjs'
 import fs from 'fs'
 import path from 'path'
@@ -116,22 +116,26 @@ export async function handleConnectApi(req, res, send) {
         send(400, { error: 'Invalid ticker' })
         return true
       }
-      const from = url.searchParams.get('from') || defaultFromIso()
-      let forceRefresh = url.searchParams.get('refresh') === '1'
-      if (forceRefresh && isProductionMode() && !isAdminRequest(req)) {
-        forceRefresh = false
-      }
-      const data = await getCachedSeries(ticker, from, { forceRefresh })
-      if (!data) {
-        log('info', 'series.miss', { ticker, from, ms: Date.now() - started })
-        send(404, { error: 'No series', ticker })
+      const skipForce =
+        isProductionMode() && !isAdminRequest(req) && url.searchParams.get('refresh') === '1'
+      const result = await loadSeriesForTicker(ticker, url.searchParams, {
+        skipForceRefresh: skipForce,
+      })
+      if (result.status === 404) {
+        log('info', 'series.miss', { ticker, ms: Date.now() - started })
+        send(404, result.body)
         return true
       }
+      if (result.status === 400) {
+        send(400, result.body)
+        return true
+      }
+      const data = result.body
       log('info', 'series.ok', {
         ticker,
-        from,
         bars: data.closes?.length,
         cache: data.meta?.cache,
+        interval: data.meta?.interval,
         ms: Date.now() - started,
       })
       send(200, data)
@@ -491,21 +495,22 @@ export function mountExpressApi(app) {
       if (!ticker || !/^[A-Z0-9.^=-]{1,20}$/.test(ticker)) {
         return res.status(400).json({ error: 'Invalid ticker' })
       }
-      const from = typeof req.query.from === 'string' ? req.query.from : defaultFromIso()
-      let forceRefresh = req.query.refresh === '1'
-      if (forceRefresh && isProductionMode() && !isAdminRequest(req)) {
-        forceRefresh = false
+      const skipForce =
+        isProductionMode() && !isAdminRequest(req) && req.query.refresh === '1'
+      const result = await loadSeriesForTicker(ticker, req.query, { skipForceRefresh: skipForce })
+      if (result.status === 404) {
+        log('info', 'series.miss', { ticker, ms: Date.now() - started })
+        return res.status(404).json(result.body)
       }
-      const data = await getCachedSeries(ticker, from, { forceRefresh })
-      if (!data) {
-        log('info', 'series.miss', { ticker, from, ms: Date.now() - started })
-        return res.status(404).json({ error: 'No series', ticker })
+      if (result.status === 400) {
+        return res.status(400).json(result.body)
       }
+      const data = result.body
       log('info', 'series.ok', {
         ticker,
-        from,
         bars: data.closes?.length,
         cache: data.meta?.cache,
+        interval: data.meta?.interval,
         ms: Date.now() - started,
       })
       return res.json(data)
@@ -744,6 +749,38 @@ export function defaultFromIso() {
   const d = new Date()
   d.setUTCFullYear(d.getUTCFullYear() - 2)
   return d.toISOString().slice(0, 10)
+}
+
+/**
+ * @param {string} ticker
+ * @param {URLSearchParams | Record<string, string | undefined>} params
+ * @param {{ forceRefresh?: boolean }} [opts]
+ */
+export async function loadSeriesForTicker(ticker, params, opts = {}) {
+  const get = (key) => {
+    if (params instanceof URLSearchParams) return params.get(key)
+    const v = params[key]
+    return typeof v === 'string' ? v : undefined
+  }
+
+  const interval = get('interval')
+  if (interval && isIntradayInterval(interval)) {
+    const fromTs = Number(get('from_ts'))
+    const toTs = Number(get('to_ts'))
+    if (!Number.isFinite(fromTs) || !Number.isFinite(toTs) || toTs <= fromTs) {
+      return { status: 400, body: { error: 'Intraday requires valid from_ts and to_ts (unix seconds)' } }
+    }
+    const data = await getIntradaySeries(ticker, interval, fromTs, toTs)
+    if (!data) return { status: 404, body: { error: 'No intraday series', ticker, interval } }
+    return { status: 200, body: data }
+  }
+
+  const from = get('from') || defaultFromIso()
+  let forceRefresh = get('refresh') === '1'
+  if (forceRefresh && opts.skipForceRefresh) forceRefresh = false
+  const data = await getCachedSeries(ticker, from, { forceRefresh })
+  if (!data) return { status: 404, body: { error: 'No series', ticker } }
+  return { status: 200, body: data }
 }
 
 function readJsonBody(req) {

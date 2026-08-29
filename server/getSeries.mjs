@@ -1,4 +1,4 @@
-import { fetchChartCloses } from './fetchSeries.mjs'
+import { fetchChartCloses, fetchIntradayCloses, isIntradayInterval } from './fetchSeries.mjs'
 import { seriesSymbolCount } from './db.mjs'
 import {
   readSeriesCache,
@@ -95,4 +95,29 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
 
 export function seriesCacheFileCount() {
   return seriesSymbolCount()
+}
+
+/**
+ * Live intraday series for desk charts (not persisted in SQLite).
+ * @param {string} ticker
+ * @param {string} interval
+ * @param {number} fromTs
+ * @param {number} toTs
+ */
+export async function getIntradaySeries(ticker, interval, fromTs, toTs) {
+  if (!isIntradayInterval(interval)) return null
+  const yahooSymbol = resolveYahooSymbol(ticker)
+  const data = await fetchIntradayCloses(yahooSymbol, interval, fromTs, toTs)
+  if (!data?.closes?.length) return null
+  return {
+    symbol: data.symbol,
+    closes: data.closes,
+    last: data.last,
+    high52: data.high52,
+    meta: {
+      ...(data.meta || {}),
+      cache: 'intraday-live',
+      store: 'none',
+    },
+  }
 }

@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ExternalLink, X } from 'lucide-react'
 import { toTradingViewSymbol } from '../lib/tradingview'
-import { fetchYahooOhlc } from '../lib/yahoo'
+import { fetchDeskIntraday, fetchYahooOhlc } from '../lib/yahoo'
+import {
+  chartIntervalShort,
+  intradayFetchRange,
+  isIntradayDeskInterval,
+  resolveChartInterval,
+  type DeskDataProvider,
+} from '../lib/chartInterval'
+import { fetchDeskServerConfig } from '../lib/deskConfig'
 import {
   enrichScanWithPrefs,
   scanPatterns,
@@ -65,19 +73,24 @@ function hitFromFocus(bars: OhlcBar[], focus: ChartPatternFocus): PatternHit {
   }
 }
 
-function barsAroundHit(all: OhlcBar[], hit: PatternHit): OhlcBar[] {
-  const from = Math.min(hit.startT, hit.endT) - 60 * 86400
-  const to = Math.max(hit.startT, hit.endT) + 20 * 86400
+function barsAroundHit(all: OhlcBar[], hit: PatternHit, intraday = false): OhlcBar[] {
+  const padBefore = intraday ? 3 * 86400 : 60 * 86400
+  const padAfter = intraday ? 1 * 86400 : 20 * 86400
+  const from = Math.min(hit.startT, hit.endT) - padBefore
+  const to = Math.max(hit.startT, hit.endT) + padAfter
   const sliced = all.filter((b) => b.t >= from && b.t <= to)
-  return sliced.length >= 10 ? sliced : all.slice(-180)
+  return sliced.length >= 10 ? sliced : all.slice(-Math.min(all.length, intraday ? 400 : 180))
 }
 
 export function StockChartModal({ ticker, name, onClose, initialFocus = null }: Props) {
   const symbol = toTradingViewSymbol(ticker)
   const tvUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(symbol)}`
-  const { prefs, rememberHits, setScanWindow } = usePatternPrefs()
+  const { prefs, rememberHits, setScanWindow, chartInterval, setChartInterval } = usePatternPrefs()
 
-  const [bars, setBars] = useState<OhlcBar[] | null>(null)
+  const [dailyBars, setDailyBars] = useState<OhlcBar[] | null>(null)
+  const [displayBars, setDisplayBars] = useState<OhlcBar[] | null>(null)
+  const [chartBarInterval, setChartBarInterval] = useState<string>('1d')
+  const [dataProvider, setDataProvider] = useState<DeskDataProvider>('eodhd')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<PatternCategoryId | null>(null)
@@ -91,11 +104,26 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
 
   useEffect(() => {
     let cancelled = false
+    void fetchDeskServerConfig().then((cfg) => {
+      if (cancelled) return
+      const p = cfg?.provider
+      setDataProvider(p === 'yahoo-finance2' ? 'yahoo-finance2' : p === 'eodhd' ? 'eodhd' : 'eodhd')
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
     setLoading(true)
     setError(null)
     setSelected(null)
     setActiveCategory(null)
     setFund(null)
+    setDailyBars(null)
+    setDisplayBars(null)
+    setChartBarInterval('1d')
     const focusSnapshot = initialFocus
       ? {
           name: initialFocus.name,
@@ -122,11 +150,14 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
       }
       if (!ohlc?.length) {
         setError('Could not load daily OHLC from the desk data feed')
-        setBars(null)
+        setDailyBars(null)
+        setDisplayBars(null)
         setLoading(false)
         return
       }
-      setBars(ohlc)
+      setDailyBars(ohlc)
+      setDisplayBars(ohlc)
+      setChartBarInterval('1d')
       if (focusSnapshot) {
         setSelected(hitFromFocus(ohlc, focusSnapshot))
       }
@@ -137,19 +168,51 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
     }
   }, [ticker, initialFocus])
 
+  useEffect(() => {
+    let cancelled = false
+    if (!dailyBars?.length) return
+    const asOf = dailyBars[dailyBars.length - 1].t
+    const resolved = resolveChartInterval(chartInterval, prefs.scanWindow, dataProvider)
+    if (!isIntradayDeskInterval(resolved)) {
+      setDisplayBars(dailyBars)
+      setChartBarInterval('1d')
+      return
+    }
+    const interval = resolved
+    const { fromTs, toTs } = intradayFetchRange(prefs.scanWindow, asOf)
+    ;(async () => {
+      const intraday = await fetchDeskIntraday(ticker, interval, fromTs, toTs)
+      if (cancelled) return
+      if (intraday?.bars.length) {
+        setDisplayBars(intraday.bars)
+        const prov = intraday.meta.provider
+        if (prov === 'yahoo-finance2' || prov === 'eodhd') {
+          setDataProvider(prov)
+        }
+        setChartBarInterval(intraday.meta.interval || interval)
+        return
+      }
+      setDisplayBars(dailyBars)
+      setChartBarInterval('1d')
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [dailyBars, chartInterval, prefs.scanWindow, ticker])
+
   const scanResult = useMemo(() => {
-    if (!bars?.length) return null
-    return scanPatterns(bars, { window: prefs.scanWindow })
-  }, [bars, prefs.scanWindow])
+    if (!dailyBars?.length) return null
+    return scanPatterns(dailyBars, { window: prefs.scanWindow })
+  }, [dailyBars, prefs.scanWindow])
 
   const baseCategories = scanResult?.categories ?? []
   const catalogTotal = scanResult?.catalogTotal ?? 0
 
   useEffect(() => {
-    if (!bars?.length || !scanResult?.asOf) return
+    if (!dailyBars?.length || !scanResult?.asOf) return
     const builtIn = scanResult.hits
     const customHits = filterHitsByWindow(
-      detectAllCustomRules(bars, prefs.customPatterns),
+      detectAllCustomRules(dailyBars, prefs.customPatterns),
       prefs.scanWindow,
       scanResult.asOf,
     )
@@ -164,20 +227,32 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
       })),
       { scanWindow: prefs.scanWindow, asOf: scanResult.asOf },
     )
-  }, [bars, scanResult, prefs.customPatterns, prefs.scanWindow, rememberHits, ticker])
+  }, [dailyBars, scanResult, prefs.customPatterns, prefs.scanWindow, rememberHits, ticker])
 
-  const categories = enrichScanWithPrefs(baseCategories, prefs, bars, prefs.scanWindow, ticker)
+  const categories = enrichScanWithPrefs(
+    baseCategories,
+    prefs,
+    dailyBars,
+    prefs.scanWindow,
+    ticker,
+  )
 
   const windowBars = useMemo(
-    () => (bars?.length ? filterBarsByWindow(bars, prefs.scanWindow) : null),
-    [bars, prefs.scanWindow],
+    () => (displayBars?.length ? filterBarsByWindow(displayBars, prefs.scanWindow) : null),
+    [displayBars, prefs.scanWindow],
+  )
+
+  const effectiveInterval = useMemo(
+    () => resolveChartInterval(chartInterval, prefs.scanWindow, dataProvider),
+    [chartInterval, prefs.scanWindow, dataProvider],
   )
 
   const chartBars = useMemo(() => {
-    if (!bars?.length) return null
-    if (selected) return barsAroundHit(bars, selected)
+    if (!displayBars?.length) return null
+    const isIntradayView = isIntradayDeskInterval(effectiveInterval)
+    if (selected) return barsAroundHit(displayBars, selected, isIntradayView)
     return windowBars
-  }, [bars, selected, windowBars])
+  }, [displayBars, selected, windowBars, effectiveInterval])
 
   useEffect(() => {
     if (!selected) return
@@ -205,7 +280,10 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
           </h2>
           <p className="text-xs text-[var(--color-ink-soft)]">
             {symbol}
-            {' · desk daily OHLC'}
+            {' · desk '}
+            {isIntradayDeskInterval(effectiveInterval)
+              ? `${chartIntervalShort(chartBarInterval as '5m' | '30m' | '1h')} OHLC`
+              : 'daily OHLC'}
             {selected
               ? ` · ${selected.name}`
               : ` · ${scanWindowLabel(prefs.scanWindow)}`}
@@ -283,9 +361,10 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
             </div>
           ) : (
             <AnnotatedPatternChart
-              key={`desk-${ticker}-${selected?.id ?? 'full'}-${prefs.scanWindow}`}
+              key={`desk-${ticker}-${selected?.id ?? 'full'}-${prefs.scanWindow}-${chartInterval}-${chartBarInterval}`}
               bars={chartBars}
               selected={selected}
+              intraday={isIntradayDeskInterval(effectiveInterval)}
             />
           )}
         </div>
@@ -297,6 +376,8 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
             catalogTotal={catalogTotal}
             scanWindow={prefs.scanWindow}
             onScanWindowChange={setScanWindow}
+            chartInterval={chartInterval}
+            onChartIntervalChange={setChartInterval}
             activeCategory={activeCategory}
             selectedPatternId={selected?.id ?? null}
             onSelectCategory={setActiveCategory}

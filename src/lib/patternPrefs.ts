@@ -16,6 +16,7 @@ import {
   parsePatternScanWindow,
   type PatternScanWindow,
 } from './patterns/scanWindow'
+import { parseChartIntervalPref, type ChartIntervalPref } from './chartInterval'
 
 export type CustomPattern = {
   id: string
@@ -38,12 +39,15 @@ export type PatternPrefs = {
   customPatterns: CustomPattern[]
   /** Pattern hits must end within this window from latest bar. */
   scanWindow: PatternScanWindow
+  /** Chart bar interval — auto matches scan window; 1d is daily only. */
+  chartInterval: ChartIntervalPref
 }
 
 const EMPTY: PatternPrefs = {
   starredNames: [],
   customPatterns: [],
   scanWindow: DEFAULT_PATTERN_SCAN_WINDOW,
+  chartInterval: 'auto',
 }
 
 function storageKey(user: string | null) {
@@ -88,6 +92,7 @@ export function loadPatternPrefs(user: string | null): PatternPrefs {
         ? parsed.customPatterns.map(parseCustom).filter((p): p is CustomPattern => p != null)
         : [],
       scanWindow: parsePatternScanWindow(parsed.scanWindow),
+      chartInterval: parseChartIntervalPref(parsed.chartInterval, parsed.intradayChart),
     }
   } catch {
     return { ...EMPTY, starredNames: [], customPatterns: [] }
@@ -166,4 +171,8 @@ export function setPatternScanWindow(
   scanWindow: PatternScanWindow,
 ): PatternPrefs {
   return { ...prefs, scanWindow: parsePatternScanWindow(scanWindow) }
+}
+
+export function setChartInterval(prefs: PatternPrefs, chartInterval: ChartIntervalPref): PatternPrefs {
+  return { ...prefs, chartInterval: parseChartIntervalPref(chartInterval) }
 }

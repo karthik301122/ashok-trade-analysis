@@ -11,6 +11,7 @@ import {
   removeCustomPattern,
   savePatternPrefs,
   setPatternScanWindow,
+  setChartInterval,
   toggleStarredName,
   type PatternPrefs,
 } from '../../lib/patternPrefs'
@@ -18,6 +19,7 @@ import type { PatternBias } from '../../lib/patterns'
 import type { CustomRuleSet } from '../../lib/patterns/customRules'
 import type { CandleShapeSpec } from '../../lib/patterns/candleShape'
 import type { PatternScanWindow } from '../../lib/patterns/scanWindow'
+import type { ChartIntervalPref } from '../../lib/chartInterval'
 import {
   clearAllPatternHits,
   getTickerPatternHits,
@@ -108,6 +110,10 @@ export function PatternPrefsProvider({
     setPrefs((p) => setPatternScanWindow(p, scanWindow))
   }, [])
 
+  const setChartIntervalPref = useCallback((chartInterval: ChartIntervalPref) => {
+    setPrefs((p) => setChartInterval(p, chartInterval))
+  }, [])
+
   const rememberHits = useCallback(
     (
       ticker: string,
@@ -175,6 +181,8 @@ export function PatternPrefsProvider({
       customPatterns: prefs.customPatterns,
       scanWindow: prefs.scanWindow,
       setScanWindow,
+      chartInterval: prefs.chartInterval,
+      setChartInterval: setChartIntervalPref,
       hitsByTicker,
       rememberHits,
       overviewHitsFor,
@@ -199,6 +207,7 @@ export function PatternPrefsProvider({
       setScanWindow,
       hitsScanEpoch,
       clearHitsAndRescan,
+      setChartIntervalPref,
     ],
   )
 

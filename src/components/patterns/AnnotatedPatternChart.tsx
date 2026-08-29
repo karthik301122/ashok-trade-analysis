@@ -18,6 +18,7 @@ import { useIsDark } from '../../lib/useIsDark'
 type Props = {
   bars: OhlcBar[]
   selected: PatternHit | null
+  intraday?: boolean
 }
 
 function nearestBar(bars: OhlcBar[], t: number): OhlcBar | null {
@@ -38,7 +39,7 @@ function priceAt(bars: OhlcBar[], t: number): number {
   return nearestBar(bars, t)?.c ?? bars.at(-1)!.c
 }
 
-export function AnnotatedPatternChart({ bars, selected }: Props) {
+export function AnnotatedPatternChart({ bars, selected, intraday = false }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -60,7 +61,11 @@ export function AnnotatedPatternChart({ bars, selected }: Props) {
         horzLines: { color: dark ? '#1e293b' : '#e2e8f0' },
       },
       rightPriceScale: { borderVisible: false },
-      timeScale: { borderVisible: false, timeVisible: true },
+      timeScale: {
+        borderVisible: false,
+        timeVisible: intraday,
+        secondsVisible: false,
+      },
     })
     const candle = chart.addSeries(CandlestickSeries, {
       upColor: '#059669',
@@ -83,6 +88,9 @@ export function AnnotatedPatternChart({ bars, selected }: Props) {
       close: b.c,
     }))
     candle.setData(data)
+    if (intraday && bars.length > 40) {
+      chart.timeScale().applyOptions({ barSpacing: 4, minBarSpacing: 2 })
+    }
     chart.timeScale().fitContent()
     chartRef.current = chart
     candleRef.current = candle
@@ -94,7 +102,7 @@ export function AnnotatedPatternChart({ bars, selected }: Props) {
       candleRef.current = null
       lineRef.current = null
     }
-  }, [bars, dark])
+  }, [bars, dark, intraday])
 
   useEffect(() => {
     const candle = candleRef.current

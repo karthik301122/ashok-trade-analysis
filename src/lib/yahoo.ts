@@ -95,6 +95,27 @@ export async function fetchYahooSeries(
   }
 }
 
+function parseOhlcBars(json: { closes?: PriceBar[] }): OhlcBar[] | null {
+  if (!json?.closes?.length) return null
+  const bars: OhlcBar[] = []
+  for (const b of json.closes) {
+    if (b.t == null || !Number.isFinite(b.c)) continue
+    const c = b.c
+    const o = Number.isFinite(b.o) ? Number(b.o) : c
+    const h = Number.isFinite(b.h) ? Number(b.h) : Math.max(o, c)
+    const l = Number.isFinite(b.l) ? Number(b.l) : Math.min(o, c)
+    const v = Number.isFinite(b.v) ? Number(b.v) : 0
+    bars.push({ t: b.t, o, h, l, c, v })
+  }
+  return bars.length ? bars : null
+}
+
+export type DeskSeriesMeta = {
+  provider?: string
+  interval?: string
+  intraday?: boolean
+}
+
 /** Daily OHLC for pattern detection / annotated charts */
 export async function fetchYahooOhlc(symbol: string, from = '2023-01-01'): Promise<OhlcBar[] | null> {
   const ticker = /\.AX$/i.test(symbol) ? symbol.replace(/\.AX$/i, '') : symbol
@@ -103,18 +124,35 @@ export async function fetchYahooOhlc(symbol: string, from = '2023-01-01'): Promi
     const res = await fetchSeriesQueued(url)
     if (!res.ok) return null
     const json = await res.json()
-    if (!json?.closes?.length) return null
-    const bars: OhlcBar[] = []
-    for (const b of json.closes as PriceBar[]) {
-      if (b.t == null || !Number.isFinite(b.c)) continue
-      const c = b.c
-      const o = Number.isFinite(b.o) ? Number(b.o) : c
-      const h = Number.isFinite(b.h) ? Number(b.h) : Math.max(o, c)
-      const l = Number.isFinite(b.l) ? Number(b.l) : Math.min(o, c)
-      const v = Number.isFinite(b.v) ? Number(b.v) : 0
-      bars.push({ t: b.t, o, h, l, c, v })
-    }
-    return bars.length >= 30 ? bars : null
+    const bars = parseOhlcBars(json)
+    return bars && bars.length >= 30 ? bars : null
+  } catch {
+    return null
+  }
+}
+
+/** Intraday OHLC for desk chart display (patterns still use daily). */
+export async function fetchDeskIntraday(
+  symbol: string,
+  interval: string,
+  fromTs: number,
+  toTs: number,
+): Promise<{ bars: OhlcBar[]; meta: DeskSeriesMeta } | null> {
+  const ticker = /\.AX$/i.test(symbol) ? symbol.replace(/\.AX$/i, '') : symbol
+  const params = new URLSearchParams({
+    interval,
+    from_ts: String(Math.floor(fromTs)),
+    to_ts: String(Math.floor(toTs)),
+  })
+  const url = `/api/series/${encodeURIComponent(ticker)}?${params}`
+  try {
+    const res = await fetchSeriesQueued(url)
+    if (!res.ok) return null
+    const json = await res.json()
+    const bars = parseOhlcBars(json)
+    if (!bars || bars.length < 5) return null
+    const meta = (json.meta || {}) as DeskSeriesMeta
+    return { bars, meta }
   } catch {
     return null
   }

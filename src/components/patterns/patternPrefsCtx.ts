@@ -3,6 +3,7 @@ import type { CustomPattern, PatternPrefs } from '../../lib/patternPrefs'
 import type { PatternBias } from '../../lib/patterns'
 import type { CustomRuleSet } from '../../lib/patterns/customRules'
 import type { CandleShapeSpec } from '../../lib/patterns/candleShape'
+import type { ChartIntervalPref } from '../../lib/chartInterval'
 import type { PatternScanWindow } from '../../lib/patterns/scanWindow'
 import type { CachedPatternHit, TickerPatternCache } from '../../lib/patternHitsCache'
 import type { StockMetrics } from '../../data/types'
@@ -24,6 +25,8 @@ export type PatternPrefsContextValue = {
   customPatterns: CustomPattern[]
   scanWindow: PatternScanWindow
   setScanWindow: (window: PatternScanWindow) => void
+  chartInterval: ChartIntervalPref
+  setChartInterval: (interval: ChartIntervalPref) => void
   /** Live map of ticker → last scan hits (memory + localStorage) */
   hitsByTicker: Map<string, TickerPatternCache>
   rememberHits: (

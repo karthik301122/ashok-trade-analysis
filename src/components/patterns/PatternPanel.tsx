@@ -36,6 +36,9 @@ import {
   type CandleTimeframe,
 } from '../../lib/patterns'
 import { usePatternPrefs } from './usePatternPrefs'
+import { ChartIntervalDropdown } from './ChartIntervalDropdown'
+import type { ChartIntervalPref } from '../../lib/chartInterval'
+import { chartIntervalLabel, resolveChartInterval } from '../../lib/chartInterval'
 
 type Props = {
   loading: boolean
@@ -44,6 +47,8 @@ type Props = {
   catalogTotal: number
   scanWindow: PatternScanWindow
   onScanWindowChange: (window: PatternScanWindow) => void
+  chartInterval?: ChartIntervalPref
+  onChartIntervalChange?: (interval: ChartIntervalPref) => void
   activeCategory: PatternCategoryId | null
   selectedPatternId: string | null
   onSelectCategory: (id: PatternCategoryId | null) => void
@@ -86,6 +91,8 @@ export function PatternPanel({
   catalogTotal,
   scanWindow,
   onScanWindowChange,
+  chartInterval = 'auto',
+  onChartIntervalChange,
   activeCategory,
   selectedPatternId,
   onSelectCategory,
@@ -116,6 +123,12 @@ export function PatternPanel({
   const totalHits = categories
     .filter((c) => c.id !== 'starred' && c.id !== 'custom')
     .reduce((a, c) => a + c.bullish + c.bearish + c.neutral, 0)
+
+  const resolvedChartInterval = resolveChartInterval(chartInterval, scanWindow)
+  const chartIntervalText =
+    chartInterval === 'auto'
+      ? `auto (${chartIntervalLabel(resolvedChartInterval)})`
+      : chartIntervalLabel(chartInterval)
 
   const catalogNames = useMemo(
     () => [...new Set(PATTERN_CATALOG.map((p) => p.name))].sort((a, b) => a.localeCompare(b)),
@@ -198,9 +211,14 @@ export function PatternPanel({
       <div className="border-b border-[var(--color-border)] px-3 py-2.5">
         <h3 className="text-sm font-bold">Pattern Analysis</h3>
         <p className="text-[10px] text-[var(--color-ink-soft)]">
-          {catalogTotal} scanners · {totalHits} hits in {scanWindowLabel(scanWindow)} · chart shows
-          this range · My Patterns are private
+          {catalogTotal} scanners · {totalHits} hits in {scanWindowLabel(scanWindow)} · chart{' '}
+          {chartIntervalText} · patterns scan daily · My Patterns are private
         </p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {onChartIntervalChange && (
+            <ChartIntervalDropdown value={chartInterval} onChange={onChartIntervalChange} />
+          )}
+        </div>
         <div className="mt-2 flex flex-wrap gap-1">
           {PATTERN_SCAN_WINDOWS.map((w) => (
             <button
