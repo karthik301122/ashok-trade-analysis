@@ -83,7 +83,7 @@ export function loadPatternPrefs(user: string | null): PatternPrefs {
   try {
     const raw = localStorage.getItem(storageKey(user))
     if (!raw) return { ...EMPTY, starredNames: [], customPatterns: [] }
-    const parsed = JSON.parse(raw) as Partial<PatternPrefs>
+    const parsed = JSON.parse(raw) as Partial<PatternPrefs> & { intradayChart?: boolean }
     return {
       starredNames: Array.isArray(parsed.starredNames)
         ? parsed.starredNames.filter((n): n is string => typeof n === 'string')
