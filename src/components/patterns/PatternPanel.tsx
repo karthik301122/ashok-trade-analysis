@@ -49,6 +49,8 @@ type Props = {
   onScanWindowChange: (window: PatternScanWindow) => void
   chartInterval?: ChartIntervalPref
   onChartIntervalChange?: (interval: ChartIntervalPref) => void
+  /** Actual bar interval returned by desk API (may differ from picker on EODHD). */
+  chartBarInterval?: string
   activeCategory: PatternCategoryId | null
   selectedPatternId: string | null
   onSelectCategory: (id: PatternCategoryId | null) => void
@@ -93,6 +95,7 @@ export function PatternPanel({
   onScanWindowChange,
   chartInterval = 'auto',
   onChartIntervalChange,
+  chartBarInterval,
   activeCategory,
   selectedPatternId,
   onSelectCategory,
@@ -125,10 +128,12 @@ export function PatternPanel({
     .reduce((a, c) => a + c.bullish + c.bearish + c.neutral, 0)
 
   const resolvedChartInterval = resolveChartInterval(chartInterval, scanWindow)
+  const activeBarInterval =
+    chartBarInterval && chartBarInterval !== '1d' ? chartBarInterval : resolvedChartInterval
   const chartIntervalText =
     chartInterval === 'auto'
-      ? `auto (${chartIntervalLabel(resolvedChartInterval)})`
-      : chartIntervalLabel(chartInterval)
+      ? `auto (${chartIntervalLabel(activeBarInterval as '5m' | '30m' | '1h' | '1d')})`
+      : chartIntervalLabel(activeBarInterval as '5m' | '30m' | '1h' | '1d')
 
   const catalogNames = useMemo(
     () => [...new Set(PATTERN_CATALOG.map((p) => p.name))].sort((a, b) => a.localeCompare(b)),

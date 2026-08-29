@@ -128,6 +128,10 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
       scaleMargins: { top: 0.08, bottom: 0.08 },
     })
     chart.timeScale().fitContent()
+    const removeTvLogo = () => wrapRef.current?.querySelector('#tv-attr-logo')?.remove()
+    removeTvLogo()
+    requestAnimationFrame(removeTvLogo)
+    setTimeout(removeTvLogo, 250)
     chartRef.current = chart
     candleRef.current = candle
     lineRef.current = line

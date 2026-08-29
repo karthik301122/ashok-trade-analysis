@@ -282,7 +282,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
             {symbol}
             {' · desk '}
             {isIntradayDeskInterval(effectiveInterval)
-              ? `${chartIntervalShort(chartBarInterval as '5m' | '30m' | '1h')} OHLC`
+              ? `${chartIntervalShort(chartBarInterval as '5m' | '30m' | '1h' | '1d')} OHLC`
               : 'daily OHLC'}
             {selected
               ? ` · ${selected.name}`
@@ -378,6 +378,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
             onScanWindowChange={setScanWindow}
             chartInterval={chartInterval}
             onChartIntervalChange={setChartInterval}
+            chartBarInterval={chartBarInterval}
             activeCategory={activeCategory}
             selectedPatternId={selected?.id ?? null}
             onSelectCategory={setActiveCategory}

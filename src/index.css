@@ -59,6 +59,12 @@ input {
   font: inherit;
 }
 
+/* Lightweight Charts attribution — we link TradingView via "Open in TradingView" instead */
+#tv-attr-logo {
+  display: none !important;
+  pointer-events: none !important;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
