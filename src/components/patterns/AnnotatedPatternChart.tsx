@@ -71,6 +71,7 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
       layout: {
         background: { color: dark ? '#0f1419' : '#ffffff' },
         textColor: dark ? '#c8d0d8' : '#334155',
+        attributionLogo: false,
       },
       grid: {
         vertLines: { color: dark ? '#1e293b' : '#e2e8f0' },
