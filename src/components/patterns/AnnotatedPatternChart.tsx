@@ -40,6 +40,21 @@ function priceAt(bars: OhlcBar[], t: number): number {
   return nearestBar(bars, t)?.c ?? bars.at(-1)!.c
 }
 
+function priceRangeForBars(
+  bars: { l: number; h: number }[],
+) {
+  if (!bars.length) return null
+  let min = bars[0].l
+  let max = bars[0].h
+  for (const b of bars) {
+    if (b.l < min) min = b.l
+    if (b.h > max) max = b.h
+  }
+  const span = max - min
+  const pad = span > 0 ? span * 0.06 : max * 0.02 || 1
+  return { minValue: min - pad, maxValue: max + pad }
+}
+
 export function AnnotatedPatternChart({ bars, selected, intraday = false }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -68,20 +83,8 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
         secondsVisible: false,
       },
     })
-    const candle = chart.addSeries(CandlestickSeries, {
-      upColor: '#059669',
-      downColor: '#e11d48',
-      borderVisible: false,
-      wickUpColor: '#059669',
-      wickDownColor: '#e11d48',
-    })
-    const line = chart.addSeries(LineSeries, {
-      color: '#0ea5e9',
-      lineWidth: 2,
-      lastValueVisible: false,
-      priceLineVisible: false,
-    })
     const clean = sanitizeOhlcBars(bars)
+    const priceRange = priceRangeForBars(clean)
     const data: CandlestickData<Time>[] = clean.map((b) => ({
       time: b.t as UTCTimestamp,
       open: b.o,
@@ -89,11 +92,40 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
       low: b.l,
       close: b.c,
     }))
+    const candle = chart.addSeries(CandlestickSeries, {
+      upColor: '#059669',
+      downColor: '#e11d48',
+      borderVisible: false,
+      wickUpColor: '#059669',
+      wickDownColor: '#e11d48',
+      autoscaleInfoProvider: priceRange
+        ? () => ({
+            priceRange: {
+              minValue: priceRange.minValue,
+              maxValue: priceRange.maxValue,
+            },
+          })
+        : undefined,
+    })
+    const line = chart.addSeries(LineSeries, {
+      color: '#0ea5e9',
+      lineWidth: 2,
+      lastValueVisible: false,
+      priceLineVisible: false,
+    })
     candle.setData(data)
     if (intraday && clean.length > 40) {
-      chart.timeScale().applyOptions({ barSpacing: 5, minBarSpacing: 2 })
+      const spacing = 6
+      chart.timeScale().applyOptions({
+        barSpacing: spacing,
+        minBarSpacing: spacing,
+        maxBarSpacing: spacing,
+      })
     }
-    chart.priceScale('right').applyOptions({ autoScale: true, scaleMargins: { top: 0.08, bottom: 0.08 } })
+    chart.priceScale('right').applyOptions({
+      autoScale: true,
+      scaleMargins: { top: 0.08, bottom: 0.08 },
+    })
     chart.timeScale().fitContent()
     chartRef.current = chart
     candleRef.current = candle
@@ -124,7 +156,6 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
     line.setData([])
 
     if (!selected) {
-      chart.timeScale().fitContent()
       return
     }
 
