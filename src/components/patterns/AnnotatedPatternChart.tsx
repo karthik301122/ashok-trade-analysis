@@ -13,6 +13,7 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts'
 import type { OhlcBar, PatternHit } from '../../lib/patterns'
+import { sanitizeOhlcBars } from '../../lib/ohlcSanitize'
 import { useIsDark } from '../../lib/useIsDark'
 
 type Props = {
@@ -80,7 +81,8 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
       lastValueVisible: false,
       priceLineVisible: false,
     })
-    const data: CandlestickData<Time>[] = bars.map((b) => ({
+    const clean = sanitizeOhlcBars(bars)
+    const data: CandlestickData<Time>[] = clean.map((b) => ({
       time: b.t as UTCTimestamp,
       open: b.o,
       high: b.h,
@@ -88,9 +90,10 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
       close: b.c,
     }))
     candle.setData(data)
-    if (intraday && bars.length > 40) {
-      chart.timeScale().applyOptions({ barSpacing: 4, minBarSpacing: 2 })
+    if (intraday && clean.length > 40) {
+      chart.timeScale().applyOptions({ barSpacing: 5, minBarSpacing: 2 })
     }
+    chart.priceScale('right').applyOptions({ autoScale: true, scaleMargins: { top: 0.08, bottom: 0.08 } })
     chart.timeScale().fitContent()
     chartRef.current = chart
     candleRef.current = candle

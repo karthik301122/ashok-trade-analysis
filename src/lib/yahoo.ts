@@ -1,4 +1,5 @@
 import { fetchSeriesQueued } from './seriesFetchQueue'
+import { sanitizeOhlcBars } from './ohlcSanitize'
 
 export type PriceBar = {
   t: number
@@ -107,7 +108,9 @@ function parseOhlcBars(json: { closes?: PriceBar[] }): OhlcBar[] | null {
     const v = Number.isFinite(b.v) ? Number(b.v) : 0
     bars.push({ t: b.t, o, h, l, c, v })
   }
-  return bars.length ? bars : null
+  const cleaned = sanitizeOhlcBars(bars)
+  if (!cleaned?.length) return null
+  return cleaned.map((b) => ({ ...b, v: b.v ?? 0 }))
 }
 
 export type DeskSeriesMeta = {

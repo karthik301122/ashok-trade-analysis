@@ -1,5 +1,6 @@
 import { loadEnvFile } from './loadEnv.mjs'
 import { withEodhdThrottle, parseRetryAfterMs } from './eodhdThrottle.mjs'
+import { sanitizeOhlcBars } from './ohlcSanitize.mjs'
 
 loadEnvFile()
 
@@ -194,11 +195,13 @@ function rowsToIntradayBars(rows) {
   }
   if (closes.length < 5) return null
   closes.sort((a, b) => a.t - b.t)
-  const last = closes[closes.length - 1].c
-  const yearAgo = closes[closes.length - 1].t - 365 * 24 * 3600
-  const lastYear = closes.filter((b) => b.t >= yearAgo)
+  const cleaned = sanitizeOhlcBars(closes)
+  if (cleaned.length < 5) return null
+  const last = cleaned[cleaned.length - 1].c
+  const yearAgo = cleaned[cleaned.length - 1].t - 365 * 24 * 3600
+  const lastYear = cleaned.filter((b) => b.t >= yearAgo)
   const high52 = Math.max(...lastYear.map((b) => b.h ?? b.c), last)
-  return { closes, last, high52 }
+  return { closes: cleaned, last, high52 }
 }
 
 /**
