@@ -123,3 +123,27 @@ export function chartIntervalButtonLabel(pref: ChartIntervalPref): string {
   if (pref === 'auto') return 'Auto'
   return chartIntervalShort(pref)
 }
+
+/** TradingView advanced widget interval codes (native 30m, 15m, etc.). */
+export function tradingViewIntervalForPref(
+  pref: ChartIntervalPref,
+  window: PatternScanWindow,
+  provider: DeskDataProvider = 'eodhd',
+): string {
+  const desk = resolveChartInterval(pref, window, provider)
+  switch (desk) {
+    case '1m':
+      return '1'
+    case '5m':
+      return '5'
+    case '15m':
+      return '15'
+    case '30m':
+      return '30'
+    case '1h':
+      return '60'
+    case '1d':
+    default:
+      return 'D'
+  }
+}

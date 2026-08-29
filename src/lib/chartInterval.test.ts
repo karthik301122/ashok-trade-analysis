@@ -4,6 +4,7 @@ import {
   intradayFetchRange,
   parseChartIntervalPref,
   resolveChartInterval,
+  tradingViewIntervalForPref,
 } from './chartInterval'
 
 describe('chartInterval', () => {
@@ -39,5 +40,11 @@ describe('chartInterval', () => {
     const { fromTs, toTs } = intradayFetchRange('1m', asOf)
     expect(toTs).toBe(asOf + 86_400)
     expect(fromTs).toBeLessThan(asOf)
+  })
+
+  it('maps desk intervals to TradingView widget codes', () => {
+    expect(tradingViewIntervalForPref('30m', '1m')).toBe('30')
+    expect(tradingViewIntervalForPref('auto', '1m', 'eodhd')).toBe('5')
+    expect(tradingViewIntervalForPref('1d', '1m')).toBe('D')
   })
 })

@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState } from 'react'
 import { ExternalLink, X } from 'lucide-react'
 import { toTradingViewSymbol } from '../lib/tradingview'
 import { fetchDeskIntraday, fetchYahooOhlc } from '../lib/yahoo'
+import { fetchDeskServerConfig } from '../lib/deskConfig'
 import {
   chartIntervalShort,
   intradayFetchRange,
   isIntradayDeskInterval,
   resolveChartInterval,
+  tradingViewIntervalForPref,
   type DeskDataProvider,
 } from '../lib/chartInterval'
-import { fetchDeskServerConfig } from '../lib/deskConfig'
 import {
   enrichScanWithPrefs,
   scanPatterns,
@@ -17,6 +18,7 @@ import {
   filterBarsByWindow,
   filterHitsByWindow,
   scanWindowLabel,
+  tradingViewRangeForWindow,
   type PatternBias,
   type PatternCategoryId,
   type PatternHit,
@@ -24,6 +26,7 @@ import {
 } from '../lib/patterns'
 import { PatternPanel } from './patterns/PatternPanel'
 import { AnnotatedPatternChart } from './patterns/AnnotatedPatternChart'
+import { TradingViewChart } from './TradingViewChart'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
 
 /** Open chart zoomed/annotated to a special (or other) pattern hit. */
@@ -33,6 +36,8 @@ export type ChartPatternFocus = {
   startT: number
   endT: number
 }
+
+type ChartView = 'desk' | 'tradingview'
 
 type Props = {
   ticker: string
@@ -91,6 +96,8 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
   const [displayBars, setDisplayBars] = useState<OhlcBar[] | null>(null)
   const [chartBarInterval, setChartBarInterval] = useState<string>('1d')
   const [dataProvider, setDataProvider] = useState<DeskDataProvider>('eodhd')
+  const [chartView, setChartView] = useState<ChartView>('desk')
+  const [deskFallbackNote, setDeskFallbackNote] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<PatternCategoryId | null>(null)
@@ -124,6 +131,8 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
     setDailyBars(null)
     setDisplayBars(null)
     setChartBarInterval('1d')
+    setChartView('desk')
+    setDeskFallbackNote(null)
     const focusSnapshot = initialFocus
       ? {
           name: initialFocus.name,
@@ -152,6 +161,8 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
         setError('Could not load daily OHLC from the desk data feed')
         setDailyBars(null)
         setDisplayBars(null)
+        setChartView('tradingview')
+        setDeskFallbackNote('Desk data unavailable — showing TradingView chart.')
         setLoading(false)
         return
       }
@@ -198,7 +209,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
     return () => {
       cancelled = true
     }
-  }, [dailyBars, chartInterval, prefs.scanWindow, ticker])
+  }, [dailyBars, chartInterval, prefs.scanWindow, ticker, dataProvider])
 
   const scanResult = useMemo(() => {
     if (!dailyBars?.length) return null
@@ -254,6 +265,20 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
     return windowBars
   }, [displayBars, selected, windowBars, effectiveInterval])
 
+  const tvInterval = tradingViewIntervalForPref(chartInterval, prefs.scanWindow, dataProvider)
+  const tvRange = tradingViewRangeForWindow(prefs.scanWindow)
+
+  const deskChartReady = Boolean(chartBars?.length)
+  const showTradingView = chartView === 'tradingview' || !deskChartReady
+
+  useEffect(() => {
+    if (loading) return
+    if (!deskChartReady && chartView === 'desk') {
+      setChartView('tradingview')
+      setDeskFallbackNote('Desk chart data unavailable for this view — showing TradingView.')
+    }
+  }, [loading, deskChartReady, chartView])
+
   useEffect(() => {
     if (!selected) return
     if (selected.id.startsWith('focus-')) return
@@ -263,7 +288,18 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
 
   const onSelectPattern = (hit: PatternHit) => {
     setSelected(hit)
+    if (chartView === 'tradingview') {
+      setChartView('desk')
+      setDeskFallbackNote(null)
+    }
   }
+
+  const chartModeLabel =
+    showTradingView
+      ? 'TradingView'
+      : isIntradayDeskInterval(effectiveInterval)
+        ? `${chartIntervalShort(chartBarInterval as '5m' | '30m' | '1h' | '1d')} desk OHLC`
+        : 'daily desk OHLC'
 
   return (
     <div
@@ -280,14 +316,18 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
           </h2>
           <p className="text-xs text-[var(--color-ink-soft)]">
             {symbol}
-            {' · desk '}
-            {isIntradayDeskInterval(effectiveInterval)
-              ? `${chartIntervalShort(chartBarInterval as '5m' | '30m' | '1h' | '1d')} OHLC`
-              : 'daily OHLC'}
-            {selected
-              ? ` · ${selected.name}`
-              : ` · ${scanWindowLabel(prefs.scanWindow)}`}
+            {' · '}
+            {chartModeLabel}
+            {selected ? ` · ${selected.name}` : ` · ${scanWindowLabel(prefs.scanWindow)}`}
           </p>
+          {deskFallbackNote && (
+            <p className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-300">{deskFallbackNote}</p>
+          )}
+          {showTradingView && selected && !deskFallbackNote && (
+            <p className="mt-0.5 text-[10px] text-[var(--color-ink-soft)]">
+              Pattern overlays are on the desk chart — switch to Desk to see lines on the chart.
+            </p>
+          )}
           {fund && (
             <p className="mt-1 flex flex-wrap gap-3 text-[11px] font-semibold tabular-nums text-[var(--color-ink-soft)]">
               <span>PE {fund.pe != null ? fund.pe.toFixed(1) : '—'}</span>
@@ -308,6 +348,34 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg border border-[var(--color-border)] text-[10px] font-bold">
+            <button
+              type="button"
+              onClick={() => {
+                setChartView('desk')
+                setDeskFallbackNote(null)
+              }}
+              disabled={!deskChartReady}
+              className={`rounded-l-lg px-2.5 py-1.5 ${
+                !showTradingView
+                  ? 'bg-sky-700 text-white'
+                  : 'bg-[var(--color-bg)] text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]'
+              } disabled:opacity-40`}
+            >
+              Desk
+            </button>
+            <button
+              type="button"
+              onClick={() => setChartView('tradingview')}
+              className={`rounded-r-lg px-2.5 py-1.5 ${
+                showTradingView
+                  ? 'bg-sky-700 text-white'
+                  : 'bg-[var(--color-bg)] text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]'
+              }`}
+            >
+              TV
+            </button>
+          </div>
           {selected && (
             <button
               type="button"
@@ -346,23 +414,18 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
             <div className="flex h-full min-h-[50vh] items-center justify-center text-sm text-[var(--color-ink-soft)]">
               Loading chart…
             </div>
-          ) : error || !chartBars ? (
-            <div className="flex h-full min-h-[50vh] flex-col items-center justify-center gap-3 p-6 text-center">
-              <p className="text-sm text-[var(--color-ink-soft)]">{error ?? 'No chart data available'}</p>
-              <a
-                href={tvUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-sky-600 px-3 py-1.5 text-xs font-semibold text-sky-800 dark:text-sky-200"
-              >
-                <ExternalLink size={14} />
-                Try TradingView
-              </a>
-            </div>
+          ) : showTradingView ? (
+            <TradingViewChart
+              key={`tv-${ticker}-${tvRange}-${tvInterval}-${chartInterval}`}
+              ticker={ticker}
+              fill
+              range={tvRange}
+              interval={tvInterval}
+            />
           ) : (
             <AnnotatedPatternChart
               key={`desk-${ticker}-${selected?.id ?? 'full'}-${prefs.scanWindow}-${chartInterval}-${chartBarInterval}`}
-              bars={chartBars}
+              bars={chartBars!}
               selected={selected}
               intraday={isIntradayDeskInterval(effectiveInterval)}
             />

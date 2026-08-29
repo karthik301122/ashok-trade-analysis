@@ -41,6 +41,8 @@ type Props = {
   fill?: boolean
   /** TradingView visible range, e.g. 1D / 5D / 1M / 3M / 6M / 12M / ALL */
   range?: string
+  /** TradingView interval code: 1, 5, 15, 30, 60, D, etc. */
+  interval?: string
 }
 
 export function TradingViewChart({
@@ -48,6 +50,7 @@ export function TradingViewChart({
   height = 560,
   fill = false,
   range = '1M',
+  interval = 'D',
 }: Props) {
   const reactId = useId().replace(/:/g, '')
   const containerId = `tv_${ticker}_${reactId}`
@@ -88,7 +91,7 @@ export function TradingViewChart({
         new window.TradingView.widget({
           autosize: true,
           symbol: toTradingViewSymbol(ticker),
-          interval: 'D',
+          interval,
           range,
           timezone: 'Australia/Sydney',
           theme: dark ? 'dark' : 'light',
@@ -115,7 +118,7 @@ export function TradingViewChart({
       cancelled = true
       if (host) host.innerHTML = ''
     }
-  }, [ticker, containerId, pxHeight, dark, range])
+  }, [ticker, containerId, pxHeight, dark, range, interval])
 
   return (
     <div

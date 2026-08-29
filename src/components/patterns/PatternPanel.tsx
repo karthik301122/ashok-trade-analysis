@@ -49,7 +49,7 @@ type Props = {
   onScanWindowChange: (window: PatternScanWindow) => void
   chartInterval?: ChartIntervalPref
   onChartIntervalChange?: (interval: ChartIntervalPref) => void
-  /** Actual bar interval returned by desk API (may differ from picker on EODHD). */
+  /** Desk API bar interval (may differ from picker on EODHD). */
   chartBarInterval?: string
   activeCategory: PatternCategoryId | null
   selectedPatternId: string | null
@@ -130,10 +130,11 @@ export function PatternPanel({
   const resolvedChartInterval = resolveChartInterval(chartInterval, scanWindow)
   const activeBarInterval =
     chartBarInterval && chartBarInterval !== '1d' ? chartBarInterval : resolvedChartInterval
+  const labelInterval = activeBarInterval as '1m' | '5m' | '15m' | '30m' | '1h' | '1d'
   const chartIntervalText =
     chartInterval === 'auto'
-      ? `auto (${chartIntervalLabel(activeBarInterval as '5m' | '30m' | '1h' | '1d')})`
-      : chartIntervalLabel(activeBarInterval as '5m' | '30m' | '1h' | '1d')
+      ? `auto (${chartIntervalLabel(labelInterval)})`
+      : chartIntervalLabel(labelInterval)
 
   const catalogNames = useMemo(
     () => [...new Set(PATTERN_CATALOG.map((p) => p.name))].sort((a, b) => a.localeCompare(b)),
@@ -216,7 +217,7 @@ export function PatternPanel({
       <div className="border-b border-[var(--color-border)] px-3 py-2.5">
         <h3 className="text-sm font-bold">Pattern Analysis</h3>
         <p className="text-[10px] text-[var(--color-ink-soft)]">
-          {catalogTotal} scanners · {totalHits} hits in {scanWindowLabel(scanWindow)} · chart{' '}
+          {catalogTotal} scanners · {totalHits} hits in {scanWindowLabel(scanWindow)} · desk chart{' '}
           {chartIntervalText} · patterns scan daily · My Patterns are private
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
