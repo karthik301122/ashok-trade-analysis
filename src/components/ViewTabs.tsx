@@ -87,7 +87,7 @@ export function ViewTabs({ active, onChange, mood }: Props) {
                   className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium ${
                     active === v.id
                       ? 'bg-teal-50 text-teal-900 dark:bg-teal-950/50 dark:text-teal-100'
-                      : 'hover:bg-[var(--color-muted)]'
+                      : 'text-[var(--color-ink)] hover:bg-[var(--color-muted)]'
                   }`}
                 >
                   {v.icon}

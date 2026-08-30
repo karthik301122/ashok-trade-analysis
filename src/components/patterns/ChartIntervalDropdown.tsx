@@ -66,7 +66,7 @@ export function ChartIntervalDropdown({ value, onChange, effectiveBarInterval }:
                     className={`flex w-full px-3 py-1.5 text-left text-[11px] font-medium ${
                       active
                         ? 'bg-sky-700 text-white'
-                        : 'hover:bg-[var(--color-muted)]'
+                        : 'text-[var(--color-ink)] hover:bg-[var(--color-muted)]'
                     }`}
                   >
                     {item.label}

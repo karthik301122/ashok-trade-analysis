@@ -60,9 +60,9 @@ export const KARTHIK_WEEKLY_PATTERNS: SpecialPatternDef[] = [
     bias: 'bullish',
     formula:
       'Context: Stage 2 OR ≥30% in ~13 weeks\n' +
-      'Tightness = (max−min)/min of weekly closes over 3–5 weeks  ≤  3%',
+      'Tightness = (max−min)/min of weekly closes over 3–5 weeks  ≤  5%',
     description:
-      'Weekly closes compress within 3% over the last 3–5 weeks, only in Stage 2 or after a ≥30% 3‑month rally.',
+      'Weekly closes compress within 5% over the last 3–5 weeks, only in Stage 2 or after a ≥30% 3‑month rally.',
   },
   {
     id: 'weekly-inside-bar',

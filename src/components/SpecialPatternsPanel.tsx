@@ -411,7 +411,7 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
                 setSectorFilter(e.target.value || null)
                 setIndustryFilter(null)
               }}
-              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs"
+              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-ink)]"
             >
               <option value="">All sectors</option>
               {sectors.map((s) => (
@@ -421,7 +421,7 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
             <select
               value={industryFilter ?? ''}
               onChange={(e) => setIndustryFilter(e.target.value || null)}
-              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs"
+              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-ink)]"
             >
               <option value="">All industries</option>
               {industries.map((ind) => (

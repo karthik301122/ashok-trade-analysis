@@ -2,8 +2,8 @@ import type { OhlcBar } from './types'
 import { hasKarthikSpecialContext, isStage2Weekly } from './stage2Weekly'
 import { completedWeeklyBars } from './weeklyBars'
 
-/** Max close spread / min across a tight window — Karthik: 3%. */
-export const THREE_WEEKS_TIGHT_THRESHOLD = 0.03
+/** Max close spread / min across a tight window — ≤ 5%. */
+export const THREE_WEEKS_TIGHT_THRESHOLD = 0.05
 
 export const TIGHT_WEEK_COUNTS = [3, 4, 5] as const
 

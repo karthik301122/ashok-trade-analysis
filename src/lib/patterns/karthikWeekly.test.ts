@@ -31,10 +31,11 @@ function rallyContextWeeks(n = 20): OhlcBar[] {
 }
 
 describe('threeWeeksTight threshold', () => {
-  it('uses 3% threshold', () => {
-    expect(THREE_WEEKS_TIGHT_THRESHOLD).toBe(0.03)
+  it('uses 5% threshold', () => {
+    expect(THREE_WEEKS_TIGHT_THRESHOLD).toBe(0.05)
     expect(threeWeeksTightness(100, 101, 102)).toBeCloseTo(0.02)
     expect(threeWeeksTightness(100, 104, 103)).toBeCloseTo(0.04)
+    expect(threeWeeksTightness(100, 106, 103)).toBeCloseTo(0.06)
   })
 
   it('accepts 3–5 week tight windows', () => {
@@ -45,9 +46,9 @@ describe('threeWeeksTight threshold', () => {
       h: 101,
       l: 99,
     }))
-    expect(weeksTightAt(weeks, 0, 3, 0.03)).toBe(true)
-    expect(weeksTightAt(weeks, 0, 5, 0.03)).toBe(true)
-    const formed = threeWeeksTightFormationWeek(weeks, 0.03)
+    expect(weeksTightAt(weeks, 0, 3, 0.05)).toBe(true)
+    expect(weeksTightAt(weeks, 0, 5, 0.05)).toBe(true)
+    const formed = threeWeeksTightFormationWeek(weeks, 0.05)
     expect(formed.hit).toBe(true)
     expect(formed.weekCount).toBe(5)
     expect(formed.weekStartT).toBe(weeks[4].t)

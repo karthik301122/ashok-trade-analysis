@@ -55,8 +55,27 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
+  color: var(--color-ink);
+}
+
+select {
+  background-color: var(--color-bg);
+}
+
+select option,
+select optgroup {
+  color: var(--color-ink);
+  background-color: var(--color-surface);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-ink-soft);
+  opacity: 1;
 }
 
 /* Lightweight Charts attribution — we link TradingView via "Open in TradingView" instead */

@@ -185,7 +185,7 @@ export function VolumeScan({ snapshot }: Props) {
         <select
           value={sectorFilter ?? ''}
           onChange={(e) => setSectorFilter(e.target.value || null)}
-          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
+          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-ink)]"
         >
           <option value="">All sectors</option>
           {sectors.map((s) => (
@@ -197,7 +197,7 @@ export function VolumeScan({ snapshot }: Props) {
         <select
           value={moodFilter}
           onChange={(e) => setMoodFilter(e.target.value as Mood | 'all')}
-          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
+          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-ink)]"
         >
           <option value="all">All moods</option>
           <option value="bullish">Bullish</option>
