@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { StockMetrics } from '../../data/types'
-import { fetchYahooOhlc } from '../../lib/yahoo'
+import { fetchYahooOhlcForPatternScan } from '../../lib/yahoo'
 import { karthikPatternHit, type KarthikPatternId } from '../../lib/patterns/karthikWeekly'
 import { KARTHIK_WEEKLY_PATTERNS } from '../../lib/patterns/specialCatalog'
 import {
   getTickerWeeklySpecial,
-  setTickerWeeklySpecial,
+  setManyTickerWeeklySpecial,
   type WeeklySpecialHit,
 } from '../../lib/specialWeeklyCache'
 
-const CONCURRENCY = 2
+const CONCURRENCY = 6
 const STALE_MS = 12 * 60 * 60 * 1000
+const BATCH_WRITE = 30
+const UI_TICK = 15
 
 const PATTERN_IDS = KARTHIK_WEEKLY_PATTERNS.map((p) => p.id as KarthikPatternId)
 
@@ -62,6 +64,15 @@ export function useKarthikWeeklyScan(stocks: StockMetrics[], enabled: boolean) {
     let cancelled = false
     let idx = 0
     let finished = 0
+    const pendingWrites: Record<string, WeeklySpecialHit[]> = {}
+
+    const flushWrites = () => {
+      if (!Object.keys(pendingWrites).length) return
+      setManyTickerWeeklySpecial(pendingWrites)
+      for (const k of Object.keys(pendingWrites)) delete pendingWrites[k]
+      setVersion((v) => v + 1)
+    }
+
     setScanning(true)
     setDone(0)
     setTotal(need.length)
@@ -73,7 +84,7 @@ export function useKarthikWeeklyScan(stocks: StockMetrics[], enabled: boolean) {
         const ticker = need[i]
         const meta = stockByTicker.get(ticker.toUpperCase())
         try {
-          const ohlc = await fetchYahooOhlc(ticker)
+          const ohlc = await fetchYahooOhlcForPatternScan(ticker)
           if (cancelled || g !== gen.current) return
           if (ohlc?.length && meta) {
             const hits: WeeklySpecialHit[] = []
@@ -94,22 +105,26 @@ export function useKarthikWeeklyScan(stocks: StockMetrics[], enabled: boolean) {
                 })
               }
             }
-            setTickerWeeklySpecial(ticker, hits)
+            pendingWrites[ticker.toUpperCase()] = hits
+            if (Object.keys(pendingWrites).length >= BATCH_WRITE) flushWrites()
           }
         } catch {
           /* skip */
         }
         finished++
-        if (!cancelled && g === gen.current) {
+        if (!cancelled && g === gen.current && (finished % UI_TICK === 0 || finished === need.length)) {
           setDone(finished)
-          setVersion((v) => v + 1)
         }
       }
     }
 
     void (async () => {
       await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()))
-      if (!cancelled && g === gen.current) setScanning(false)
+      if (!cancelled && g === gen.current) {
+        flushWrites()
+        setDone(need.length)
+        setScanning(false)
+      }
     })()
 
     return () => {

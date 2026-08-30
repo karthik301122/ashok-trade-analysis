@@ -2,11 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { StockMetrics } from '../../data/types'
 import { SPECIAL_PATTERN_CATALOG } from '../../lib/patterns/specialCatalog'
 import { scanOhlcForSpecialPatterns } from '../../lib/patterns/specialScriptScan'
-import { getTickerScriptScan, setTickerScriptScan } from '../../lib/specialScriptCache'
-import { fetchYahooOhlc } from '../../lib/yahoo'
+import { getTickerScriptScan, setManyTickerScriptScan } from '../../lib/specialScriptCache'
+import type { ScriptScanHit } from '../../lib/specialScriptCache'
+import { fetchYahooOhlcForPatternScan } from '../../lib/yahoo'
 
-const CONCURRENCY = 2
+const CONCURRENCY = 6
 const STALE_MS = 12 * 60 * 60 * 1000
+const BATCH_WRITE = 30
+const UI_TICK = 15
 
 const SCAN_PATTERNS = SPECIAL_PATTERN_CATALOG.filter((p) => p.kind === 'scan')
 
@@ -55,6 +58,15 @@ export function useSpecialScriptScan(stocks: StockMetrics[], enabled: boolean) {
 
       let idx = 0
       let finished = 0
+      const pendingWrites: Record<string, ScriptScanHit[]> = {}
+
+      const flushWrites = () => {
+        if (!Object.keys(pendingWrites).length) return
+        setManyTickerScriptScan(pendingWrites)
+        for (const k of Object.keys(pendingWrites)) delete pendingWrites[k]
+        setVersion((v) => v + 1)
+      }
+
       setScanning(true)
       setDone(0)
       setTotal(needFresh.length)
@@ -65,32 +77,33 @@ export function useSpecialScriptScan(stocks: StockMetrics[], enabled: boolean) {
           if (i >= needFresh.length) break
           const ticker = needFresh[i]
           try {
-            const ohlc = await fetchYahooOhlc(ticker)
+            const ohlc = await fetchYahooOhlcForPatternScan(ticker)
             if (cancelled || g !== gen.current) return
             if (ohlc?.length) {
               const scanned = scanOhlcForSpecialPatterns(ohlc, SCAN_PATTERNS)
-              setTickerScriptScan(
-                ticker,
-                scanned.map((s) => ({
-                  patternId: s.patternId,
-                  startT: s.hit.startT,
-                  endT: s.hit.endT,
-                })),
-              )
+              pendingWrites[ticker.toUpperCase()] = scanned.map((s) => ({
+                patternId: s.patternId,
+                startT: s.hit.startT,
+                endT: s.hit.endT,
+              }))
+              if (Object.keys(pendingWrites).length >= BATCH_WRITE) flushWrites()
             }
           } catch {
             /* skip */
           }
           finished++
-          if (!cancelled && g === gen.current) {
+          if (!cancelled && g === gen.current && (finished % UI_TICK === 0 || finished === needFresh.length)) {
             setDone(finished)
-            setVersion((v) => v + 1)
           }
         }
       }
 
       await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()))
-      if (!cancelled && g === gen.current) setScanning(false)
+      if (!cancelled && g === gen.current) {
+        flushWrites()
+        setDone(needFresh.length)
+        setScanning(false)
+      }
     })()
 
     return () => {

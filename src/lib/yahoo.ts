@@ -122,17 +122,41 @@ export type DeskSeriesMeta = {
 /** Daily OHLC for pattern detection / annotated charts */
 export async function fetchYahooOhlc(symbol: string, from = '2023-01-01'): Promise<OhlcBar[] | null> {
   const ticker = /\.AX$/i.test(symbol) ? symbol.replace(/\.AX$/i, '') : symbol
+  const fromTs = Math.floor(new Date(`${from}T00:00:00Z`).getTime() / 1000)
+
+  const session = ohlcSessionCache.get(ticker)
+  if (session && Date.now() - session.at < OHLC_SESSION_MS && session.bars) {
+    const sliced = session.bars.filter((b) => b.t >= fromTs)
+    if (sliced.length >= 30) return sliced
+  }
+
   const url = `/api/series/${encodeURIComponent(ticker)}?from=${from}`
   try {
     const res = await fetchSeriesQueued(url)
     if (!res.ok) return null
     const json = await res.json()
     const bars = parseOhlcBars(json)
-    return bars && bars.length >= 30 ? bars : null
+    if (bars && bars.length >= 30) {
+      ohlcSessionCache.set(ticker, { at: Date.now(), bars })
+      return bars.filter((b) => b.t >= fromTs)
+    }
+    return null
   } catch {
     return null
   }
 }
+
+/** ~2y daily OHLC for background pattern scans (smaller payload than full history). */
+export function patternScanFromIso(): string {
+  return rangeToFromIso('2y')
+}
+
+export async function fetchYahooOhlcForPatternScan(symbol: string): Promise<OhlcBar[] | null> {
+  return fetchYahooOhlc(symbol, patternScanFromIso())
+}
+
+const OHLC_SESSION_MS = 45 * 60 * 1000
+const ohlcSessionCache = new Map<string, { at: number; bars: OhlcBar[] }>()
 
 /** Intraday OHLC for desk chart display (patterns still use daily). */
 export async function fetchDeskIntraday(

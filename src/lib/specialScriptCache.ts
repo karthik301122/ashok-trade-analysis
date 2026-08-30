@@ -23,7 +23,7 @@ export type ScriptScanRow = {
 }
 
 const KEY = 'asx-special-script-v1'
-const MAX = 800
+const MAX = 4000
 
 function readAll(): Record<string, TickerScriptScanCache> {
   try {
@@ -50,8 +50,18 @@ export function getTickerScriptScan(ticker: string): TickerScriptScanCache | nul
 }
 
 export function setTickerScriptScan(ticker: string, hits: ScriptScanHit[]) {
+  setManyTickerScriptScan({ [ticker]: hits })
+}
+
+export function setManyTickerScriptScan(
+  entries: Record<string, ScriptScanHit[]>,
+  updatedAt = Date.now(),
+) {
+  if (!Object.keys(entries).length) return
   const all = readAll()
-  all[ticker.toUpperCase()] = { updatedAt: Date.now(), hits }
+  for (const [ticker, hits] of Object.entries(entries)) {
+    all[ticker.toUpperCase()] = { updatedAt, hits }
+  }
   writeAll(all)
 }
 

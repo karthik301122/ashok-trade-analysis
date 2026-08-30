@@ -100,14 +100,14 @@ export function SectorTable({ snapshot }: Props) {
     done: livermoreDone,
     total: livermoreTotal,
     version: livermoreVersion,
-  } = useLivermoreScan(snapshot.stocks, heavyPatternScans)
+  } = useLivermoreScan(snapshot.stocks, heavyPatternScans && !weeklyScanning)
 
   const {
     scanning: scriptScanning,
     done: scriptDone,
     total: scriptTotal,
     version: scriptScanVersion,
-  } = useSpecialScriptScan(snapshot.stocks, heavyPatternScans)
+  } = useSpecialScriptScan(snapshot.stocks, heavyPatternScans && !weeklyScanning && !livermoreScanning)
 
   const indexM3 = snapshot.benchmarkPerf.m3
   const universe = snapshot.stocks

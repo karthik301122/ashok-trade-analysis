@@ -21,7 +21,7 @@ export type TickerLivermoreCache = {
 }
 
 const KEY = 'asx-livermore-v1'
-const MAX = 800
+const MAX = 4000
 
 function readAll(): Record<string, TickerLivermoreCache> {
   try {
@@ -48,8 +48,18 @@ export function getTickerLivermore(ticker: string): TickerLivermoreCache | null 
 }
 
 export function setTickerLivermore(ticker: string, scores: LivermoreScores) {
+  setManyTickerLivermore({ [ticker]: scores })
+}
+
+export function setManyTickerLivermore(
+  entries: Record<string, LivermoreScores>,
+  updatedAt = Date.now(),
+) {
+  if (!Object.keys(entries).length) return
   const all = readAll()
-  all[ticker.toUpperCase()] = { updatedAt: Date.now(), scores }
+  for (const [ticker, scores] of Object.entries(entries)) {
+    all[ticker.toUpperCase()] = { updatedAt, scores }
+  }
   writeAll(all)
 }
 

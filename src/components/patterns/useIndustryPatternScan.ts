@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchYahooOhlc } from '../../lib/yahoo'
+import { fetchYahooOhlcForPatternScan } from '../../lib/yahoo'
 import { detectAllCustomRules, filterHitsByWindow, scanPatterns } from '../../lib/patterns'
 import { cacheMissingStartT, getTickerPatternHits } from '../../lib/patternHitsCache'
 import { hasOverviewChartWatch } from '../../lib/overviewPatternHits'
@@ -66,7 +66,7 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
         if (i >= scanList.length) break
         const ticker = scanList[i]
         try {
-          const ohlc = await fetchYahooOhlc(ticker)
+          const ohlc = await fetchYahooOhlcForPatternScan(ticker)
           if (cancelled || gen !== queueGen.current) return
           if (ohlc?.length) {
             const result = scanPatterns(ohlc, { window: prefs.scanWindow })

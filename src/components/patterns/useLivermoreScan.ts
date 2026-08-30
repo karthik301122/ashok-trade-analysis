@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { StockMetrics } from '../../data/types'
-import { getTickerLivermore, setTickerLivermore } from '../../lib/livermoreCache'
-import { fetchYahooOhlc, fetchYahooSeries } from '../../lib/yahoo'
+import { getTickerLivermore, setManyTickerLivermore } from '../../lib/livermoreCache'
+import { fetchYahooOhlcForPatternScan, fetchYahooSeries } from '../../lib/yahoo'
 import { computeLivermoreScores } from '../../lib/patterns/livermoreScores'
+import type { LivermoreScores } from '../../lib/patterns/livermoreScores'
 
-const CONCURRENCY = 2
+const CONCURRENCY = 6
 const STALE_MS = 12 * 60 * 60 * 1000
+const BATCH_WRITE = 30
+const UI_TICK = 15
 const INDEX_SYMBOL = '^AXJO'
 
 /**
@@ -74,6 +77,15 @@ export function useLivermoreScan(stocks: StockMetrics[], enabled: boolean) {
 
       let idx = 0
       let finished = 0
+      const pendingWrites: Record<string, LivermoreScores> = {}
+
+      const flushWrites = () => {
+        if (!Object.keys(pendingWrites).length) return
+        setManyTickerLivermore(pendingWrites)
+        for (const k of Object.keys(pendingWrites)) delete pendingWrites[k]
+        setVersion((v) => v + 1)
+      }
+
       setScanning(true)
       setDone(0)
       setTotal(needFresh.length)
@@ -85,7 +97,7 @@ export function useLivermoreScan(stocks: StockMetrics[], enabled: boolean) {
           const ticker = needFresh[i]
           const meta = stockByTicker.get(ticker.toUpperCase())
           try {
-            const ohlc = await fetchYahooOhlc(ticker)
+            const ohlc = await fetchYahooOhlcForPatternScan(ticker)
             if (cancelled || g !== gen.current) return
             if (ohlc?.length && meta) {
               const scores = computeLivermoreScores(ohlc, {
@@ -94,21 +106,27 @@ export function useLivermoreScan(stocks: StockMetrics[], enabled: boolean) {
                 relativeVolume: meta.relativeVolume ?? 0,
                 rsRating: meta.rs ?? 0,
               })
-              if (scores) setTickerLivermore(ticker, scores)
+              if (scores) {
+                pendingWrites[ticker.toUpperCase()] = scores
+                if (Object.keys(pendingWrites).length >= BATCH_WRITE) flushWrites()
+              }
             }
           } catch {
             /* skip */
           }
           finished++
-          if (!cancelled && g === gen.current) {
+          if (!cancelled && g === gen.current && (finished % UI_TICK === 0 || finished === needFresh.length)) {
             setDone(finished)
-            setVersion((v) => v + 1)
           }
         }
       }
 
       await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()))
-      if (!cancelled && g === gen.current) setScanning(false)
+      if (!cancelled && g === gen.current) {
+        flushWrites()
+        setDone(needFresh.length)
+        setScanning(false)
+      }
     })()
 
     return () => {

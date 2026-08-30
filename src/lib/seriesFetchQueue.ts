@@ -1,7 +1,7 @@
 /** Client-side throttle for `/api/series` — avoids tripping server rate limits during pattern scans. */
 
-const GAP_MS = import.meta.env.PROD ? 120 : 40
-const MAX_CONCURRENT = import.meta.env.PROD ? 2 : 4
+const GAP_MS = import.meta.env.PROD ? 45 : 30
+const MAX_CONCURRENT = import.meta.env.PROD ? 6 : 6
 
 let active = 0
 const waiters: Array<() => void> = []

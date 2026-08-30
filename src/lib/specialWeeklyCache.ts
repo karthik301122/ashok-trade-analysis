@@ -20,7 +20,7 @@ export type TickerWeeklySpecialCache = {
 }
 
 const KEY = 'asx-karthik-weekly-v2'
-const MAX = 600
+const MAX = 4000
 
 function readAll(): Record<string, TickerWeeklySpecialCache> {
   try {
@@ -43,8 +43,18 @@ export function getTickerWeeklySpecial(ticker: string): TickerWeeklySpecialCache
 }
 
 export function setTickerWeeklySpecial(ticker: string, hits: WeeklySpecialHit[]) {
+  setManyTickerWeeklySpecial({ [ticker]: hits })
+}
+
+export function setManyTickerWeeklySpecial(
+  entries: Record<string, WeeklySpecialHit[]>,
+  updatedAt = Date.now(),
+) {
+  if (!Object.keys(entries).length) return
   const all = readAll()
-  all[ticker.toUpperCase()] = { updatedAt: Date.now(), hits }
+  for (const [ticker, hits] of Object.entries(entries)) {
+    all[ticker.toUpperCase()] = { updatedAt, hits }
+  }
   writeAll(all)
 }
 

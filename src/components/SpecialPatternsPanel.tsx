@@ -100,14 +100,14 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
     done: livermoreDone,
     total: livermoreTotal,
     version: livermoreVersion,
-  } = useLivermoreScan(snapshot.stocks, true)
+  } = useLivermoreScan(snapshot.stocks, !weeklyScanning)
 
   const {
     scanning: scriptScanning,
     done: scriptDone,
     total: scriptTotal,
     version: scriptScanVersion,
-  } = useSpecialScriptScan(snapshot.stocks, true)
+  } = useSpecialScriptScan(snapshot.stocks, !weeklyScanning && !livermoreScanning)
 
   const snapshotScan = useMemo(
     () => scanAllSpecialPatterns(snapshot.stocks, indexM3),
