@@ -39,7 +39,7 @@ export function Header({ dark, onToggleDark, page, onPage, authRequired, user, o
           onClick={() => onPage('sector')}
           className="flex shrink-0 items-center gap-2.5 rounded-lg text-left transition hover:opacity-90"
         >
-          <img src="/favicon.svg" alt="" className="h-9 w-9 rounded-lg" />
+          <img src="/favicon.svg" alt="Traders Scope" className="h-9 w-9 rounded-lg" />
           <div className="leading-tight">
             <div className="font-[family-name:var(--font-display)] text-[15px] font-semibold tracking-tight">
               {APP_NAME}
