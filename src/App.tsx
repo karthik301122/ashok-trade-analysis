@@ -173,10 +173,17 @@ export default function App() {
     if (!deskConfig) setDeskConfig(config)
     if (config.productionMode) {
       if (config.isAdmin) {
-        await fetch('/api/snapshot/rebuild-cache', {
+        const rebuildRes = await fetch('/api/snapshot/rebuild-cache', {
           method: 'POST',
           credentials: 'include',
         })
+        if (rebuildRes.status === 404) {
+          // Server not yet deployed with rebuild-cache — fall back to refresh
+          await fetch('/api/snapshot/refresh', {
+            method: 'POST',
+            credentials: 'include',
+          })
+        }
         await waitForSnapshotJob()
       }
       await load(false)
