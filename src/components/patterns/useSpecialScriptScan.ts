@@ -60,7 +60,7 @@ export function useSpecialScriptScan(stocks: StockMetrics[], enabled: boolean) {
         /* index optional */
       }
 
-      const launchpadCtx = {
+      const indexCtx = {
         indexBars: indexOhlc ?? undefined,
         indexReturn5,
         indexReturn20,
@@ -105,7 +105,8 @@ export function useSpecialScriptScan(stocks: StockMetrics[], enabled: boolean) {
             if (cancelled || g !== gen.current) return
             if (ohlc?.length) {
               const scanned = scanOhlcForSpecialPatterns(ohlc, SCAN_PATTERNS, {
-                launchpad: launchpadCtx,
+                launchpad: indexCtx,
+                landscape: indexCtx,
               })
               pendingWrites[ticker.toUpperCase()] = scanned.map((s) => ({
                 patternId: s.patternId,

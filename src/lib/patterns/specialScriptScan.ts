@@ -5,10 +5,12 @@ import { detectCustomRule } from './customRules'
 import type { LaunchpadScanContext } from './launchpadDetect'
 import { rulesFromCustom } from './scanScript'
 import { detectLaunchpad } from './launchpadDetect'
+import { detectLandscape } from './landscapeDetect'
 import { detectVcpBreakout, detectVcpSetup } from './vcpDetect'
 
 export type SpecialScanContext = {
   launchpad?: LaunchpadScanContext
+  landscape?: LaunchpadScanContext
 }
 
 export function evaluateSpecialScanPattern(
@@ -24,6 +26,9 @@ export function evaluateSpecialScanPattern(
   }
   if (pattern.id === 'launchpad') {
     return detectLaunchpad(bars, pattern, ctx?.launchpad)
+  }
+  if (pattern.id === 'landscape') {
+    return detectLandscape(bars, pattern, ctx?.landscape)
   }
   if (!pattern.scanScript?.trim()) return null
   const rules = rulesFromCustom(null, pattern.scanScript)

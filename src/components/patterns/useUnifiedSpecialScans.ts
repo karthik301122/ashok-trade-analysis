@@ -103,7 +103,7 @@ export function useUnifiedSpecialScans(stocks: StockMetrics[], enabled: boolean)
         indexReturn5 = 0
       }
 
-      const launchpadCtx = {
+      const indexCtx = {
         indexBars: indexOhlc ?? undefined,
         indexReturn5,
         indexReturn20,
@@ -193,7 +193,8 @@ export function useUnifiedSpecialScans(stocks: StockMetrics[], enabled: boolean)
 
             if (needScript && SCAN_PATTERNS.length) {
               const scanned = scanOhlcForSpecialPatterns(ohlc, SCAN_PATTERNS, {
-                launchpad: launchpadCtx,
+                launchpad: indexCtx,
+                landscape: indexCtx,
               })
               pendingScript[key] = scanned.map((s) => ({
                 patternId: s.patternId,

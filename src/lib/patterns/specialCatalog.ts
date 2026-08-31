@@ -229,6 +229,30 @@ export const LAUNCHPAD_PATTERNS: SpecialPatternDef[] = [
   },
 ]
 
+/** Landscape — compression near 63-day high with rising SMA (daily OHLC). */
+export const LANDSCAPE_PATTERNS: SpecialPatternDef[] = [
+  {
+    id: 'landscape',
+    name: 'Landscape',
+    category: 'structure',
+    kind: 'scan',
+    bias: 'bullish',
+    formula:
+      'quarterHigh = highest(high, 63)\n' +
+      '(quarterHigh − close) / quarterHigh × 100 < 1.2%\n' +
+      'ATR(20) < ATR(20)[20]\n' +
+      'sum(high−low, 10) < sum(high−low, 10)[10]\n' +
+      'inside bars (5d) ≥ 2\n' +
+      'ROC(20) > 0  AND  0 < ROC(60) < 6%\n' +
+      'RS20 = close / indexClose(20)  AND  RS5 = close / indexClose(5)\n' +
+      'RS20 > 0  AND  RS5 > RS20 × 1.03\n' +
+      'close > SMA(20)  AND  SMA(20) rising 2 sessions\n' +
+      'close < highest(high, 20) × 1.02',
+    description:
+      'Landscape setup: within 1.2% of 63-day high, volatility and range contraction, inside bars, positive momentum with capped 3M ROC, improving RS vs ASX200, rising 20 SMA, coiled under 20-day high.',
+  },
+]
+
 /**
  * Ashok desk formula patterns — evaluated on snapshot metrics (not OHLC shapes).
  * Add new entries here; implement the matching rule in specialDetect.ts.
@@ -403,6 +427,7 @@ export const SPECIAL_PATTERN_CATALOG: SpecialPatternDef[] = [
   ...LIVERMORE_PATTERNS,
   ...VCP_PATTERNS,
   ...LAUNCHPAD_PATTERNS,
+  ...LANDSCAPE_PATTERNS,
   ...SNAPSHOT_PATTERN_CATALOG,
 ]
 
