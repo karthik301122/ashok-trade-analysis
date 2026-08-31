@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OhlcBar } from '../yahoo'
-import { launchpadPasses } from './launchpadDetect'
+import { launchpadCheckDetails, launchpadPasses } from './launchpadDetect'
 
 function barsFromCloses(
   closes: number[],
@@ -51,7 +51,18 @@ describe('launchpadDetect', () => {
   it('flags a compressed coil under resistance', () => {
     const bars = launchpadFixture()
     const i = bars.length - 1
-    expect(launchpadPasses(bars, i)).toBe(true)
+    const ctx = { indexReturn5: 0, indexReturn20: 0 }
+    expect(launchpadPasses(bars, i, ctx)).toBe(true)
+  })
+
+  it('separates RS vs index from absolute ROC', () => {
+    const bars = launchpadFixture()
+    const i = bars.length - 1
+    const d = launchpadCheckDetails(bars, i, { indexReturn5: 0, indexReturn20: 2 })
+    expect(d.roc20).toBeGreaterThan(0)
+    expect(d.rs20VsIndex).toBeLessThan(d.roc20!)
+    expect(d.momentumCondition).toBe(true)
+    expect(d.rsCondition).toBe(false)
   })
 
   it('rejects when ATR is not contracting', () => {

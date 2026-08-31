@@ -2,13 +2,19 @@ import type { OhlcBar } from '../yahoo'
 import type { PatternHit } from './types'
 import type { SpecialPatternDef } from './specialCatalog'
 import { detectCustomRule } from './customRules'
+import type { LaunchpadScanContext } from './launchpadDetect'
 import { rulesFromCustom } from './scanScript'
 import { detectLaunchpad } from './launchpadDetect'
 import { detectVcpBreakout, detectVcpSetup } from './vcpDetect'
 
+export type SpecialScanContext = {
+  launchpad?: LaunchpadScanContext
+}
+
 export function evaluateSpecialScanPattern(
   bars: OhlcBar[],
   pattern: SpecialPatternDef,
+  ctx?: SpecialScanContext,
 ): PatternHit | null {
   if (pattern.id === 'vcp-setup') {
     return detectVcpSetup(bars, pattern)
@@ -17,7 +23,7 @@ export function evaluateSpecialScanPattern(
     return detectVcpBreakout(bars, pattern)
   }
   if (pattern.id === 'launchpad') {
-    return detectLaunchpad(bars, pattern)
+    return detectLaunchpad(bars, pattern, ctx?.launchpad)
   }
   if (!pattern.scanScript?.trim()) return null
   const rules = rulesFromCustom(null, pattern.scanScript)
@@ -34,11 +40,12 @@ export function evaluateSpecialScanPattern(
 export function scanOhlcForSpecialPatterns(
   bars: OhlcBar[],
   patterns: SpecialPatternDef[],
+  ctx?: SpecialScanContext,
 ): { patternId: string; hit: PatternHit }[] {
   const out: { patternId: string; hit: PatternHit }[] = []
   for (const p of patterns) {
     if (p.kind !== 'scan') continue
-    const hit = evaluateSpecialScanPattern(bars, p)
+    const hit = evaluateSpecialScanPattern(bars, p, ctx)
     if (hit) out.push({ patternId: p.id, hit })
   }
   return out

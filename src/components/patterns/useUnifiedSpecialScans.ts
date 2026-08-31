@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { StockMetrics } from '../../data/types'
-import { fetchYahooOhlcForPatternScan, fetchYahooSeries } from '../../lib/yahoo'
+import { fetchYahooOhlcForPatternScan } from '../../lib/yahoo'
 import { karthikPatternHit, type KarthikPatternId } from '../../lib/patterns/karthikWeekly'
 import { KARTHIK_WEEKLY_PATTERNS, SPECIAL_PATTERN_CATALOG } from '../../lib/patterns/specialCatalog'
 import {
@@ -86,18 +86,27 @@ export function useUnifiedSpecialScans(stocks: StockMetrics[], enabled: boolean)
 
     void (async () => {
       let indexReturn20 = 0
+      let indexReturn5 = 0
+      let indexOhlc: Awaited<ReturnType<typeof fetchYahooOhlcForPatternScan>> = null
       try {
-        const indexSeries = await fetchYahooSeries(INDEX_SYMBOL, '6mo')
-        if (!cancelled && g === gen.current) {
-          const idxCloses = indexSeries?.closes ?? []
-          if (idxCloses.length > 21) {
-            const a = idxCloses[idxCloses.length - 1].c
-            const b = idxCloses[idxCloses.length - 1 - 20].c
-            indexReturn20 = b ? ((a - b) / b) * 100 : 0
-          }
+        indexOhlc = await fetchYahooOhlcForPatternScan(INDEX_SYMBOL)
+        const idxCloses = indexOhlc ?? []
+        if (!cancelled && g === gen.current && idxCloses.length > 21) {
+          const a = idxCloses[idxCloses.length - 1].c
+          const b20 = idxCloses[idxCloses.length - 1 - 20].c
+          const b5 = idxCloses[idxCloses.length - 1 - 5].c
+          indexReturn20 = b20 ? ((a - b20) / b20) * 100 : 0
+          indexReturn5 = b5 ? ((a - b5) / b5) * 100 : 0
         }
       } catch {
         indexReturn20 = 0
+        indexReturn5 = 0
+      }
+
+      const launchpadCtx = {
+        indexBars: indexOhlc ?? undefined,
+        indexReturn5,
+        indexReturn20,
       }
 
       let idx = 0
@@ -183,7 +192,9 @@ export function useUnifiedSpecialScans(stocks: StockMetrics[], enabled: boolean)
             }
 
             if (needScript && SCAN_PATTERNS.length) {
-              const scanned = scanOhlcForSpecialPatterns(ohlc, SCAN_PATTERNS)
+              const scanned = scanOhlcForSpecialPatterns(ohlc, SCAN_PATTERNS, {
+                launchpad: launchpadCtx,
+              })
               pendingScript[key] = scanned.map((s) => ({
                 patternId: s.patternId,
                 startT: s.hit.startT,

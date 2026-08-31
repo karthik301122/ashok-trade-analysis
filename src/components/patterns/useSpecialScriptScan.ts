@@ -10,6 +10,7 @@ const CONCURRENCY = 6
 const STALE_MS = 12 * 60 * 60 * 1000
 const BATCH_WRITE = 30
 const UI_TICK = 15
+const INDEX_SYMBOL = '^AXJO'
 
 const SCAN_PATTERNS = SPECIAL_PATTERN_CATALOG.filter((p) => p.kind === 'scan')
 
@@ -42,6 +43,29 @@ export function useSpecialScriptScan(stocks: StockMetrics[], enabled: boolean) {
     let cancelled = false
 
     void (async () => {
+      let indexOhlc: Awaited<ReturnType<typeof fetchYahooOhlcForPatternScan>> = null
+      let indexReturn5 = 0
+      let indexReturn20 = 0
+      try {
+        indexOhlc = await fetchYahooOhlcForPatternScan(INDEX_SYMBOL)
+        const idx = indexOhlc ?? []
+        if (!cancelled && g === gen.current && idx.length > 21) {
+          const a = idx[idx.length - 1].c
+          const b20 = idx[idx.length - 1 - 20].c
+          const b5 = idx[idx.length - 1 - 5].c
+          indexReturn20 = b20 ? ((a - b20) / b20) * 100 : 0
+          indexReturn5 = b5 ? ((a - b5) / b5) * 100 : 0
+        }
+      } catch {
+        /* index optional */
+      }
+
+      const launchpadCtx = {
+        indexBars: indexOhlc ?? undefined,
+        indexReturn5,
+        indexReturn20,
+      }
+
       const needFresh = list.filter((t) => {
         const c = getTickerScriptScan(t)
         return !c || now - c.updatedAt > STALE_MS
@@ -80,7 +104,9 @@ export function useSpecialScriptScan(stocks: StockMetrics[], enabled: boolean) {
             const ohlc = await fetchYahooOhlcForPatternScan(ticker)
             if (cancelled || g !== gen.current) return
             if (ohlc?.length) {
-              const scanned = scanOhlcForSpecialPatterns(ohlc, SCAN_PATTERNS)
+              const scanned = scanOhlcForSpecialPatterns(ohlc, SCAN_PATTERNS, {
+                launchpad: launchpadCtx,
+              })
               pendingWrites[ticker.toUpperCase()] = scanned.map((s) => ({
                 patternId: s.patternId,
                 startT: s.hit.startT,

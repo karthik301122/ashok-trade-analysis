@@ -221,11 +221,11 @@ export const LAUNCHPAD_PATTERNS: SpecialPatternDef[] = [
       'ATR(20) < ATR(20)[20]\n' +
       'sum(high−low, 10) < sum(high−low, 10)[10]\n' +
       'inside bars (5d) ≥ 2\n' +
-      'RS(20) > 0  AND  RS(5) > RS(20)\n' +
+      'RS(20) vs index > 0  AND  RS(5) vs index > RS(20) vs index\n' +
       'ROC(20) > 0  AND  ROC(60) < 8%\n' +
       'close > SMA(20)  AND  close < resistance(20) × 1.03',
     description:
-      'Pre-breakout launchpad: volatility and range contraction, nested inside bars, improving short-term RS, positive month with capped quarter, price coiled under 20-day resistance.',
+      'Pre-breakout launchpad: volatility and range contraction, nested inside bars, improving RS vs ASX200, positive 1-month ROC with capped 3-month ROC, price coiled under 20-day resistance.',
   },
 ]
 
