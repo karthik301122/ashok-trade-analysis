@@ -14,6 +14,7 @@ import {
   readMarketSnapshotStocksChunk,
   runUniverseSnapshot,
   runRetryFailedSnapshot,
+  runRebuildSnapshotFromCache,
 } from './snapshotJob.mjs'
 import {
   createAlertRule,
@@ -265,6 +266,29 @@ export async function handleConnectApi(req, res, send) {
       log('info', 'snapshot.retry_failed', { started: true })
       void runRetryFailedSnapshot().catch((err) => {
         log('error', 'snapshot.retry_failed.error', {
+          message: err instanceof Error ? err.message : String(err),
+        })
+      })
+      send(202, { ok: true, started: true, job: getSnapshotJobStatus() })
+      return true
+    }
+    send(405, { error: 'Method not allowed' })
+    return true
+  }
+
+  if (url.pathname === '/api/snapshot/rebuild-cache') {
+    if (requireAuthConnect(req, send)) return true
+    if (req.method === 'POST') {
+      if (requireAdminOrSend(req, send)) return true
+      const status = getSnapshotJobStatus()
+      if (status.status === 'running') {
+        log('info', 'snapshot.rebuild_cache', { alreadyRunning: true })
+        send(202, { ok: true, job: status })
+        return true
+      }
+      log('info', 'snapshot.rebuild_cache', { started: true })
+      void runRebuildSnapshotFromCache().catch((err) => {
+        log('error', 'snapshot.rebuild_cache.error', {
           message: err instanceof Error ? err.message : String(err),
         })
       })
@@ -653,6 +677,30 @@ export function mountExpressApi(app) {
     log('info', 'snapshot.retry_failed', { started: true })
     void runRetryFailedSnapshot().catch((err) => {
       log('error', 'snapshot.retry_failed.error', {
+        message: err instanceof Error ? err.message : String(err),
+      })
+    })
+    return res.status(202).json({ ok: true, started: true, job: getSnapshotJobStatus() })
+  })
+
+  app.post('/api/snapshot/rebuild-cache', (req, res) => {
+    if (authEnabled() && !getUserFromRequest(req)) {
+      return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    }
+    if (isProductionMode() && !isAdminRequest(req)) {
+      return res.status(403).json({
+        error: 'Admin only in production mode',
+        hint: 'Set ADMIN_USERS or call with x-admin-key header',
+      })
+    }
+    const status = getSnapshotJobStatus()
+    if (status.status === 'running') {
+      log('info', 'snapshot.rebuild_cache', { alreadyRunning: true })
+      return res.status(202).json({ ok: true, job: status })
+    }
+    log('info', 'snapshot.rebuild_cache', { started: true })
+    void runRebuildSnapshotFromCache().catch((err) => {
+      log('error', 'snapshot.rebuild_cache.error', {
         message: err instanceof Error ? err.message : String(err),
       })
     })

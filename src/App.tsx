@@ -173,7 +173,7 @@ export default function App() {
     if (!deskConfig) setDeskConfig(config)
     if (config.productionMode) {
       if (config.isAdmin) {
-        await fetch('/api/snapshot/refresh?force=1', {
+        await fetch('/api/snapshot/rebuild-cache', {
           method: 'POST',
           credentials: 'include',
         })

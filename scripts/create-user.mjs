@@ -10,6 +10,7 @@
 import { loadEnvFile } from '../server/loadEnv.mjs'
 import { authEnabled } from '../server/auth.mjs'
 import { createDbUser } from '../server/userStore.mjs'
+import { dbPath } from '../server/db.mjs'
 
 loadEnvFile()
 
@@ -35,4 +36,5 @@ if (!result.ok) {
   process.exit(1)
 }
 
+console.log(`Database: ${dbPath()}`)
 console.log(`Created user: ${result.user}${admin ? ' (admin)' : ''}`)

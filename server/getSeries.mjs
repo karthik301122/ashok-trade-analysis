@@ -24,16 +24,17 @@ export function resolveYahooSymbol(ticker) {
  * Fetch series with SQLite cache + incremental provider refresh (EODHD / Yahoo).
  * @param {string} ticker
  * @param {string} from ISO date
- * @param {{ forceRefresh?: boolean }} [opts]
+ * @param {{ forceRefresh?: boolean, staleOk?: boolean }} [opts]
  */
 export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
   const yahooSymbol = resolveYahooSymbol(ticker)
   const forceRefresh = Boolean(opts.forceRefresh)
+  const staleOk = Boolean(opts.staleOk)
   const fromTs = Math.floor(new Date(`${from}T00:00:00Z`).getTime() / 1000)
 
   const cached = forceRefresh ? null : readSeriesCache(yahooSymbol)
 
-  if (cached && isSeriesFresh(cached.updatedAt)) {
+  if (cached && (staleOk || isSeriesFresh(cached.updatedAt))) {
     const closes = cached.closes.filter((b) => b.t >= fromTs)
     if (closes.length >= 15) {
       return {
@@ -41,7 +42,11 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
         closes,
         last: closes[closes.length - 1].c,
         high52: recomputeHigh52(closes),
-        meta: { ...(cached.meta || {}), cache: 'hit', store: 'sqlite' },
+        meta: {
+          ...(cached.meta || {}),
+          cache: staleOk && !isSeriesFresh(cached.updatedAt) ? 'stale-ok' : 'hit',
+          store: 'sqlite',
+        },
       }
     }
   }

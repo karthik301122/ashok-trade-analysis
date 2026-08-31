@@ -201,6 +201,14 @@ function persistSnapshot(stocks, indexPerf, loaded, failed) {
   return { builtAt, asOf }
 }
 
+async function loadSeriesForSnapshot(ticker, from2y, forceRefresh = false) {
+  let series = await getCachedSeries(ticker, from2y, { forceRefresh: false, staleOk: true })
+  if (!series?.closes?.length && forceRefresh) {
+    series = await getCachedSeries(ticker, from2y, { forceRefresh: true })
+  }
+  return series
+}
+
 /**
  * Pull tickers with slower pacing + force refresh (transient Yahoo throttling).
  */
@@ -230,7 +238,7 @@ async function retryFailedTickers(
     tickers,
     eodhdEnabled() ? 1 : 2,
     async (ticker) => {
-      const series = await getCachedSeries(ticker, from2y, { forceRefresh: true })
+      const series = await loadSeriesForSnapshot(ticker, from2y, true)
       if (series?.closes?.length) {
         stocks[ticker] = seriesToCachedPerf(series, indexPerf.m3)
       } else {
@@ -371,7 +379,7 @@ export async function runUniverseSnapshot(opts = {}) {
           tickersToFetch,
           concurrency,
           async (ticker) => {
-            const series = await getCachedSeries(ticker, from2y, { forceRefresh: force })
+            const series = await loadSeriesForSnapshot(ticker, from2y, force)
             if (series?.closes?.length) {
               stocks[ticker] = seriesToCachedPerf(series, indexPerf.m3)
             } else {
@@ -446,6 +454,97 @@ export async function runUniverseSnapshot(opts = {}) {
         total,
       })
       console.error('[snapshot] failed:', message)
+      throw err
+    } finally {
+      runningJob = null
+    }
+  })()
+
+  return runningJob
+}
+
+/** Fast rebuild: populate snapshot from SQLite bars only (no EODHD). */
+export function runRebuildSnapshotFromCache() {
+  recoverStaleSnapshotJob()
+  if (runningJob) return runningJob
+
+  runningJob = (async () => {
+    const universe = loadUniverse()
+    const allTickers = universe.map((u) => u.ticker)
+    const total = allTickers.length
+    const started = Date.now()
+    const from2y = from2yIso()
+    const from5y = from5yIso()
+    const existing = readMarketSnapshotRow()
+
+    setJob('running', {
+      started_at: started,
+      finished_at: null,
+      message: 'Scanning SQLite cache',
+      loaded: 0,
+      failed: 0,
+      total,
+    })
+
+    try {
+      let indexPerf = existing?.indexPerf
+      if (!indexPerf) {
+        const indexSeries = await getCachedSeries('^AXJO', from5y, { staleOk: true })
+        if (!indexSeries?.closes?.length) {
+          throw new Error('Could not load ASX200 (^AXJO) from cache')
+        }
+        const indexCloses = indexSeries.closes.map((b) => b.c)
+        const indexM3 =
+          indexCloses.length > 63
+            ? ((indexCloses[indexCloses.length - 1] - indexCloses[indexCloses.length - 1 - 63]) /
+                indexCloses[indexCloses.length - 1 - 63]) *
+              100
+            : 0
+        indexPerf = seriesToCachedPerf(indexSeries, indexM3)
+      }
+
+      const stocks = {}
+      for (let i = 0; i < allTickers.length; i++) {
+        const ticker = allTickers[i]
+        const series = await getCachedSeries(ticker, from2y, { staleOk: true })
+        if (series?.closes?.length) {
+          stocks[ticker] = seriesToCachedPerf(series, indexPerf.m3)
+        }
+        if (i % 200 === 0 || i === allTickers.length - 1) {
+          const loaded = Object.keys(stocks).length
+          setJob('running', {
+            started_at: started,
+            message: `Cache scan ${i + 1}/${total}`,
+            loaded,
+            failed: total - loaded,
+            total,
+          })
+        }
+      }
+
+      const loaded = Object.keys(stocks).length
+      const failed = total - loaded
+      const { builtAt } = persistSnapshot(stocks, indexPerf, loaded, failed)
+      setJob('done', {
+        started_at: started,
+        finished_at: builtAt,
+        message: failed ? `ok · ${failed} not in cache` : 'ok · from cache',
+        loaded,
+        failed,
+        total,
+      })
+      console.log(`[snapshot] cache rebuild · loaded=${loaded} failed=${failed} total=${total}`)
+      return { loaded, failed, builtAt, skipped: false }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setJob('error', {
+        started_at: started,
+        finished_at: Date.now(),
+        message,
+        loaded: 0,
+        failed: 0,
+        total,
+      })
       throw err
     } finally {
       runningJob = null
