@@ -5,7 +5,8 @@ import { getDb } from './db.mjs'
 import { getCachedSeries } from './getSeries.mjs'
 import { eodhdEnabled } from './eodhd.mjs'
 import { seriesToCachedPerf, mapPool } from './perfMath.mjs'
-import { applyLiveQuotesToStockMap, getLiveQuotesMeta } from './liveQuotes.mjs'
+import { applyLiveQuotesToStockMap, getLiveQuotesMeta, stripLiveOverlayFromPerf } from './liveQuotes.mjs'
+import { clearBreadthChartCache } from './breadthHistory.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -81,7 +82,7 @@ export function getSnapshotJobStatus() {
   }
 }
 
-export function readMarketSnapshotRow() {
+export function readMarketSnapshotDbRow() {
   const row = getDb().prepare('SELECT * FROM market_snapshot WHERE id = 1').get()
   if (!row) return null
   return {
@@ -90,7 +91,16 @@ export function readMarketSnapshotRow() {
     loaded: Number(row.loaded),
     failed: Number(row.failed),
     indexPerf: JSON.parse(row.index_perf_json),
-    stocks: applyLiveQuotesToStockMap(JSON.parse(row.stocks_perf_json)),
+    stocks: JSON.parse(row.stocks_perf_json),
+  }
+}
+
+export function readMarketSnapshotRow() {
+  const row = readMarketSnapshotDbRow()
+  if (!row) return null
+  return {
+    ...row,
+    stocks: applyLiveQuotesToStockMap(row.stocks),
   }
 }
 
@@ -171,6 +181,24 @@ function from5yIso() {
   return d.toISOString().slice(0, 10)
 }
 
+async function loadIndexPerf(from5y, opts = {}) {
+  const indexSeries = await getCachedSeries('^AXJO', from5y, {
+    forceRefresh: Boolean(opts.forceRefresh),
+    staleOk: Boolean(opts.staleOk),
+  })
+  if (!indexSeries?.closes?.length) {
+    throw new Error('Could not load ASX200 (^AXJO)')
+  }
+  const indexCloses = indexSeries.closes.map((b) => b.c)
+  const indexM3 =
+    indexCloses.length > 63
+      ? ((indexCloses[indexCloses.length - 1] - indexCloses[indexCloses.length - 1 - 63]) /
+          indexCloses[indexCloses.length - 1 - 63]) *
+        100
+      : 0
+  return seriesToCachedPerf(indexSeries, indexM3)
+}
+
 function persistSnapshot(stocks, indexPerf, loaded, failed) {
   const builtAt = Date.now()
   const asOf = new Date().toLocaleString('en-AU', {
@@ -178,6 +206,11 @@ function persistSnapshot(stocks, indexPerf, loaded, failed) {
     dateStyle: 'medium',
     timeStyle: 'short',
   })
+
+  const cleanStocks = {}
+  for (const [ticker, perf] of Object.entries(stocks)) {
+    cleanStocks[ticker] = stripLiveOverlayFromPerf(perf)
+  }
 
   getDb()
     .prepare(
@@ -197,10 +230,11 @@ function persistSnapshot(stocks, indexPerf, loaded, failed) {
       loaded,
       failed,
       JSON.stringify(indexPerf),
-      JSON.stringify(stocks),
+      JSON.stringify(cleanStocks),
     )
 
   clearStocksPerfCache()
+  clearBreadthChartCache()
   return { builtAt, asOf }
 }
 
@@ -293,7 +327,7 @@ export async function runUniverseSnapshot(opts = {}) {
   const pacing = snapshotFetchPacing()
   const concurrency = Number(opts.concurrency) || pacing.concurrency
   const poolDelayMs = pacing.delayMs
-  const existing = readMarketSnapshotRow()
+  const existing = readMarketSnapshotDbRow()
 
   if (!force && !retryFailedOnly && existing && isSnapshotFresh(existing.builtAt)) {
     return {
@@ -322,21 +356,10 @@ export async function runUniverseSnapshot(opts = {}) {
     })
 
     try {
-      let indexPerf = existing?.indexPerf
-      if (!indexPerf || force) {
-        const indexSeries = await getCachedSeries('^AXJO', from5y, { forceRefresh: force })
-        if (!indexSeries?.closes?.length) {
-          throw new Error('Could not load ASX200 (^AXJO)')
-        }
-        const indexCloses = indexSeries.closes.map((b) => b.c)
-        const indexM3 =
-          indexCloses.length > 63
-            ? ((indexCloses[indexCloses.length - 1] - indexCloses[indexCloses.length - 1 - 63]) /
-                indexCloses[indexCloses.length - 1 - 63]) *
-              100
-            : 0
-        indexPerf = seriesToCachedPerf(indexSeries, indexM3)
-      }
+      const indexPerf = await loadIndexPerf(from5y, {
+        forceRefresh: force,
+        staleOk: !force,
+      })
 
       const stocks = retryFailedOnly && existing?.stocks ? { ...existing.stocks } : {}
       const failedTickers = []
@@ -478,7 +501,7 @@ export function runRebuildSnapshotFromCache() {
     const started = Date.now()
     const from2y = from2yIso()
     const from5y = from5yIso()
-    const existing = readMarketSnapshotRow()
+    const existing = readMarketSnapshotDbRow()
 
     setJob('running', {
       started_at: started,
@@ -490,21 +513,7 @@ export function runRebuildSnapshotFromCache() {
     })
 
     try {
-      let indexPerf = existing?.indexPerf
-      if (!indexPerf) {
-        const indexSeries = await getCachedSeries('^AXJO', from5y, { staleOk: true })
-        if (!indexSeries?.closes?.length) {
-          throw new Error('Could not load ASX200 (^AXJO) from cache')
-        }
-        const indexCloses = indexSeries.closes.map((b) => b.c)
-        const indexM3 =
-          indexCloses.length > 63
-            ? ((indexCloses[indexCloses.length - 1] - indexCloses[indexCloses.length - 1 - 63]) /
-                indexCloses[indexCloses.length - 1 - 63]) *
-              100
-            : 0
-        indexPerf = seriesToCachedPerf(indexSeries, indexM3)
-      }
+      const indexPerf = await loadIndexPerf(from5y, { staleOk: true })
 
       const stocks = {}
       for (let i = 0; i < allTickers.length; i++) {
@@ -565,7 +574,7 @@ export function runRetryFailedSnapshot() {
 /** Kick a background refresh if snapshot is missing/stale. */
 export function maybeStartBackgroundSnapshot() {
   recoverStaleSnapshotJob()
-  const existing = readMarketSnapshotRow()
+  const existing = readMarketSnapshotDbRow()
   if (existing && isSnapshotFresh(existing.builtAt)) return
   if (runningJob) return
   console.log('[snapshot] starting background universe build…')

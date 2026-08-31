@@ -77,7 +77,7 @@ export function seriesToCachedPerf(series, indexM3) {
   const rawRs = 50 + (m3 - indexM3) * 2.2
   const rs = Math.round(Math.max(1, Math.min(99, rawRs)))
 
-  const sparkSrc = closes.slice(-24)
+  const sparkSrc = closes.slice(-63)
   const base = sparkSrc[0] || last
   const spark = sparkSrc.map((c) => round1((c / base) * 100))
 

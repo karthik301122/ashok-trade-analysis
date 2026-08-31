@@ -103,7 +103,7 @@ export type BreadthBundle = {
     rs50?: number | null
     rvol15?: number | null
   }[]
-  historyKind: 'spark-proxy' | 'server-daily'
+  historyKind: 'spark-proxy' | 'server-daily' | 'ohlc-daily'
 }
 
 function rankedByWeight(stocks: StockMetrics[]): StockMetrics[] {
@@ -204,7 +204,7 @@ function sparkHistory(stocks: StockMetrics[]) {
   const thrust: number[] = []
   const dates: string[] = []
   const usable = stocks.filter((s) => (s.spark?.length ?? 0) >= 2)
-  const n = Math.min(24, len)
+  const n = Math.min(63, len)
 
   for (let i = 0; i < n; i++) {
     let adv = 0
@@ -342,25 +342,94 @@ export function appendDailyBreadthPoint(
   }
 }
 
+type DailyHistoryPoint = {
+  day: string
+  above20: number
+  above50: number
+  above200: number
+  rsi50: number
+  adNet: number
+  advancing?: number | null
+  declining?: number | null
+  near52w?: number | null
+  rsi70?: number | null
+  rsi30?: number | null
+  rs50?: number | null
+  rvol15?: number | null
+}
+
+const MIN_OHLC_CHART_DAYS = 10
+const MIN_SERVER_CHART_DAYS = 14
+
+function applyDailyHistory(
+  hist: ReturnType<typeof sparkHistory>,
+  points: DailyHistoryPoint[],
+) {
+  const n = points.length
+  const sparkAdv = [...hist.advances]
+  const sparkDec = [...hist.declines]
+  const sparkNear = [...hist.near52w]
+  const sparkOb = [...hist.rsiOb]
+  const sparkOs = [...hist.rsiOs]
+  const sparkNeu = [...hist.rsiNeutral]
+  const sparkRs = [...hist.rs50]
+  const sparkRvol = [...hist.rvol15]
+
+  hist.dates = points.map((p) => formatBreadthChartDay(p.day))
+  hist.above20 = points.map((p) => p.above20)
+  hist.above50 = points.map((p) => p.above50)
+  hist.above200 = points.map((p) => p.above200)
+
+  hist.advances = points.map((p, i) =>
+    typeof p.advancing === 'number' ? p.advancing : tailAlign(sparkAdv, n)[i],
+  )
+  hist.declines = points.map((p, i) =>
+    typeof p.declining === 'number' ? p.declining : tailAlign(sparkDec, n)[i],
+  )
+  hist.near52w = points.map((p, i) =>
+    typeof p.near52w === 'number' ? p.near52w : tailAlign(sparkNear, n)[i],
+  )
+  hist.rsiOb = points.map((p, i) =>
+    typeof p.rsi70 === 'number' ? p.rsi70 : tailAlign(sparkOb, n)[i],
+  )
+  hist.rsiOs = points.map((p, i) =>
+    typeof p.rsi30 === 'number' ? p.rsi30 : tailAlign(sparkOs, n)[i],
+  )
+  hist.rsiNeutral = points.map((_, i) => {
+    const ob = hist.rsiOb[i]
+    const os = hist.rsiOs[i]
+    const neu = tailAlign(sparkNeu, n)[i]
+    return round1(Math.max(0, 100 - ob - os) || neu)
+  })
+  hist.rs50 = points.map((p, i) =>
+    typeof p.rs50 === 'number' ? p.rs50 : tailAlign(sparkRs, n)[i],
+  )
+  hist.rvol15 = points.map((p, i) =>
+    typeof p.rvol15 === 'number' ? p.rvol15 : tailAlign(sparkRvol, n)[i],
+  )
+
+  hist.thrust = hist.advances.map((adv, i) => {
+    const dec = hist.declines[i]
+    return round1(adv + dec > 0 ? adv / (adv + dec) : 0.5)
+  })
+  hist.thrustMa = hist.thrust.map((_, i) => {
+    const slice = hist.thrust.slice(Math.max(0, i - 9), i + 1)
+    return round1(slice.reduce((a, b) => a + b, 0) / slice.length)
+  })
+
+  let cum = 0
+  hist.adHistory = points.map((p) => {
+    cum += p.adNet
+    return cum
+  })
+}
+
 export function computeBreadth(
   snapshot: MarketSnapshot,
   universeId: UniverseId,
   opts?: {
-    serverPoints?: {
-      day: string
-      above20: number
-      above50: number
-      above200: number
-      rsi50: number
-      adNet: number
-      advancing?: number | null
-      declining?: number | null
-      near52w?: number | null
-      rsi70?: number | null
-      rsi30?: number | null
-      rs50?: number | null
-      rvol15?: number | null
-    }[]
+    serverPoints?: DailyHistoryPoint[]
+    chartHistory?: DailyHistoryPoint[]
   },
 ): BreadthBundle {
   const stocks = filterUniverse(snapshot.stocks, universeId)
@@ -444,67 +513,18 @@ export function computeBreadth(
   })
 
   const serverPoints = opts?.serverPoints?.length ? opts.serverPoints : []
-  const historyKind = serverPoints.length >= 2 ? 'server-daily' : 'spark-proxy'
+  const chartHistory = opts?.chartHistory?.length ? opts.chartHistory : []
 
-  // Merge server daily SMA / breadth metrics; never flatten series to today's constant.
-  if (historyKind === 'server-daily') {
-    const n = serverPoints.length
-    const sparkAdv = [...hist.advances]
-    const sparkDec = [...hist.declines]
-    const sparkNear = [...hist.near52w]
-    const sparkOb = [...hist.rsiOb]
-    const sparkOs = [...hist.rsiOs]
-    const sparkNeu = [...hist.rsiNeutral]
-    const sparkRs = [...hist.rs50]
-    const sparkRvol = [...hist.rvol15]
+  let historyKind: BreadthBundle['historyKind'] = 'spark-proxy'
+  let dailyHistory = serverPoints
 
-    hist.dates = serverPoints.map((p) => formatBreadthChartDay(p.day))
-    hist.above20 = serverPoints.map((p) => p.above20)
-    hist.above50 = serverPoints.map((p) => p.above50)
-    hist.above200 = serverPoints.map((p) => p.above200)
-
-    hist.advances = serverPoints.map((p, i) =>
-      typeof p.advancing === 'number' ? p.advancing : tailAlign(sparkAdv, n)[i],
-    )
-    hist.declines = serverPoints.map((p, i) =>
-      typeof p.declining === 'number' ? p.declining : tailAlign(sparkDec, n)[i],
-    )
-    hist.near52w = serverPoints.map((p, i) =>
-      typeof p.near52w === 'number' ? p.near52w : tailAlign(sparkNear, n)[i],
-    )
-    hist.rsiOb = serverPoints.map((p, i) =>
-      typeof p.rsi70 === 'number' ? p.rsi70 : tailAlign(sparkOb, n)[i],
-    )
-    hist.rsiOs = serverPoints.map((p, i) =>
-      typeof p.rsi30 === 'number' ? p.rsi30 : tailAlign(sparkOs, n)[i],
-    )
-    hist.rsiNeutral = serverPoints.map((_, i) => {
-      const ob = hist.rsiOb[i]
-      const os = hist.rsiOs[i]
-      const neu = tailAlign(sparkNeu, n)[i]
-      return round1(Math.max(0, 100 - ob - os) || neu)
-    })
-    hist.rs50 = serverPoints.map((p, i) =>
-      typeof p.rs50 === 'number' ? p.rs50 : tailAlign(sparkRs, n)[i],
-    )
-    hist.rvol15 = serverPoints.map((p, i) =>
-      typeof p.rvol15 === 'number' ? p.rvol15 : tailAlign(sparkRvol, n)[i],
-    )
-
-    hist.thrust = hist.advances.map((adv, i) => {
-      const dec = hist.declines[i]
-      return round1(adv + dec > 0 ? adv / (adv + dec) : 0.5)
-    })
-    hist.thrustMa = hist.thrust.map((_, i) => {
-      const slice = hist.thrust.slice(Math.max(0, i - 9), i + 1)
-      return round1(slice.reduce((a, b) => a + b, 0) / slice.length)
-    })
-
-    let cum = 0
-    hist.adHistory = serverPoints.map((p) => {
-      cum += p.adNet
-      return cum
-    })
+  if (chartHistory.length >= MIN_OHLC_CHART_DAYS) {
+    historyKind = 'ohlc-daily'
+    dailyHistory = chartHistory
+    applyDailyHistory(hist, chartHistory)
+  } else if (serverPoints.length >= MIN_SERVER_CHART_DAYS) {
+    historyKind = 'server-daily'
+    applyDailyHistory(hist, serverPoints)
   }
 
   const smaRows: BreadthRow[] = [
@@ -666,7 +686,7 @@ export function computeBreadth(
       rs50: hist.rs50,
       rvol15: hist.rvol15,
     },
-    dailyHistory: serverPoints,
+    dailyHistory,
     historyKind,
   }
 }

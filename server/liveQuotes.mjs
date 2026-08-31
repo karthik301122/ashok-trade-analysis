@@ -115,6 +115,13 @@ export function applyLiveToCachedPerf(perf, live) {
   }
 }
 
+/** Remove session overlay fields before persisting EOD snapshot to SQLite. */
+export function stripLiveOverlayFromPerf(perf) {
+  if (!perf || typeof perf !== 'object') return perf
+  const { liveAt: _liveAt, ...rest } = perf
+  return rest
+}
+
 /** @param {Record<string, object>} stocks */
 export function applyLiveQuotesToStockMap(stocks, now = Date.now()) {
   const liveMap = readLiveQuotesMap(now)

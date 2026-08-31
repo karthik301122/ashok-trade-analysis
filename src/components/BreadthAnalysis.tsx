@@ -37,13 +37,17 @@ export function BreadthAnalysis({ snapshot, active = true }: Props) {
   const [copied, setCopied] = useState(false)
   const [listOpen, setListOpen] = useState(false)
   const [serverPoints, setServerPoints] = useState<BreadthDailyPoint[]>([])
+  const [chartHistory, setChartHistory] = useState<BreadthDailyPoint[]>([])
 
   useEffect(() => {
     if (!active) return
     let cancelled = false
     ;(async () => {
-      const points = await fetchBreadthDaily(universeId)
-      if (!cancelled) setServerPoints(points)
+      const { points, chartHistory: history } = await fetchBreadthDaily(universeId)
+      if (!cancelled) {
+        setServerPoints(points)
+        setChartHistory(history)
+      }
     })()
     return () => {
       cancelled = true
@@ -51,8 +55,8 @@ export function BreadthAnalysis({ snapshot, active = true }: Props) {
   }, [universeId, active])
 
   const bundle = useMemo(
-    () => computeBreadth(deferredSnapshot, universeId, { serverPoints }),
-    [deferredSnapshot, universeId, serverPoints],
+    () => computeBreadth(deferredSnapshot, universeId, { serverPoints, chartHistory }),
+    [deferredSnapshot, universeId, serverPoints, chartHistory],
   )
   const universeLabel = UNIVERSES.find((u) => u.id === universeId)?.label ?? universeId
 

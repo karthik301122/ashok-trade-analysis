@@ -71,19 +71,35 @@ describe('filterUniverse', () => {
 })
 
 describe('computeBreadth server history', () => {
-  it('does not flatten non-SMA series when server daily history exists', () => {
-    const stocks = Array.from({ length: 10 }, (_, i) =>
-      stock({
-        ticker: `S${i}`,
-        weight: 10 - i,
-        spark: [98, 99, 100, 101, 102],
-        d1: i % 2 === 0 ? 1 : -1,
-        above20ma: i < 6,
-        rsi: 40 + i * 3,
-        rs: 45 + i * 2,
-        relativeVolume: 1 + i * 0.2,
-      }),
-    )
+  const stocks = Array.from({ length: 10 }, (_, i) =>
+    stock({
+      ticker: `S${i}`,
+      weight: 10 - i,
+      spark: [98, 99, 100, 101, 102],
+      d1: i % 2 === 0 ? 1 : -1,
+      above20ma: i < 6,
+      rsi: 40 + i * 3,
+      rs: 45 + i * 2,
+      relativeVolume: 1 + i * 0.2,
+    }),
+  )
+
+  it('prefers ohlc chart history over short server snapshots', () => {
+    const chartHistory = Array.from({ length: 15 }, (_, i) => ({
+      day: `2026-08-${String(i + 1).padStart(2, '0')}`,
+      above20: 30 + i,
+      above50: 35 + i,
+      above200: 40 + i,
+      rsi50: 45,
+      adNet: i % 2 === 0 ? 2 : -1,
+      advancing: 6,
+      declining: 4,
+      near52w: 10 + i,
+      rsi70: 5,
+      rsi30: 15,
+      rs50: 42 + i,
+      rvol15: 8,
+    }))
     const serverPoints = [
       {
         day: '2026-08-29',
@@ -116,14 +132,36 @@ describe('computeBreadth server history', () => {
         rvol15: 11,
       },
     ]
+    const bundle = computeBreadth(snapshot(stocks), 'asx200', { serverPoints, chartHistory })
+    expect(bundle.historyKind).toBe('ohlc-daily')
+    expect(bundle.history.above20).toHaveLength(15)
+    expect(bundle.history.above20[0]).toBe(30)
+    expect(bundle.history.above20[14]).toBe(44)
+    expect(bundle.history.rs50[5]).toBe(47)
+  })
+
+  it('does not flatten non-SMA series when server daily history exists', () => {
+    const serverPoints = Array.from({ length: 14 }, (_, i) => ({
+      day: `2026-08-${String(i + 1).padStart(2, '0')}`,
+      above20: 40 + i,
+      above50: 35 + i,
+      above200: 30 + i,
+      rsi50: 45,
+      adNet: i % 2 === 0 ? 2 : -1,
+      advancing: 6,
+      declining: 4,
+      near52w: 10 + i,
+      rsi70: 5,
+      rsi30: 15,
+      rs50: 42 + i,
+      rvol15: 8,
+    }))
     const bundle = computeBreadth(snapshot(stocks), 'asx200', { serverPoints })
     expect(bundle.historyKind).toBe('server-daily')
-    expect(bundle.history.above20).toEqual([40, 55])
-    expect(bundle.history.advances).toEqual([6, 4])
-    expect(bundle.history.declines).toEqual([4, 6])
-    expect(bundle.history.near52w).toEqual([10, 12])
-    expect(bundle.history.rs50).toEqual([42, 48])
-    expect(bundle.history.dates[0]).toMatch(/29/)
-    expect(bundle.history.dates[1]).toMatch(/30/)
+    expect(bundle.history.above20).toHaveLength(14)
+    expect(bundle.history.advances[0]).toBe(6)
+    expect(bundle.history.declines[0]).toBe(4)
+    expect(bundle.history.near52w[0]).toBe(10)
+    expect(bundle.history.rs50[0]).toBe(42)
   })
 })

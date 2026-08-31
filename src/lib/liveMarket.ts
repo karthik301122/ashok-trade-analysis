@@ -79,11 +79,12 @@ function parseServerSnapshot(
   config: DeskServerConfig,
   acceptStale: boolean,
 ): { stockPerfs: Map<string, CachedPerf>; indexPerf: CachedPerf; failed: number } | null {
+  const fetchedCount = Object.keys(json.stocks || {}).length
   const stockCount =
-    typeof json.loaded === 'number' && json.loaded > 0
-      ? json.loaded
-      : json.stocks
-        ? Object.keys(json.stocks).length
+    fetchedCount > 0
+      ? fetchedCount
+      : typeof json.loaded === 'number' && json.loaded > 0
+        ? json.loaded
         : 0
   const minRatio = minSnapshotRatio(config, json.store === 'sqlite')
   const enough = stockCount >= tickers.length * minRatio
@@ -209,10 +210,16 @@ async function fetchServerSnapshotJson(
     return null
   }
 
+  const loadedCount = Object.keys(stocks).length
+  const expectedLoaded = meta.loaded ?? loadedCount
+  const failed =
+    loadedCount < expectedLoaded
+      ? expectedLoaded - loadedCount + (meta.failed ?? 0)
+      : meta.failed ?? 0
   return {
     builtAt: meta.builtAt,
-    loaded: meta.loaded,
-    failed: meta.failed,
+    loaded: loadedCount,
+    failed,
     fresh: meta.fresh,
     indexPerf: meta.indexPerf,
     stocks,
@@ -243,7 +250,7 @@ function seriesToCachedPerf(series: SeriesResult, indexM3: number): CachedPerf {
   const rawRs = 50 + (m3 - indexM3) * 2.2
   const rs = Math.round(Math.max(1, Math.min(99, rawRs)))
 
-  const sparkSrc = closes.slice(-24)
+  const sparkSrc = closes.slice(-63)
   const base = sparkSrc[0] || last
   const spark = sparkSrc.map((c) => round1((c / base) * 100))
 

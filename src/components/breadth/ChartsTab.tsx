@@ -86,9 +86,11 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-        {bundle.historyKind === 'server-daily'
-          ? `Charts use ${bundle.dailyHistory.length} daily snapshots from the server (SMA %, advances/declines, RSI, RS, RVOL when recorded). Older days may use ~24-session spark estimates until you visit Breadth on more trading days.`
-          : 'Chart history uses the last ~24 trading sessions from price sparks. Open Breadth on multiple days to build true calendar-day history on the server.'}
+        {bundle.historyKind === 'ohlc-daily'
+          ? `Charts use ${bundle.dailyHistory.length} trading sessions reconstructed from stored OHLC bars (~3 months of history).`
+          : bundle.historyKind === 'server-daily'
+            ? `Charts use ${bundle.dailyHistory.length} daily snapshots from the server (SMA %, advances/declines, RSI, RS, RVOL when recorded).`
+            : 'Chart history uses the last ~63 trading sessions from price sparks until enough OHLC history is available.'}
         {' '}
         {bundle.adNet < 0
           ? 'A-D is soft under the surface — be cautious trusting index-level strength right now.'

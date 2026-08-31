@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { eodhdCodeToAppTicker } from './eodhd.mjs'
-import { applyLiveToCachedPerf, isAsxMarketSession } from './liveQuotes.mjs'
+import { applyLiveToCachedPerf, isAsxMarketSession, stripLiveOverlayFromPerf } from './liveQuotes.mjs'
 
 describe('eodhdCodeToAppTicker', () => {
   it('maps AU codes to app tickers', () => {
@@ -43,6 +43,16 @@ describe('applyLiveToCachedPerf', () => {
     expect(out.d1).toBe(2.1)
     expect(out.volume).toBe(2000)
     expect(out.liveAt).toBe(1)
+  })
+
+  it('strips live overlay fields for persistence', () => {
+    const out = stripLiveOverlayFromPerf({
+      d1: 2.1,
+      lastPrice: 52.5,
+      liveAt: 123,
+    })
+    expect(out).toEqual({ d1: 2.1, lastPrice: 52.5 })
+    expect('liveAt' in out).toBe(false)
   })
 })
 

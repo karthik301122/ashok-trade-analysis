@@ -4,6 +4,7 @@
 import { authEnabled, handleAuthApi, requireAuthOrSend, getUserFromRequest, authPublicConfig, createSessionToken, sessionSetCookieHeader, verifyCredentials, sessionClearCookieHeader } from './auth.mjs'
 import { getCachedSeries, getIntradaySeries, seriesCacheFileCount } from './getSeries.mjs'
 import { readBreadthHistory, upsertBreadthPoint, UNIVERSE_IDS } from './breadthStore.mjs'
+import { computeBreadthChartHistory } from './breadthHistory.mjs'
 import { dbPath } from './db.mjs'
 import {
   getSnapshotJobStatus,
@@ -55,6 +56,12 @@ function getUniverseCount() {
     universeCountCache = 2000
   }
   return universeCountCache
+}
+
+function snapshotStockCount(stocks) {
+  if (!stocks) return 0
+  if (Array.isArray(stocks)) return stocks.length
+  return Object.keys(stocks).length
 }
 
 function requireAuthConnect(req, send) {
@@ -310,7 +317,17 @@ export async function handleConnectApi(req, res, send) {
         send(400, { error: 'Invalid universe' })
         return true
       }
-      send(200, { universe, points: readBreadthHistory(universe), store: 'sqlite' })
+      const snap = readMarketSnapshotRow()
+      const chartHistory =
+        snap && snapshotStockCount(snap.stocks) > 0
+          ? computeBreadthChartHistory(universe, snap.stocks, snap.builtAt)
+          : []
+      send(200, {
+        universe,
+        points: readBreadthHistory(universe),
+        chartHistory,
+        store: 'sqlite',
+      })
       return true
     }
     if (req.method === 'POST') {
@@ -748,7 +765,17 @@ export function mountExpressApi(app) {
     if (!UNIVERSE_IDS.has(universe)) {
       return res.status(400).json({ error: 'Invalid universe' })
     }
-    return res.json({ universe, points: readBreadthHistory(universe), store: 'sqlite' })
+    const points = readBreadthHistory(universe)
+    let chartHistory = []
+    try {
+      const snap = readMarketSnapshotRow()
+      if (snap && snapshotStockCount(snap.stocks) > 0) {
+        chartHistory = computeBreadthChartHistory(universe, snap.stocks, snap.builtAt)
+      }
+    } catch {
+      /* optional */
+    }
+    return res.json({ universe, points, chartHistory, store: 'sqlite' })
   })
 
   app.post('/api/breadth/daily', (req, res) => {
