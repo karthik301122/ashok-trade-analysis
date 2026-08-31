@@ -478,7 +478,7 @@ export function computeBreadth(
     hist.rsiOs = serverPoints.map((p, i) =>
       typeof p.rsi30 === 'number' ? p.rsi30 : tailAlign(sparkOs, n)[i],
     )
-    hist.rsiNeutral = serverPoints.map((p, i) => {
+    hist.rsiNeutral = serverPoints.map((_, i) => {
       const ob = hist.rsiOb[i]
       const os = hist.rsiOs[i]
       const neu = tailAlign(sparkNeu, n)[i]
