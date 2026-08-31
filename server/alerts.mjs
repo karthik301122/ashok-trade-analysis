@@ -1,6 +1,7 @@
 import { getDb } from './db.mjs'
 import { readMarketSnapshotRow } from './snapshotJob.mjs'
 import { matchAlertRule } from './alertMatch.mjs'
+import { queryPatternScanState } from './patternScanStore.mjs'
 import { log } from './log.mjs'
 
 /**
@@ -94,16 +95,20 @@ function safeJson(s) {
  */
 export async function evaluateAlerts() {
   const snap = readMarketSnapshotRow()
-  if (!snap?.stocks) {
-    return { fired: [], error: 'No market snapshot — run npm run snapshot' }
-  }
-
-  const stocks = Object.entries(snap.stocks).map(([ticker, p]) => ({ ticker, ...p }))
+  const stocks = snap?.stocks
+    ? Object.entries(snap.stocks).map(([ticker, p]) => ({ ticker, ...p }))
+    : []
   const rules = listAlertRules().filter((r) => r.enabled)
   const fired = []
 
   for (const rule of rules) {
-    const matches = matchAlertRule(rule, stocks, snap)
+    let matches = []
+    if (rule.type === 'pattern_forming' || rule.type === 'pattern_confirmed') {
+      matches = matchPatternAlertRule(rule)
+    } else {
+      if (!stocks.length) continue
+      matches = matchAlertRule(rule, stocks, snap)
+    }
     for (const m of matches) {
       const eventId = recordEvent(rule.id, m.ticker, m.message, m.payload)
       let delivered = false
@@ -124,10 +129,22 @@ export async function evaluateAlerts() {
     }
   }
   log('info', 'alerts.evaluate', { rules: rules.length, fired: fired.length, stocks: stocks.length })
+  if (!stocks.length && fired.length === 0 && rules.some((r) => r.type !== 'pattern_forming' && r.type !== 'pattern_confirmed')) {
+    return { fired, error: 'No market snapshot — run npm run snapshot', evaluatedAt: Date.now(), stockCount: 0 }
+  }
   return { fired, evaluatedAt: Date.now(), stockCount: stocks.length }
 }
 
 function recordEvent(ruleId, ticker, message, payload) {
+  const dayStart = Date.now() - 24 * 60 * 60 * 1000
+  if (ticker) {
+    const dup = getDb()
+      .prepare(
+        `SELECT id FROM alert_events WHERE rule_id = ? AND ticker = ? AND created_at > ? LIMIT 1`,
+      )
+      .get(ruleId, ticker, dayStart)
+    if (dup) return Number(dup.id)
+  }
   const info = getDb()
     .prepare(
       `INSERT INTO alert_events (rule_id, ticker, message, payload_json, created_at, delivered)
@@ -135,6 +152,32 @@ function recordEvent(ruleId, ticker, message, payload) {
     )
     .run(ruleId, ticker, message, JSON.stringify(payload || {}), Date.now())
   return Number(info.lastInsertRowid)
+}
+
+function matchPatternAlertRule(rule) {
+  const p = rule.params || {}
+  const minScore = Number(p.minScore ?? 60)
+  const patternId = p.patternId ? String(p.patternId) : null
+  const confirmed = rule.type === 'pattern_confirmed'
+  const rows = queryPatternScanState({
+    minScore: confirmed ? 100 : minScore,
+    patternId,
+    confirmed: confirmed ? true : false,
+  })
+  const out = []
+  for (const r of rows) {
+    if (confirmed && r.score < 100) continue
+    if (!confirmed && r.confirmed) continue
+    const label = patternId || r.patternId
+    out.push({
+      ticker: r.ticker,
+      message: confirmed
+        ? `${r.ticker} ${label} confirmed (100%)`
+        : `${r.ticker} ${label} forming ${r.score}%`,
+      payload: { patternId: r.patternId, score: r.score, confirmed: r.confirmed },
+    })
+  }
+  return out.slice(0, 25)
 }
 
 async function postWebhook(url, body) {

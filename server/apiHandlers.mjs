@@ -24,6 +24,7 @@ import {
   listAlertEvents,
   listAlertRules,
 } from './alerts.mjs'
+import { upsertPatternScanBatch } from './patternScanStore.mjs'
 import { getFundamentals } from './fundamentals.mjs'
 import { checkRateLimit, clientKey, log, pruneRateLimitBuckets } from './log.mjs'
 import { seriesProviderName, isIntradayInterval } from './fetchSeries.mjs'
@@ -433,6 +434,15 @@ export async function handleConnectApi(req, res, send) {
     return true
   }
 
+  if (url.pathname === '/api/pattern-scan/batch' && req.method === 'POST') {
+    if (requireAuthConnect(req, send)) return true
+    const body = await readJsonBody(req)
+    const upserted = upsertPatternScanBatch(body?.rows)
+    const alerts = await evaluateAlerts()
+    send(200, { upserted, fired: alerts.fired?.length ?? 0, alerts })
+    return true
+  }
+
   if (url.pathname === '/api/alerts/events' && req.method === 'GET') {
     if (requireAuthConnect(req, send)) return true
     send(200, { events: listAlertEvents(50) })
@@ -815,6 +825,15 @@ export function mountExpressApi(app) {
     }
     deleteAlertRule(Number(req.params.id))
     return res.json({ ok: true })
+  })
+
+  app.post('/api/pattern-scan/batch', async (req, res) => {
+    if (authEnabled() && !getUserFromRequest(req)) {
+      return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    }
+    const upserted = upsertPatternScanBatch(req.body?.rows)
+    const alerts = await evaluateAlerts()
+    return res.json({ upserted, fired: alerts.fired?.length ?? 0, alerts })
   })
 
   app.get('/api/alerts/events', (req, res) => {

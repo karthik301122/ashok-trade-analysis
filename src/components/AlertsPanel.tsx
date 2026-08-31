@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Bell, Play, Plus, Trash2 } from 'lucide-react'
+import { SPECIAL_PATTERN_CATALOG } from '../lib/patterns/specialCatalog'
 
 type Rule = {
   id: number
   name: string
   type: string
-  params: Record<string, number>
+  params: Record<string, number | string>
   webhookUrl: string | null
   enabled: boolean
 }
@@ -19,11 +20,32 @@ type EventRow = {
   delivered: boolean
 }
 
-const TYPES: { id: string; label: string; defaults: Record<string, number> }[] = [
+const SCAN_PATTERN_OPTIONS = SPECIAL_PATTERN_CATALOG
+  .filter((p) => p.kind === 'scan')
+  .map((p) => ({ id: p.id, label: p.name }))
+
+const TYPES: {
+  id: string
+  label: string
+  defaults: Record<string, number | string>
+  pattern?: boolean
+}[] = [
   { id: 'rs_min', label: 'RS ≥ threshold', defaults: { minRs: 70 } },
   { id: 'rvol_min', label: 'RVOL ≥ threshold', defaults: { minRvol: 2 } },
   { id: 'm3_outperform', label: '3M excess vs index', defaults: { minExcess: 8 } },
   { id: 'breadth_above20', label: 'Breadth % above 20 SMA', defaults: { minPct: 60 } },
+  {
+    id: 'pattern_forming',
+    label: 'Pattern forming (score %)',
+    defaults: { minScore: 60, patternId: 'landscape' },
+    pattern: true,
+  },
+  {
+    id: 'pattern_confirmed',
+    label: 'Pattern confirmed (100%)',
+    defaults: { patternId: 'landscape' },
+    pattern: true,
+  },
 ]
 
 export function AlertsPanel() {
@@ -33,6 +55,7 @@ export function AlertsPanel() {
   const [type, setType] = useState('rs_min')
   const [paramKey, setParamKey] = useState('minRs')
   const [paramVal, setParamVal] = useState(70)
+  const [patternId, setPatternId] = useState('landscape')
   const [webhook, setWebhook] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -55,13 +78,24 @@ export function AlertsPanel() {
     if (!t) return
     const key = Object.keys(t.defaults)[0]
     setParamKey(key)
-    setParamVal(t.defaults[key])
+    const val = t.defaults[key]
+    setParamVal(typeof val === 'number' ? val : 60)
+    if (t.pattern) {
+      const pid = t.defaults.patternId
+      if (typeof pid === 'string') setPatternId(pid)
+    }
   }, [type])
 
   const addRule = async () => {
     setBusy(true)
     setMsg(null)
     try {
+      const t = TYPES.find((x) => x.id === type)
+      const params: Record<string, number | string> = t?.pattern
+        ? type === 'pattern_confirmed'
+          ? { patternId }
+          : { minScore: paramVal, patternId }
+        : { [paramKey]: paramVal }
       await fetch('/api/alerts/rules', {
         method: 'POST',
         credentials: 'include',
@@ -69,7 +103,7 @@ export function AlertsPanel() {
         body: JSON.stringify({
           name,
           type,
-          params: { [paramKey]: paramVal },
+          params,
           webhookUrl: webhook.trim() || null,
         }),
       })
@@ -97,7 +131,7 @@ export function AlertsPanel() {
       })
       const json = await res.json()
       if (json.error) setMsg(json.error)
-      else setMsg(`Evaluated — ${json.fired?.length ?? 0} fires (max 25/rule)`)
+      else setMsg(`Evaluated — ${json.fired?.length ?? 0} fires (max 25/rule, 24h dedup/ticker)`)
       await refresh()
     } catch {
       setMsg('Evaluate failed')
@@ -105,6 +139,8 @@ export function AlertsPanel() {
       setBusy(false)
     }
   }
+
+  const selectedType = TYPES.find((x) => x.id === type)
 
   return (
     <div className="space-y-5">
@@ -114,8 +150,10 @@ export function AlertsPanel() {
             <Bell size={22} /> Alerts
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-[var(--color-ink-soft)]">
-            Rules run against the SQLite market snapshot (not live ticks). Optional webhook URL
-            receives JSON POSTs. Needs <code className="text-xs">npm run snapshot</code> first.
+            Snapshot rules (RS, RVOL, breadth) need <code className="text-xs">npm run snapshot</code>.
+            Pattern forming alerts use OHLC scan scores uploaded from your desk session (Landscape,
+            Launchpad, VCP, etc.) — open Markets or Patterns so scans run, then alerts fire at your
+            threshold (e.g. 60% of conditions met before a full hit).
           </p>
         </div>
         <button
@@ -155,13 +193,38 @@ export function AlertsPanel() {
               </option>
             ))}
           </select>
-          <input
-            type="number"
-            value={paramVal}
-            onChange={(e) => setParamVal(Number(e.target.value))}
-            className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-sm"
-            title={paramKey}
-          />
+          {selectedType?.pattern ? (
+            <select
+              value={patternId}
+              onChange={(e) => setPatternId(e.target.value)}
+              className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-sm"
+            >
+              {SCAN_PATTERN_OPTIONS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="number"
+              value={paramVal}
+              onChange={(e) => setParamVal(Number(e.target.value))}
+              className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-sm"
+              title={paramKey}
+            />
+          )}
+          {selectedType?.pattern && type === 'pattern_forming' && (
+            <input
+              type="number"
+              value={paramVal}
+              onChange={(e) => setParamVal(Number(e.target.value))}
+              className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-sm"
+              title="Min forming score %"
+              min={1}
+              max={99}
+            />
+          )}
           <input
             value={webhook}
             onChange={(e) => setWebhook(e.target.value)}

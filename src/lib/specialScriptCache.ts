@@ -2,6 +2,8 @@ export type ScriptScanHit = {
   patternId: string
   startT: number
   endT: number
+  score?: number
+  confirmed?: boolean
 }
 
 export type TickerScriptScanCache = {

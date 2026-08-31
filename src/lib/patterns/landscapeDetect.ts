@@ -2,6 +2,7 @@ import { sma, type OhlcBar } from '../yahoo'
 import type { PatternBias, PatternHit } from './types'
 import { atr } from './livermoreScores'
 import type { LaunchpadScanContext } from './launchpadDetect'
+import { scoreFromFlags } from './patternFormingScore'
 
 const LOOKBACK_BARS = 10
 const MIN_BARS = 63
@@ -180,6 +181,25 @@ export function landscapePasses(
   if (res20 == null || close >= res20 * 1.02) return false
 
   return true
+}
+
+export function landscapeFormingScore(
+  bars: OhlcBar[],
+  i: number,
+  ctx?: LandscapeScanContext,
+): number {
+  if (bars.length < MIN_BARS || i < MIN_BARS - 1) return 0
+  const d = landscapeCheckDetails(bars, i, ctx)
+  return scoreFromFlags([
+    d.nearQuarterHigh,
+    d.atrContraction,
+    d.rangeContraction,
+    d.insideCondition,
+    d.momentumCondition,
+    d.rsCondition,
+    d.ma20Rising,
+    d.underResistance,
+  ])
 }
 
 export function detectLandscape(

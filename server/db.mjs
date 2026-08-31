@@ -125,6 +125,14 @@ export function getDb() {
       quote_ts INTEGER,
       updated_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS pattern_scan_state (
+      ticker TEXT NOT NULL,
+      pattern_id TEXT NOT NULL,
+      score REAL NOT NULL,
+      confirmed INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (ticker, pattern_id)
+    );
   `)
   migrateBreadthDailyColumns(db)
   dbSingleton = db

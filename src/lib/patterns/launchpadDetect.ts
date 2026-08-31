@@ -2,6 +2,8 @@ import { sma, type OhlcBar } from '../yahoo'
 import type { PatternBias, PatternHit } from './types'
 import { atr } from './livermoreScores'
 
+import { scoreFromFlags } from './patternFormingScore'
+
 const LOOKBACK_BARS = 10
 const MIN_BARS = 61
 
@@ -169,6 +171,24 @@ export function launchpadPasses(
   if (close <= ma20 || close >= res * 1.03) return false
 
   return true
+}
+
+export function launchpadFormingScore(
+  bars: OhlcBar[],
+  i: number,
+  ctx?: LaunchpadScanContext,
+): number {
+  if (bars.length < MIN_BARS || i < MIN_BARS - 1) return 0
+  const d = launchpadCheckDetails(bars, i, ctx)
+  return scoreFromFlags([
+    d.atrContraction,
+    d.rangeContraction,
+    d.insideCondition,
+    d.rsCondition,
+    d.momentumCondition,
+    Boolean(d.ma20 != null && d.close > d.ma20),
+    d.pivotCondition,
+  ])
 }
 
 export function detectLaunchpad(

@@ -14,6 +14,7 @@ import type { LivermoreScores } from '../../lib/patterns/livermoreScores'
 import { getTickerScriptScan, setManyTickerScriptScan } from '../../lib/specialScriptCache'
 import type { ScriptScanHit } from '../../lib/specialScriptCache'
 import { scanOhlcForSpecialPatterns } from '../../lib/patterns/specialScriptScan'
+import { postPatternScanBatch, type PatternScanUploadRow } from '../../lib/patternScanApi'
 
 const CONCURRENCY = 6
 const STALE_MS = 12 * 60 * 60 * 1000
@@ -114,6 +115,7 @@ export function useUnifiedSpecialScans(stocks: StockMetrics[], enabled: boolean)
       const pendingWeekly: Record<string, WeeklySpecialHit[]> = {}
       const pendingLivermore: Record<string, LivermoreScores> = {}
       const pendingScript: Record<string, ScriptScanHit[]> = {}
+      const pendingPatternUpload: PatternScanUploadRow[] = []
 
       const flushWrites = () => {
         let bumpedWeekly = false
@@ -137,6 +139,10 @@ export function useUnifiedSpecialScans(stocks: StockMetrics[], enabled: boolean)
         if (bumpedWeekly) setWeeklyVersion((v) => v + 1)
         if (bumpedLivermore) setLivermoreVersion((v) => v + 1)
         if (bumpedScript) setScriptVersion((v) => v + 1)
+        if (pendingPatternUpload.length) {
+          const chunk = pendingPatternUpload.splice(0, pendingPatternUpload.length)
+          void postPatternScanBatch(chunk)
+        }
       }
 
       setScanning(true)
@@ -196,11 +202,26 @@ export function useUnifiedSpecialScans(stocks: StockMetrics[], enabled: boolean)
                 launchpad: indexCtx,
                 landscape: indexCtx,
               })
-              pendingScript[key] = scanned.map((s) => ({
-                patternId: s.patternId,
-                startT: s.hit.startT,
-                endT: s.hit.endT,
-              }))
+              const lastT = ohlc[ohlc.length - 1].t
+              pendingScript[key] = scanned
+                .filter((s) => s.score >= 60)
+                .map((s) => ({
+                  patternId: s.patternId,
+                  startT: s.hit?.startT ?? lastT,
+                  endT: s.hit?.endT ?? lastT,
+                  score: s.score,
+                  confirmed: s.confirmed,
+                }))
+              for (const s of scanned) {
+                if (s.score >= 60) {
+                  pendingPatternUpload.push({
+                    ticker: key,
+                    patternId: s.patternId,
+                    score: s.score,
+                    confirmed: s.confirmed,
+                  })
+                }
+              }
             }
           } catch {
             /* skip ticker */

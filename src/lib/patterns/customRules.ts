@@ -122,6 +122,14 @@ export function ruleSetPasses(bars: OhlcBar[], i: number, rules: CustomRuleSet):
   return conds.every((c) => conditionPasses(bars, i, c))
 }
 
+/** Fraction of rule conditions met at bar i (0–100). */
+export function ruleSetProgress(bars: OhlcBar[], i: number, rules: CustomRuleSet): number {
+  const conds = rules.conditions.filter((c) => c.metric && c.op)
+  if (!conds.length) return 0
+  const passed = conds.filter((c) => conditionPasses(bars, i, c)).length
+  return Math.round((passed / conds.length) * 100)
+}
+
 export function describeRuleSet(rules: CustomRuleSet | null | undefined): string {
   if (!rules?.conditions?.length) return ''
   const parts = rules.conditions.map((c) => {

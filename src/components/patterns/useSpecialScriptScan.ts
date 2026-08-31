@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { StockMetrics } from '../../data/types'
 import { SPECIAL_PATTERN_CATALOG } from '../../lib/patterns/specialCatalog'
 import { scanOhlcForSpecialPatterns } from '../../lib/patterns/specialScriptScan'
+import { postPatternScanBatch, type PatternScanUploadRow } from '../../lib/patternScanApi'
 import { getTickerScriptScan, setManyTickerScriptScan } from '../../lib/specialScriptCache'
 import type { ScriptScanHit } from '../../lib/specialScriptCache'
 import { fetchYahooOhlcForPatternScan } from '../../lib/yahoo'
@@ -83,12 +84,17 @@ export function useSpecialScriptScan(stocks: StockMetrics[], enabled: boolean) {
       let idx = 0
       let finished = 0
       const pendingWrites: Record<string, ScriptScanHit[]> = {}
+      const pendingPatternUpload: PatternScanUploadRow[] = []
 
       const flushWrites = () => {
         if (!Object.keys(pendingWrites).length) return
         setManyTickerScriptScan(pendingWrites)
         for (const k of Object.keys(pendingWrites)) delete pendingWrites[k]
         setVersion((v) => v + 1)
+        if (pendingPatternUpload.length) {
+          const chunk = pendingPatternUpload.splice(0, pendingPatternUpload.length)
+          void postPatternScanBatch(chunk)
+        }
       }
 
       setScanning(true)
@@ -108,11 +114,27 @@ export function useSpecialScriptScan(stocks: StockMetrics[], enabled: boolean) {
                 launchpad: indexCtx,
                 landscape: indexCtx,
               })
-              pendingWrites[ticker.toUpperCase()] = scanned.map((s) => ({
-                patternId: s.patternId,
-                startT: s.hit.startT,
-                endT: s.hit.endT,
-              }))
+              const lastT = ohlc[ohlc.length - 1].t
+              const key = ticker.toUpperCase()
+              pendingWrites[key] = scanned
+                .filter((s) => s.score >= 60)
+                .map((s) => ({
+                  patternId: s.patternId,
+                  startT: s.hit?.startT ?? lastT,
+                  endT: s.hit?.endT ?? lastT,
+                  score: s.score,
+                  confirmed: s.confirmed,
+                }))
+              for (const s of scanned) {
+                if (s.score >= 60) {
+                  pendingPatternUpload.push({
+                    ticker: key,
+                    patternId: s.patternId,
+                    score: s.score,
+                    confirmed: s.confirmed,
+                  })
+                }
+              }
               if (Object.keys(pendingWrites).length >= BATCH_WRITE) flushWrites()
             }
           } catch {
