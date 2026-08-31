@@ -7,7 +7,6 @@ import { loadEnvFile } from './loadEnv.mjs'
 import { maybeStartBackgroundSnapshot } from './snapshotJob.mjs'
 
 loadEnvFile()
-assertAuthConfigured()
 
 function sendJson(res, status, body, extraHeaders = {}) {
   res.statusCode = status
@@ -22,6 +21,7 @@ export function asxDataPlugin() {
   return {
     name: 'asx-data-api',
     configureServer(server) {
+      assertAuthConfigured()
       maybeStartBackgroundSnapshot()
       server.middlewares.use(async (req, res, next) => {
         try {
