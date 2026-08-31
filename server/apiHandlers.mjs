@@ -36,6 +36,7 @@ import {
   isProductionMode,
   readinessFromSnapshot,
   requireAdminOrSend,
+  requireSessionOrAdmin,
   seriesRateLimitPerMinute,
   snapshotRateLimitPerMinute,
 } from './production.mjs'
@@ -229,7 +230,7 @@ export async function handleConnectApi(req, res, send) {
       })
       return true
     }
-    if (requireAuthConnect(req, send)) return true
+    if (requireSessionOrAdmin(req, send)) return true
     if (req.method === 'POST') {
       if (requireAdminOrSend(req, send)) return true
       const force = url.searchParams.get('force') === '1'
@@ -254,7 +255,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/snapshot/retry-failed') {
-    if (requireAuthConnect(req, send)) return true
+    if (requireSessionOrAdmin(req, send)) return true
     if (req.method === 'POST') {
       if (requireAdminOrSend(req, send)) return true
       const status = getSnapshotJobStatus()
@@ -277,7 +278,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/snapshot/rebuild-cache') {
-    if (requireAuthConnect(req, send)) return true
+    if (requireSessionOrAdmin(req, send)) return true
     if (req.method === 'POST') {
       if (requireAdminOrSend(req, send)) return true
       const status = getSnapshotJobStatus()
@@ -635,9 +636,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/snapshot/refresh', (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
-      return res.status(401).json({ error: 'Unauthorized', authRequired: true })
-    }
+    if (requireSessionOrAdmin(req, (status, body) => res.status(status).json(body))) return
     if (isProductionMode() && !isAdminRequest(req)) {
       return res.status(403).json({
         error: 'Admin only in production mode',
@@ -660,9 +659,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/snapshot/retry-failed', (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
-      return res.status(401).json({ error: 'Unauthorized', authRequired: true })
-    }
+    if (requireSessionOrAdmin(req, (status, body) => res.status(status).json(body))) return
     if (isProductionMode() && !isAdminRequest(req)) {
       return res.status(403).json({
         error: 'Admin only in production mode',
@@ -684,9 +681,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/snapshot/rebuild-cache', (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
-      return res.status(401).json({ error: 'Unauthorized', authRequired: true })
-    }
+    if (requireSessionOrAdmin(req, (status, body) => res.status(status).json(body))) return
     if (isProductionMode() && !isAdminRequest(req)) {
       return res.status(403).json({
         error: 'Admin only in production mode',

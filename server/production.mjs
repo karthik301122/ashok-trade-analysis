@@ -1,4 +1,4 @@
-import { getUserFromRequest } from './auth.mjs'
+import { getUserFromRequest, authEnabled } from './auth.mjs'
 import { eodhdOnlyMode } from './eodhd.mjs'
 import { isDbAdmin } from './userStore.mjs'
 
@@ -50,6 +50,14 @@ export function isAdminRequest(req) {
   if (key && req.headers?.['x-admin-key'] === key) return true
   const user = getUserFromRequest(req)
   return isAdminUser(user)
+}
+
+/** Cron / ops: signed-in user or valid `x-admin-key` when auth is enabled. */
+export function requireSessionOrAdmin(req, send) {
+  if (!authEnabled()) return false
+  if (getUserFromRequest(req) || isAdminRequest(req)) return false
+  send(401, { error: 'Unauthorized', authRequired: true })
+  return true
 }
 
 /**

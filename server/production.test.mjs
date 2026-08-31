@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import {
   browserUniverseFetchEnabled,
+  isAdminRequest,
   isAdminUser,
   isProductionMode,
   minSnapshotStockRatio,
@@ -42,6 +43,12 @@ describe('production mode', () => {
     process.env.ADMIN_USERS = 'ops,admin'
     expect(isAdminUser('Admin')).toBe(true)
     expect(isAdminUser('guest')).toBe(false)
+  })
+
+  it('accepts x-admin-key for cron', () => {
+    process.env.ADMIN_API_KEY = 'cron-secret'
+    expect(isAdminRequest({ headers: { 'x-admin-key': 'cron-secret' } })).toBe(true)
+    expect(isAdminRequest({ headers: { 'x-admin-key': 'wrong' } })).toBe(false)
   })
 
   it('raises series rate limit in production', () => {

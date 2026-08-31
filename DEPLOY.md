@@ -75,7 +75,7 @@ See `.env.example`.
 | `EODHD_ONLY` | `true` — optional strict mode: no Yahoo fallback or browser crawl |
 | `PRODUCTION_MODE` | `true` — shared server snapshot only (recommended for multi-user) |
 | `ADMIN_USERS` | Comma list of usernames allowed to force snapshot rebuild |
-| `ADMIN_API_KEY` | Optional `x-admin-key` header for cron (`POST /api/snapshot/refresh`) |
+| `ADMIN_API_KEY` | Optional `x-admin-key` header for cron (`POST /api/snapshot/rebuild-cache`) |
 | `SERIES_RATE_LIMIT` | `/api/series` per IP per minute (default `600` in production) |
 | `SNAPSHOT_RATE_LIMIT` | `/api/snapshot` GET per IP per minute (default `60` in production) |
 | `AUTH_SECRET` + `AUTH_USERS` | **Required** when `PRODUCTION_MODE=true` — login is mandatory |
@@ -95,8 +95,60 @@ SERIES_RATE_LIMIT=600
 ```
 
 - Users load **`GET /api/snapshot`** only — no browser crawl of ~2k tickers.
-- Schedule: `curl -X POST -H "x-admin-key: $ADMIN_API_KEY" http://localhost:4173/api/snapshot/refresh?force=1`
+- Schedule: `curl -X POST -H "x-admin-key: $ADMIN_API_KEY" https://tradersscope.com/api/snapshot/rebuild-cache`
+- Weekly full EODHD pull (optional): `.../api/snapshot/refresh?force=1`
 - Check readiness: `GET /api/health` → `readiness.multiUserReady`
+
+### Scheduled snapshot (Azure cron — Logic App)
+
+Keeps the shared desk fresh without manual Refresh. Uses **Azure Logic Apps (Consumption)** only — no GitHub cron required.
+
+**Why:** In production all users read one server snapshot. A daily rebuild from SQLite cache (~1–2 min) updates prices/sector stats for everyone. Optional weekly `force=1` pulls new bars from EODHD.
+
+**Cost (typical):** **~$0–2/month**. One Logic App run per day = ~30 HTTP calls/month. Consumption Logic Apps bill per action (fractions of a cent); well within free/low tiers. You already pay for App Service — the cron does not add another app server.
+
+**Step 1 — Set `ADMIN_API_KEY` on the web app**
+
+1. Generate a secret: `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`
+2. Azure Portal → **tradersscope-app** → **Configuration** → add `ADMIN_API_KEY` = that value → **Save**
+
+**Step 2 — Deploy Logic App (Portal UI)**
+
+1. **Create a resource** → **Logic App** → **Consumption** (not Standard)
+2. Name: `tradersscope-snapshot-cron`, region: **Australia East**, same resource group as the web app
+3. After create: **Logic app designer** → **Blank Logic App**
+4. Trigger: **Recurrence**
+   - Interval: **1 Day**
+   - Time zone: **(UTC+10:00) Canberra, Melbourne, Sydney**
+   - At: **5:30 PM** (after ASX close; adjust if needed)
+5. Action: **HTTP**
+   - Method: **POST**
+   - URI: `https://tradersscope.com/api/snapshot/rebuild-cache`
+   - Headers: `x-admin-key` = same value as `ADMIN_API_KEY` on the web app
+6. **Save** → **Run Trigger** once to test → check **Run history** (should be Succeeded)
+
+**Step 2 alternate — CLI + Bicep (same repo)**
+
+```powershell
+az login
+$key = "paste-ADMIN_API_KEY-here"
+.\azure\deploy-snapshot-cron.ps1 -ResourceGroup tradersscope-rg -AdminApiKey $key
+```
+
+**Optional — weekly full EODHD refresh**
+
+Add a second Logic App (or a second HTTP action on Sunday 2:00 AM) calling:
+
+`POST https://tradersscope.com/api/snapshot/refresh?force=1` with the same `x-admin-key` header. Slow (~hours); run off-hours only.
+
+**Verify**
+
+```bash
+curl -s https://tradersscope.com/api/health | jq '.readiness, .job'
+```
+
+After the scheduled run, `snapshotLoaded` should be high (~2400+) and `snapshotAcceptable` true.
+
 
 ### Auth (mandatory in production)
 
