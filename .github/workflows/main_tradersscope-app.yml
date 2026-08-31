@@ -37,7 +37,7 @@ jobs:
       - name: Create deploy zip
         run: |
           mkdir -p release
-          cp -r dist server src/data package.json package-lock.json node_modules release/
+          cp -r dist server scripts src/data package.json package-lock.json node_modules release/
           cd release && zip -rq ../release.zip .
 
       - name: Upload artifact for deployment job
