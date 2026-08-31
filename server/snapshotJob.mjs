@@ -16,6 +16,23 @@ const RETRY_COOLDOWN_MS = 30_000
 /** @type {Promise<unknown> | null} */
 let runningJob = null
 
+/** If the DB says "running" but this process has no job, a restart interrupted the build. */
+export function recoverStaleSnapshotJob() {
+  if (runningJob) return false
+  const row = getDb().prepare('SELECT * FROM snapshot_job WHERE id = 1').get()
+  if (!row || row.status !== 'running') return false
+  setJob('error', {
+    started_at: row.started_at,
+    finished_at: Date.now(),
+    message: 'Interrupted (server restart) — tap Refresh to rebuild',
+    loaded: row.loaded,
+    failed: row.failed,
+    total: row.total,
+  })
+  console.warn('[snapshot] cleared stale running job from previous process')
+  return true
+}
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
@@ -49,6 +66,7 @@ function setJob(status, fields = {}) {
 }
 
 export function getSnapshotJobStatus() {
+  recoverStaleSnapshotJob()
   const row = getDb().prepare('SELECT * FROM snapshot_job WHERE id = 1').get()
   if (!row) return { status: 'idle' }
   return {
@@ -255,6 +273,7 @@ function snapshotFetchPacing() {
  * @param {{ force?: boolean, concurrency?: number, retryFailed?: boolean, skipRetryPass?: boolean }} [opts]
  */
 export async function runUniverseSnapshot(opts = {}) {
+  recoverStaleSnapshotJob()
   if (runningJob) return runningJob
 
   const force = Boolean(opts.force)
@@ -443,6 +462,7 @@ export function runRetryFailedSnapshot() {
 
 /** Kick a background refresh if snapshot is missing/stale. */
 export function maybeStartBackgroundSnapshot() {
+  recoverStaleSnapshotJob()
   const existing = readMarketSnapshotRow()
   if (existing && isSnapshotFresh(existing.builtAt)) return
   if (runningJob) return
