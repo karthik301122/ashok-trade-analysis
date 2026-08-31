@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useDeferredValue } from 'react'
 import { Copy } from 'lucide-react'
 import type { MarketSnapshot } from '../data/types'
 import {
@@ -18,7 +18,7 @@ import { copyTickersToTradingView } from '../lib/tradingview'
 import { fetchBreadthDaily, postBreadthDaily, type BreadthDailyPoint } from '../lib/breadthApi'
 import { membershipSourceLabel } from '../data/indexMembership'
 
-type Props = { snapshot: MarketSnapshot }
+type Props = { snapshot: MarketSnapshot; active?: boolean }
 type TabId = 'sma' | 'rsi' | 'rsvol' | 'charts' | 'howto' | 'monthpulse'
 
 const TABS: { id: TabId; label: string }[] = [
@@ -30,7 +30,8 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'monthpulse', label: 'This Month' },
 ]
 
-export function BreadthAnalysis({ snapshot }: Props) {
+export function BreadthAnalysis({ snapshot, active = true }: Props) {
+  const deferredSnapshot = useDeferredValue(snapshot)
   const [universeId, setUniverseId] = useState<UniverseId>('asx200')
   const [tab, setTab] = useState<TabId>('sma')
   const [copied, setCopied] = useState(false)
@@ -38,6 +39,7 @@ export function BreadthAnalysis({ snapshot }: Props) {
   const [serverPoints, setServerPoints] = useState<BreadthDailyPoint[]>([])
 
   useEffect(() => {
+    if (!active) return
     let cancelled = false
     ;(async () => {
       const points = await fetchBreadthDaily(universeId)
@@ -46,43 +48,60 @@ export function BreadthAnalysis({ snapshot }: Props) {
     return () => {
       cancelled = true
     }
-  }, [universeId])
+  }, [universeId, active])
 
   const bundle = useMemo(
-    () => computeBreadth(snapshot, universeId, { serverPoints }),
-    [snapshot, universeId, serverPoints],
+    () => computeBreadth(deferredSnapshot, universeId, { serverPoints }),
+    [deferredSnapshot, universeId, serverPoints],
   )
   const universeLabel = UNIVERSES.find((u) => u.id === universeId)?.label ?? universeId
 
   useEffect(() => {
+    if (!active) return
     let cancelled = false
-    const b = computeBreadth(snapshot, universeId)
     const rsi30 =
-      b.stocks.length > 0
+      bundle.stocks.length > 0
         ? Math.round(
-            (b.stocks.filter((s) => (s.rsi ?? 50) <= 30).length / b.stocks.length) * 1000,
+            (bundle.stocks.filter((s) => (s.rsi ?? 50) <= 30).length / bundle.stocks.length) *
+              1000,
           ) / 10
         : 0
     void postBreadthDaily(universeId, {
-      above20: b.pctAbove20,
-      above50: b.pctAbove50,
-      above200: b.pctAbove200,
-      rsi50: b.pctRsi50,
-      adNet: b.adNet,
-      advancing: b.advancing,
-      declining: b.declining,
-      near52w: b.pctNear52w,
-      rsi70: b.pctRsi70,
+      above20: bundle.pctAbove20,
+      above50: bundle.pctAbove50,
+      above200: bundle.pctAbove200,
+      rsi50: bundle.pctRsi50,
+      adNet: bundle.adNet,
+      advancing: bundle.advancing,
+      declining: bundle.declining,
+      near52w: bundle.pctNear52w,
+      rsi70: bundle.pctRsi70,
       rsi30,
-      rs50: b.pctRs50,
-      rvol15: b.pctRvol15,
+      rs50: bundle.pctRs50,
+      rvol15: bundle.pctRvol15,
     }).then((points) => {
       if (!cancelled && points.length) setServerPoints(points)
     })
     return () => {
       cancelled = true
     }
-  }, [universeId, snapshot])
+  }, [
+    active,
+    universeId,
+    snapshot.asOf,
+    bundle.pctAbove20,
+    bundle.pctAbove50,
+    bundle.pctAbove200,
+    bundle.pctRsi50,
+    bundle.adNet,
+    bundle.advancing,
+    bundle.declining,
+    bundle.pctNear52w,
+    bundle.pctRsi70,
+    bundle.pctRs50,
+    bundle.pctRvol15,
+    bundle.stocks.length,
+  ])
 
   const copyUniverse = async () => {
     const tickers = bundle.stocks.map((s) => s.ticker)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react'
 import { Header } from './components/Header'
 import { ViewTabs, type ViewId } from './components/ViewTabs'
 import { SectorTable } from './components/SectorTable'
@@ -192,6 +192,13 @@ export default function App() {
     await load(true)
   }, [deskConfig, load, waitForSnapshotJob])
 
+  const handlePageChange = useCallback(
+    (p: 'sector' | 'breadth' | 'alerts' | 'special-patterns') => {
+      startTransition(() => setPage(p))
+    },
+    [],
+  )
+
   const canUseApp = !authChecking && (!authRequired || Boolean(user))
 
   useEffect(() => {
@@ -274,7 +281,7 @@ export default function App() {
         dark={dark}
         onToggleDark={() => setDark((d) => !d)}
         page={page}
-        onPage={setPage}
+        onPage={handlePageChange}
         authRequired={authRequired}
         user={user}
         onLogout={authRequired ? handleLogout : undefined}
@@ -416,62 +423,66 @@ export default function App() {
               </button>
             </div>
 
-            {page === 'alerts' ? (
+            <div hidden={page !== 'alerts'}>
               <AlertsPanel />
-            ) : page === 'special-patterns' ? (
-              <SpecialPatternsPanel snapshot={displaySnapshot!} />
-            ) : page === 'breadth' ? (
-              <BreadthAnalysis snapshot={displaySnapshot!} />
-            ) : (
-              <div className="space-y-4">
-                <div>
-                  <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold tracking-tight md:text-3xl">
-                    {APP_NAME}
-                  </h1>
-                  <p className="text-sm text-[var(--color-ink-soft)]">
-                    {displaySnapshot!.asOf} · vs {displaySnapshot!.benchmark} ·{' '}
-                    {displaySnapshot!.industries.length} industries
-                    {backfilling ? ' · updating…' : ''}
-                  </p>
-                </div>
-
-                <ViewTabs active={view} onChange={setView} mood={displaySnapshot!.moodCounts} />
-
-                <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm md:p-5">
-                  {view === 'sector-table' && (
-                    <SectorTable
-                      snapshot={displaySnapshot!}
-                      livePricesActive={
-                        Boolean(
-                          deskConfig?.liveQuotes?.fresh && deskConfig.liveQuotes.marketOpen,
-                        )
-                      }
-                    />
-                  )}
-                  {view === 'money-rotation' && <MoneyRotation snapshot={displaySnapshot!} />}
-                  {view === 'rotation-clock' && <RotationClock snapshot={displaySnapshot!} />}
-                  {view === 'sector-analytics' && <SectorAnalytics snapshot={displaySnapshot!} />}
-                  {view === 'industry-analytics' && <IndustryAnalytics snapshot={displaySnapshot!} />}
-                  {view === 'volume-scan' && <VolumeScan snapshot={displaySnapshot!} />}
-                  {view === 'commodities' && (
-                    <AltAssetsPanel
-                      title="Commodities Desk"
-                      subtitle="Live futures / spot proxies — gold, silver, copper, oil, ags, AUD"
-                      assets={COMMODITIES}
-                      benchmarkYahoo="GC=F"
-                    />
-                  )}
-                  {view === 'crypto' && (
-                    <AltAssetsPanel
-                      title="Crypto Desk"
-                      subtitle="Major coins with mood / cycle / returns vs BTC"
-                      assets={CRYPTO}
-                      benchmarkYahoo="BTC-USD"
-                    />
-                  )}
-                </div>
+            </div>
+            <div hidden={page !== 'special-patterns'}>
+              <SpecialPatternsPanel
+                snapshot={displaySnapshot!}
+                active={page === 'special-patterns'}
+              />
+            </div>
+            <div hidden={page !== 'breadth'}>
+              <BreadthAnalysis snapshot={displaySnapshot!} active={page === 'breadth'} />
+            </div>
+            <div hidden={page !== 'sector'} className="space-y-4">
+              <div>
+                <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold tracking-tight md:text-3xl">
+                  {APP_NAME}
+                </h1>
+                <p className="text-sm text-[var(--color-ink-soft)]">
+                  {displaySnapshot!.asOf} · vs {displaySnapshot!.benchmark} ·{' '}
+                  {displaySnapshot!.industries.length} industries
+                  {backfilling ? ' · updating…' : ''}
+                </p>
               </div>
-            )}
+
+              <ViewTabs active={view} onChange={setView} mood={displaySnapshot!.moodCounts} />
+
+              <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm md:p-5">
+                {view === 'sector-table' && (
+                  <SectorTable
+                    snapshot={displaySnapshot!}
+                    livePricesActive={
+                      Boolean(
+                        deskConfig?.liveQuotes?.fresh && deskConfig.liveQuotes.marketOpen,
+                      )
+                    }
+                  />
+                )}
+                {view === 'money-rotation' && <MoneyRotation snapshot={displaySnapshot!} />}
+                {view === 'rotation-clock' && <RotationClock snapshot={displaySnapshot!} />}
+                {view === 'sector-analytics' && <SectorAnalytics snapshot={displaySnapshot!} />}
+                {view === 'industry-analytics' && <IndustryAnalytics snapshot={displaySnapshot!} />}
+                {view === 'volume-scan' && <VolumeScan snapshot={displaySnapshot!} />}
+                {view === 'commodities' && (
+                  <AltAssetsPanel
+                    title="Commodities Desk"
+                    subtitle="Live futures / spot proxies — gold, silver, copper, oil, ags, AUD"
+                    assets={COMMODITIES}
+                    benchmarkYahoo="GC=F"
+                  />
+                )}
+                {view === 'crypto' && (
+                  <AltAssetsPanel
+                    title="Crypto Desk"
+                    subtitle="Major coins with mood / cycle / returns vs BTC"
+                    assets={CRYPTO}
+                    benchmarkYahoo="BTC-USD"
+                  />
+                )}
+              </div>
+            </div>
           </>
         ) : null}
       </main>

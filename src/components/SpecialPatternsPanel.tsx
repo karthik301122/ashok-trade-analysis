@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useDeferredValue } from 'react'
 import { Copy, Search, Sparkles, Star } from 'lucide-react'
 import type { MarketSnapshot } from '../data/types'
 import { formatPct, formatPrice, perfCellClass, resolveStockPrice } from '../lib/format'
@@ -19,7 +19,7 @@ import { useUnifiedSpecialScans } from './patterns/useUnifiedSpecialScans'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
 import { StockChartModal, type ChartPatternFocus } from './StockChartModal'
 
-type Props = { snapshot: MarketSnapshot }
+type Props = { snapshot: MarketSnapshot; active?: boolean }
 
 function biasClass(bias: string) {
   if (bias === 'bullish') return 'text-emerald-600 dark:text-emerald-400'
@@ -54,7 +54,7 @@ function matchSectorIndustry(
   return true
 }
 
-export function SpecialPatternsPanel({ snapshot }: Props) {
+export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
   const [selectedId, setSelectedId] = useState('stage-2')
   const [category, setCategory] = useState<string>('weekly-karthik')
   const [query, setQuery] = useState('')
@@ -69,7 +69,8 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
   const { isStarred, toggleStar } = usePatternPrefs()
 
   const indexM3 = snapshot.benchmarkPerf.m3
-  const tickers = useMemo(() => snapshot.stocks.map((s) => s.ticker), [snapshot.stocks])
+  const deferredStocks = useDeferredValue(snapshot.stocks)
+  const tickers = useMemo(() => deferredStocks.map((s) => s.ticker), [deferredStocks])
 
   const stockByTicker = useMemo(() => {
     const m = new Map<string, typeof snapshot.stocks[0]>()
@@ -104,11 +105,11 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
     version,
     livermoreVersion,
     scriptScanVersion,
-  } = useUnifiedSpecialScans(snapshot.stocks, true)
+  } = useUnifiedSpecialScans(snapshot.stocks, active)
 
   const snapshotScan = useMemo(
-    () => scanAllSpecialPatterns(snapshot.stocks, indexM3),
-    [snapshot.stocks, indexM3],
+    () => (active ? scanAllSpecialPatterns(deferredStocks, indexM3) : []),
+    [active, deferredStocks, indexM3],
   )
   const snapshotById = useMemo(
     () => new Map(snapshotScan.map((r) => [r.pattern.id, r])),
