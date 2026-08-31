@@ -8,9 +8,6 @@ import type { ViewId } from './ViewTabs'
 
 type Page = 'sector' | 'breadth' | 'alerts' | 'special-patterns'
 
-const MemoAlertsPanel = memo(AlertsPanel)
-const MemoSpecialPatternsPanel = memo(SpecialPatternsPanel)
-
 type Props = {
   page: Page
   snapshot: MarketSnapshot
@@ -20,11 +17,20 @@ type Props = {
   backfilling: boolean
 }
 
-/**
- * Keeps main sections mounted (fast return visits) but isolates re-renders so
- * switching tabs updates the nav indicator immediately without reconciling every panel.
- */
-export const MainPagePanels = memo(function MainPagePanels({
+function mainPagePanelsPropsEqual(prev: Props, next: Props): boolean {
+  if (prev.page !== next.page) return false
+  // Alerts does not use snapshot — ignore live desk updates while on that tab.
+  if (next.page === 'alerts') return true
+  return (
+    prev.snapshot === next.snapshot &&
+    prev.view === next.view &&
+    prev.onViewChange === next.onViewChange &&
+    prev.livePricesActive === next.livePricesActive &&
+    prev.backfilling === next.backfilling
+  )
+}
+
+function MainPagePanelsInner({
   page,
   snapshot,
   view,
@@ -32,18 +38,16 @@ export const MainPagePanels = memo(function MainPagePanels({
   livePricesActive,
   backfilling,
 }: Props) {
-  return (
-    <>
-      <div hidden={page !== 'alerts'} aria-hidden={page !== 'alerts'}>
-        <MemoAlertsPanel />
-      </div>
-      <div hidden={page !== 'special-patterns'} aria-hidden={page !== 'special-patterns'}>
-        <MemoSpecialPatternsPanel snapshot={snapshot} active={page === 'special-patterns'} />
-      </div>
-      <div hidden={page !== 'breadth'} aria-hidden={page !== 'breadth'}>
-        <BreadthAnalysis snapshot={snapshot} active={page === 'breadth'} />
-      </div>
-      <div hidden={page !== 'sector'} aria-hidden={page !== 'sector'}>
+  switch (page) {
+    case 'alerts':
+      return <AlertsPanel />
+    case 'breadth':
+      return <BreadthAnalysis snapshot={snapshot} active />
+    case 'special-patterns':
+      return <SpecialPatternsPanel snapshot={snapshot} active />
+    case 'sector':
+    default:
+      return (
         <SectorMarketsSection
           snapshot={snapshot}
           view={view}
@@ -51,7 +55,12 @@ export const MainPagePanels = memo(function MainPagePanels({
           livePricesActive={livePricesActive}
           backfilling={backfilling}
         />
-      </div>
-    </>
-  )
-})
+      )
+  }
+}
+
+/**
+ * Mount only the active main tab. Hidden keep-alive previously left SectorTable
+ * running full-universe OHLC scans while on Breadth or Alerts, blocking navigation.
+ */
+export const MainPagePanels = memo(MainPagePanelsInner, mainPagePanelsPropsEqual)
