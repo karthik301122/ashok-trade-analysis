@@ -10,7 +10,6 @@ type Page = 'sector' | 'breadth' | 'alerts' | 'special-patterns'
 
 const MemoAlertsPanel = memo(AlertsPanel)
 const MemoSpecialPatternsPanel = memo(SpecialPatternsPanel)
-const MemoBreadthAnalysis = memo(BreadthAnalysis)
 
 type Props = {
   page: Page
@@ -42,7 +41,7 @@ export const MainPagePanels = memo(function MainPagePanels({
         <MemoSpecialPatternsPanel snapshot={snapshot} active={page === 'special-patterns'} />
       </div>
       <div hidden={page !== 'breadth'} aria-hidden={page !== 'breadth'}>
-        <MemoBreadthAnalysis snapshot={snapshot} active={page === 'breadth'} />
+        <BreadthAnalysis snapshot={snapshot} active={page === 'breadth'} />
       </div>
       <div hidden={page !== 'sector'} aria-hidden={page !== 'sector'}>
         <SectorMarketsSection

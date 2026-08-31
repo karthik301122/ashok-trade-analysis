@@ -497,21 +497,6 @@ export function computeBreadth(
     hist.declines[hist.declines.length - 1] = declining
   }
 
-  appendDailyBreadthPoint(universeId, {
-    above20: pctAbove20,
-    above50: pctAbove50,
-    above200: pctAbove200,
-    rsi50: pctRsi50,
-    adNet,
-    advancing,
-    declining,
-    near52w: pctNear52w,
-    rsi70: pctRsi70,
-    rsi30: pctOf(stocks, (s) => (s.rsi ?? 50) <= 30),
-    rs50: pctRs50,
-    rvol15: pctRvol15,
-  })
-
   const serverPoints = opts?.serverPoints?.length ? opts.serverPoints : []
   const chartHistory = opts?.chartHistory?.length ? opts.chartHistory : []
 

@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState, useDeferredValue } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Copy } from 'lucide-react'
 import type { MarketSnapshot } from '../data/types'
 import {
   UNIVERSES,
   type UniverseId,
+  appendDailyBreadthPoint,
   computeBreadth,
   badgeClass,
   sentimentLabel,
+  type BreadthBundle,
 } from './breadth/breadthMath'
 import { BreadthGauges } from './breadth/BreadthGauges'
 import { ADSummation } from './breadth/ADSummation'
@@ -30,8 +32,14 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'monthpulse', label: 'This Month' },
 ]
 
-export function BreadthAnalysis({ snapshot, active = true }: Props) {
-  const deferredSnapshot = useDeferredValue(snapshot)
+function BreadthAnalysisBody({
+  snapshot,
+  paused,
+}: {
+  snapshot: MarketSnapshot
+  paused: boolean
+}) {
+  const bundleCache = useRef<BreadthBundle | null>(null)
   const [universeId, setUniverseId] = useState<UniverseId>('asx200')
   const [tab, setTab] = useState<TabId>('sma')
   const [copied, setCopied] = useState(false)
@@ -40,9 +48,9 @@ export function BreadthAnalysis({ snapshot, active = true }: Props) {
   const [chartHistory, setChartHistory] = useState<BreadthDailyPoint[]>([])
 
   useEffect(() => {
-    if (!active) return
+    if (paused) return
     let cancelled = false
-    ;(async () => {
+    void (async () => {
       const { points, chartHistory: history } = await fetchBreadthDaily(universeId)
       if (!cancelled) {
         setServerPoints(points)
@@ -52,16 +60,19 @@ export function BreadthAnalysis({ snapshot, active = true }: Props) {
     return () => {
       cancelled = true
     }
-  }, [universeId, active])
+  }, [universeId, paused])
 
-  const bundle = useMemo(
-    () => computeBreadth(deferredSnapshot, universeId, { serverPoints, chartHistory }),
-    [deferredSnapshot, universeId, serverPoints, chartHistory],
-  )
+  const bundle = useMemo(() => {
+    if (paused && bundleCache.current) return bundleCache.current
+    const next = computeBreadth(snapshot, universeId, { serverPoints, chartHistory })
+    bundleCache.current = next
+    return next
+  }, [paused, snapshot, universeId, serverPoints, chartHistory])
+
   const universeLabel = UNIVERSES.find((u) => u.id === universeId)?.label ?? universeId
 
   useEffect(() => {
-    if (!active) return
+    if (paused) return
     let cancelled = false
     const rsi30 =
       bundle.stocks.length > 0
@@ -70,7 +81,7 @@ export function BreadthAnalysis({ snapshot, active = true }: Props) {
               1000,
           ) / 10
         : 0
-    void postBreadthDaily(universeId, {
+    const point = {
       above20: bundle.pctAbove20,
       above50: bundle.pctAbove50,
       above200: bundle.pctAbove200,
@@ -83,14 +94,16 @@ export function BreadthAnalysis({ snapshot, active = true }: Props) {
       rsi30,
       rs50: bundle.pctRs50,
       rvol15: bundle.pctRvol15,
-    }).then((points) => {
+    }
+    appendDailyBreadthPoint(universeId, point)
+    void postBreadthDaily(universeId, point).then((points) => {
       if (!cancelled && points.length) setServerPoints(points)
     })
     return () => {
       cancelled = true
     }
   }, [
-    active,
+    paused,
     universeId,
     snapshot.asOf,
     bundle.pctAbove20,
@@ -117,7 +130,7 @@ export function BreadthAnalysis({ snapshot, active = true }: Props) {
   }
 
   return (
-    <div className="space-y-5">
+    <div className={paused ? 'hidden' : 'space-y-5'} aria-hidden={paused}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold tracking-tight">
@@ -134,7 +147,8 @@ export function BreadthAnalysis({ snapshot, active = true }: Props) {
           <button
             type="button"
             onClick={copyUniverse}
-            className="inline-flex items-center gap-1.5 rounded-lg border-2 border-amber-500 bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-950 hover:bg-amber-200 dark:border-amber-400 dark:bg-amber-950/70 dark:text-amber-100"
+            disabled={paused}
+            className="inline-flex items-center gap-1.5 rounded-lg border-2 border-amber-500 bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-950 hover:bg-amber-200 disabled:opacity-50 dark:border-amber-400 dark:bg-amber-950/70 dark:text-amber-100"
           >
             <Copy size={14} />
             {copied ? 'Copied!' : `Copy ${universeLabel} list`}
@@ -142,7 +156,8 @@ export function BreadthAnalysis({ snapshot, active = true }: Props) {
           <button
             type="button"
             onClick={() => setListOpen((v) => !v)}
-            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--color-ink-soft)] hover:border-sky-300"
+            disabled={paused}
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--color-ink-soft)] hover:border-sky-300 disabled:opacity-50"
           >
             {listOpen ? 'Hide tickers' : 'Show tickers'}
           </button>
@@ -160,8 +175,9 @@ export function BreadthAnalysis({ snapshot, active = true }: Props) {
             key={u.id}
             type="button"
             title={u.hint}
+            disabled={paused}
             onClick={() => setUniverseId(u.id)}
-            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${
               universeId === u.id
                 ? 'border-sky-500 bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200'
                 : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-ink-soft)] hover:border-sky-300'
@@ -197,8 +213,9 @@ export function BreadthAnalysis({ snapshot, active = true }: Props) {
           <button
             key={t.id}
             type="button"
+            disabled={paused}
             onClick={() => setTab(t.id)}
-            className={`rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wide transition ${
+            className={`rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wide transition disabled:opacity-50 ${
               tab === t.id
                 ? 'bg-teal-800 text-white dark:bg-teal-700'
                 : 'border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-ink-soft)] hover:border-teal-400'
@@ -238,3 +255,29 @@ export function BreadthAnalysis({ snapshot, active = true }: Props) {
     </div>
   )
 }
+
+function BreadthAnalysisShell({ snapshot, active }: Props) {
+  const [mounted, setMounted] = useState(active)
+
+  useEffect(() => {
+    if (active) {
+      setMounted(true)
+      return
+    }
+    const id = window.setTimeout(() => setMounted(false), 4000)
+    return () => window.clearTimeout(id)
+  }, [active])
+
+  if (!mounted) return null
+
+  return <BreadthAnalysisBody snapshot={snapshot} paused={!active} />
+}
+
+export const BreadthAnalysis = memo(
+  BreadthAnalysisShell,
+  (prev, next) => {
+    if (!prev.active && !next.active) return true
+    if (prev.active !== next.active) return false
+    return prev.snapshot === next.snapshot
+  },
+)
