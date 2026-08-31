@@ -41,9 +41,7 @@ function priceAt(bars: OhlcBar[], t: number): number {
   return nearestBar(bars, t)?.c ?? bars.at(-1)!.c
 }
 
-function priceRangeForBars(
-  bars: { l: number; h: number }[],
-) {
+function priceRangeForBars(bars: { l: number; h: number }[]) {
   if (!bars.length) return null
   let min = bars[0].l
   let max = bars[0].h
@@ -54,6 +52,33 @@ function priceRangeForBars(
   const span = max - min
   const pad = span > 0 ? span * 0.06 : max * 0.02 || 1
   return { minValue: min - pad, maxValue: max + pad }
+}
+
+function barsToCandleData(bars: OhlcBar[]): CandlestickData<Time>[] {
+  const clean = sanitizeOhlcBars(bars)
+  return clean.map((b) => ({
+    time: b.t as UTCTimestamp,
+    open: b.o,
+    high: b.h,
+    low: b.l,
+    close: b.c,
+  }))
+}
+
+const intradayAutoscale: AutoscaleInfoProvider = (original) => {
+  const res = original()
+  if (!res?.priceRange) return res
+  const { minValue, maxValue } = res.priceRange
+  const mid = (maxValue + minValue) / 2
+  const span = maxValue - minValue
+  const minSpan = Math.max(mid * 0.012, 0.05)
+  if (span >= minSpan) return res
+  return {
+    priceRange: {
+      minValue: mid - minSpan / 2,
+      maxValue: mid + minSpan / 2,
+    },
+  }
 }
 
 export function AnnotatedPatternChart({ bars, selected, intraday = false }: Props) {
@@ -85,47 +110,12 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
         secondsVisible: false,
       },
     })
-    const clean = sanitizeOhlcBars(bars)
-    const priceRange = priceRangeForBars(clean)
-    const data: CandlestickData<Time>[] = clean.map((b) => ({
-      time: b.t as UTCTimestamp,
-      open: b.o,
-      high: b.h,
-      low: b.l,
-      close: b.c,
-    }))
-    const intradayAutoscale: AutoscaleInfoProvider = (original) => {
-      const res = original()
-      if (!res?.priceRange) return res
-      const { minValue, maxValue } = res.priceRange
-      const mid = (maxValue + minValue) / 2
-      const span = maxValue - minValue
-      const minSpan = Math.max(mid * 0.012, 0.05)
-      if (span >= minSpan) return res
-      return {
-        priceRange: {
-          minValue: mid - minSpan / 2,
-          maxValue: mid + minSpan / 2,
-        },
-      }
-    }
-
     const candle = chart.addSeries(CandlestickSeries, {
       upColor: '#059669',
       downColor: '#e11d48',
       borderVisible: false,
       wickUpColor: '#059669',
       wickDownColor: '#e11d48',
-      autoscaleInfoProvider: intraday
-        ? intradayAutoscale
-        : priceRange
-          ? () => ({
-              priceRange: {
-                minValue: priceRange.minValue,
-                maxValue: priceRange.maxValue,
-              },
-            })
-          : undefined,
     })
     const line = chart.addSeries(LineSeries, {
       color: '#0ea5e9',
@@ -133,19 +123,10 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
       lastValueVisible: false,
       priceLineVisible: false,
     })
-    candle.setData(data)
-    if (intraday && clean.length > 40) {
-      chart.timeScale().applyOptions({
-        barSpacing: 6,
-        minBarSpacing: 4,
-        maxBarSpacing: 10,
-      })
-    }
     chart.priceScale('right').applyOptions({
       autoScale: true,
       scaleMargins: { top: 0.08, bottom: 0.08 },
     })
-    chart.timeScale().fitContent()
     const removeTvLogo = () => wrapRef.current?.querySelector('#tv-attr-logo')?.remove()
     removeTvLogo()
     requestAnimationFrame(removeTvLogo)
@@ -160,7 +141,36 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
       candleRef.current = null
       lineRef.current = null
     }
-  }, [bars, dark, intraday])
+  }, [dark])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    const candle = candleRef.current
+    if (!chart || !candle || !bars.length) return
+
+    const clean = sanitizeOhlcBars(bars)
+    const priceRange = priceRangeForBars(clean)
+    candle.applyOptions({
+      autoscaleInfoProvider: intraday
+        ? intradayAutoscale
+        : priceRange
+          ? () => ({
+              priceRange: {
+                minValue: priceRange.minValue,
+                maxValue: priceRange.maxValue,
+              },
+            })
+          : undefined,
+    })
+    chart.timeScale().applyOptions({
+      timeVisible: intraday,
+      barSpacing: intraday && clean.length > 40 ? 6 : undefined,
+      minBarSpacing: intraday && clean.length > 40 ? 4 : undefined,
+      maxBarSpacing: intraday && clean.length > 40 ? 10 : undefined,
+    })
+    candle.setData(barsToCandleData(bars))
+    chart.timeScale().fitContent()
+  }, [bars, intraday])
 
   useEffect(() => {
     const candle = candleRef.current
@@ -206,7 +216,6 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
     const lineData: LineData<Time>[] = [...pts]
       .sort((a, b) => a.time - b.time)
       .map((p) => ({ time: p.time as UTCTimestamp, value: p.price }))
-    // Deduplicate identical times for lightweight-charts
     const dedup: LineData<Time>[] = []
     for (const p of lineData) {
       if (dedup.length && dedup[dedup.length - 1].time === p.time) {

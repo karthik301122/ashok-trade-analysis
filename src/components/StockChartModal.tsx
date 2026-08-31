@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useDeferredValue } from 'react'
 import { ExternalLink, X } from 'lucide-react'
 import { toTradingViewSymbol } from '../lib/tradingview'
 import { fetchDeskIntraday, fetchYahooOhlc } from '../lib/yahoo'
@@ -105,6 +105,8 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
   const [activeCategory, setActiveCategory] = useState<PatternCategoryId | null>(null)
   const [selected, setSelected] = useState<PatternHit | null>(null)
   const [modalTab, setModalTab] = useState<ModalTab>('chart')
+  const [intradayLoading, setIntradayLoading] = useState(false)
+  const intradayFetchGen = useRef(0)
   const [fund, setFund] = useState<{
     pe: number | null
     forwardPe: number | null
@@ -130,6 +132,8 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
     setError(null)
     setSelected(null)
     setActiveCategory(null)
+    setIntradayLoading(false)
+    intradayFetchGen.current += 1
     setFund(null)
     setDailyBars(null)
     setDisplayBars(null)
@@ -168,15 +172,25 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
         setChartView('tradingview')
         setDeskFallbackNote('Desk data unavailable — showing TradingView chart.')
         setLoading(false)
+        setIntradayLoading(false)
         return
       }
+      const resolved = resolveChartInterval(chartInterval, prefs.scanWindow, dataProvider)
       setDailyBars(ohlc)
-      setDisplayBars(ohlc)
-      setChartBarInterval('1d')
+      if (isIntradayDeskInterval(resolved)) {
+        setChartBarInterval(resolved)
+        setDisplayBars(null)
+        setIntradayLoading(true)
+        setLoading(true)
+      } else {
+        setDisplayBars(ohlc)
+        setChartBarInterval('1d')
+        setIntradayLoading(false)
+        setLoading(false)
+      }
       if (focusSnapshot) {
         setSelected(hitFromFocus(ohlc, focusSnapshot))
       }
-      setLoading(false)
     })()
     return () => {
       cancelled = true
@@ -186,18 +200,26 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
   useEffect(() => {
     let cancelled = false
     if (!dailyBars?.length) return
+    const fetchGen = ++intradayFetchGen.current
     const asOf = dailyBars[dailyBars.length - 1].t
     const resolved = resolveChartInterval(chartInterval, prefs.scanWindow, dataProvider)
     if (!isIntradayDeskInterval(resolved)) {
+      setIntradayLoading(false)
+      setLoading(false)
       setDisplayBars(dailyBars)
       setChartBarInterval('1d')
       return
     }
     const interval = resolved
+    setChartBarInterval(interval)
+    setIntradayLoading(true)
+    setDisplayBars(null)
     const { fromTs, toTs } = intradayFetchRange(prefs.scanWindow, asOf)
     ;(async () => {
       const intraday = await fetchDeskIntraday(ticker, interval, fromTs, toTs)
-      if (cancelled) return
+      if (cancelled || fetchGen !== intradayFetchGen.current) return
+      setIntradayLoading(false)
+      setLoading(false)
       if (intraday?.bars.length) {
         setDisplayBars(intraday.bars)
         const prov = intraday.meta.provider
@@ -271,9 +293,11 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
 
   const tvInterval = tradingViewIntervalForPref(chartInterval, prefs.scanWindow, dataProvider)
   const tvRange = tradingViewRangeForWindow(prefs.scanWindow)
+  const tvIntervalDeferred = useDeferredValue(tvInterval)
+  const tvRangeDeferred = useDeferredValue(tvRange)
 
-  const deskChartReady = Boolean(chartBars?.length)
-  const showTradingView = chartView === 'tradingview' || !deskChartReady
+  const deskChartReady = Boolean(chartBars?.length) && !intradayLoading
+  const showTradingView = chartView === 'tradingview' || (!deskChartReady && !intradayLoading && !loading)
 
   useEffect(() => {
     if (loading) return
@@ -450,21 +474,26 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
       ) : (
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="min-h-[50vh] min-w-0 flex-1 md:min-h-0">
-          {loading ? (
-            <div className="flex h-full min-h-[50vh] items-center justify-center text-sm text-[var(--color-ink-soft)]">
-              Loading chart…
+          {loading || intradayLoading ? (
+            <div className="flex h-full min-h-[50vh] flex-col items-center justify-center gap-2 text-sm text-[var(--color-ink-soft)]">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-teal-200 border-t-teal-600" />
+              <span>
+                {intradayLoading
+                  ? `Loading ${chartIntervalShort(effectiveInterval)} bars…`
+                  : 'Loading chart…'}
+              </span>
             </div>
           ) : showTradingView ? (
             <TradingViewChart
-              key={`tv-${ticker}-${tvRange}-${tvInterval}-${chartInterval}`}
+              key={`tv-${ticker}`}
               ticker={ticker}
               fill
-              range={tvRange}
-              interval={tvInterval}
+              range={tvRangeDeferred}
+              interval={tvIntervalDeferred}
             />
           ) : (
             <AnnotatedPatternChart
-              key={`desk-${ticker}-${selected?.id ?? 'full'}-${prefs.scanWindow}-${chartInterval}-${chartBarInterval}`}
+              key={`desk-${ticker}`}
               bars={chartBars!}
               selected={selected}
               intraday={isIntradayDeskInterval(effectiveInterval)}
@@ -481,7 +510,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
             onScanWindowChange={setScanWindow}
             chartInterval={chartInterval}
             onChartIntervalChange={setChartInterval}
-            chartBarInterval={chartBarInterval}
+            chartBarInterval={effectiveInterval}
             activeCategory={activeCategory}
             selectedPatternId={selected?.id ?? null}
             onSelectCategory={setActiveCategory}
