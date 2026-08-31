@@ -55,6 +55,13 @@ export function getDb() {
       above200 REAL NOT NULL,
       rsi50 REAL NOT NULL,
       ad_net REAL NOT NULL,
+      advancing INTEGER,
+      declining INTEGER,
+      near52w REAL,
+      rsi70 REAL,
+      rsi30 REAL,
+      rs50 REAL,
+      rvol15 REAL,
       PRIMARY KEY (universe, day)
     );
     CREATE TABLE IF NOT EXISTS market_snapshot (
@@ -119,8 +126,30 @@ export function getDb() {
       updated_at INTEGER NOT NULL
     );
   `)
+  migrateBreadthDailyColumns(db)
   dbSingleton = db
   return db
+}
+
+/** Add optional breadth chart columns on existing databases. */
+function migrateBreadthDailyColumns(db) {
+  const existing = new Set(
+    db.prepare('PRAGMA table_info(breadth_daily)').all().map((r) => r.name),
+  )
+  const adds = [
+    ['advancing', 'INTEGER'],
+    ['declining', 'INTEGER'],
+    ['near52w', 'REAL'],
+    ['rsi70', 'REAL'],
+    ['rsi30', 'REAL'],
+    ['rs50', 'REAL'],
+    ['rvol15', 'REAL'],
+  ]
+  for (const [name, type] of adds) {
+    if (!existing.has(name)) {
+      db.exec(`ALTER TABLE breadth_daily ADD COLUMN ${name} ${type}`)
+    }
+  }
 }
 
 export function seriesSymbolCount() {

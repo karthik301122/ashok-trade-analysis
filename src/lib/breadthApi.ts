@@ -5,6 +5,13 @@ export type BreadthDailyPoint = {
   above200: number
   rsi50: number
   adNet: number
+  advancing?: number | null
+  declining?: number | null
+  near52w?: number | null
+  rsi70?: number | null
+  rsi30?: number | null
+  rs50?: number | null
+  rvol15?: number | null
 }
 
 export async function fetchBreadthDaily(

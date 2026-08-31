@@ -57,12 +57,25 @@ export function BreadthAnalysis({ snapshot }: Props) {
   useEffect(() => {
     let cancelled = false
     const b = computeBreadth(snapshot, universeId)
+    const rsi30 =
+      b.stocks.length > 0
+        ? Math.round(
+            (b.stocks.filter((s) => (s.rsi ?? 50) <= 30).length / b.stocks.length) * 1000,
+          ) / 10
+        : 0
     void postBreadthDaily(universeId, {
       above20: b.pctAbove20,
       above50: b.pctAbove50,
       above200: b.pctAbove200,
       rsi50: b.pctRsi50,
       adNet: b.adNet,
+      advancing: b.advancing,
+      declining: b.declining,
+      near52w: b.pctNear52w,
+      rsi70: b.pctRsi70,
+      rsi30,
+      rs50: b.pctRs50,
+      rvol15: b.pctRvol15,
     }).then((points) => {
       if (!cancelled && points.length) setServerPoints(points)
     })

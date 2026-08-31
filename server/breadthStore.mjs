@@ -2,6 +2,24 @@ import { getDb } from './db.mjs'
 
 export const UNIVERSE_IDS = new Set(['asx200', 'asx500', 'mid', 'small'])
 
+function mapRow(r) {
+  return {
+    day: r.day,
+    above20: r.above20,
+    above50: r.above50,
+    above200: r.above200,
+    rsi50: r.rsi50,
+    adNet: r.adNet,
+    advancing: r.advancing ?? null,
+    declining: r.declining ?? null,
+    near52w: r.near52w ?? null,
+    rsi70: r.rsi70 ?? null,
+    rsi30: r.rsi30 ?? null,
+    rs50: r.rs50 ?? null,
+    rvol15: r.rvol15 ?? null,
+  }
+}
+
 /**
  * @param {string} universeId
  */
@@ -9,37 +27,46 @@ export function readBreadthHistory(universeId) {
   if (!UNIVERSE_IDS.has(universeId)) return []
   const rows = getDb()
     .prepare(
-      `SELECT day, above20, above50, above200, rsi50, ad_net AS adNet
+      `SELECT day, above20, above50, above200, rsi50, ad_net AS adNet,
+              advancing, declining, near52w, rsi70, rsi30, rs50, rvol15
        FROM breadth_daily WHERE universe = ? ORDER BY day ASC`,
     )
     .all(universeId)
-  return rows.map((r) => ({
-    day: r.day,
-    above20: r.above20,
-    above50: r.above50,
-    above200: r.above200,
-    rsi50: r.rsi50,
-    adNet: r.adNet,
-  }))
+  return rows.map(mapRow)
 }
 
 /**
  * @param {string} universeId
- * @param {{ above20: number, above50: number, above200: number, rsi50: number, adNet: number, day?: string }} point
+ * @param {{
+ *   above20: number, above50: number, above200: number, rsi50: number, adNet: number,
+ *   day?: string, advancing?: number, declining?: number, near52w?: number,
+ *   rsi70?: number, rsi30?: number, rs50?: number, rvol15?: number
+ * }} point
  */
 export function upsertBreadthPoint(universeId, point) {
   if (!UNIVERSE_IDS.has(universeId)) throw new Error('Invalid universe')
   const day = point.day || new Date().toISOString().slice(0, 10)
+  const num = (v) => (v == null || v === '' ? null : Number(v))
   getDb()
     .prepare(
-      `INSERT INTO breadth_daily (universe, day, above20, above50, above200, rsi50, ad_net)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO breadth_daily (
+         universe, day, above20, above50, above200, rsi50, ad_net,
+         advancing, declining, near52w, rsi70, rsi30, rs50, rvol15
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(universe, day) DO UPDATE SET
          above20 = excluded.above20,
          above50 = excluded.above50,
          above200 = excluded.above200,
          rsi50 = excluded.rsi50,
-         ad_net = excluded.ad_net`,
+         ad_net = excluded.ad_net,
+         advancing = excluded.advancing,
+         declining = excluded.declining,
+         near52w = excluded.near52w,
+         rsi70 = excluded.rsi70,
+         rsi30 = excluded.rsi30,
+         rs50 = excluded.rs50,
+         rvol15 = excluded.rvol15`,
     )
     .run(
       universeId,
@@ -49,6 +76,13 @@ export function upsertBreadthPoint(universeId, point) {
       Number(point.above200),
       Number(point.rsi50),
       Number(point.adNet),
+      num(point.advancing),
+      num(point.declining),
+      num(point.near52w),
+      num(point.rsi70),
+      num(point.rsi30),
+      num(point.rs50),
+      num(point.rvol15),
     )
   // Keep last 250 days per universe
   getDb()

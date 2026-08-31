@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { filterUniverse, sentimentFromPct } from './breadthMath'
-import type { StockMetrics } from '../../data/types'
+import { computeBreadth, filterUniverse, sentimentFromPct } from './breadthMath'
+import type { MarketSnapshot, StockMetrics } from '../../data/types'
 
 function stock(partial: Partial<StockMetrics> & { ticker: string }): StockMetrics {
   return {
@@ -38,6 +38,16 @@ function stock(partial: Partial<StockMetrics> & { ticker: string }): StockMetric
   }
 }
 
+function snapshot(stocks: StockMetrics[]): MarketSnapshot {
+  return {
+    asOf: '2026-08-31',
+    stocks,
+    indexPerf: stock({ ticker: 'INDEX' }),
+    loaded: stocks.length,
+    failed: 0,
+  }
+}
+
 describe('sentimentFromPct', () => {
   it('maps thresholds', () => {
     expect(sentimentFromPct(70)).toBe('bullish')
@@ -57,5 +67,63 @@ describe('filterUniverse', () => {
     expect(filterUniverse(stocks, 'mid')).toHaveLength(300)
     expect(filterUniverse(stocks, 'small')).toHaveLength(100)
     expect(filterUniverse(stocks, 'asx200')[0].ticker).toBe('ZZFALLBACK0')
+  })
+})
+
+describe('computeBreadth server history', () => {
+  it('does not flatten non-SMA series when server daily history exists', () => {
+    const stocks = Array.from({ length: 10 }, (_, i) =>
+      stock({
+        ticker: `S${i}`,
+        weight: 10 - i,
+        spark: [98, 99, 100, 101, 102],
+        d1: i % 2 === 0 ? 1 : -1,
+        above20ma: i < 6,
+        rsi: 40 + i * 3,
+        rs: 45 + i * 2,
+        relativeVolume: 1 + i * 0.2,
+      }),
+    )
+    const serverPoints = [
+      {
+        day: '2026-08-29',
+        above20: 40,
+        above50: 35,
+        above200: 30,
+        rsi50: 45,
+        adNet: 2,
+        advancing: 6,
+        declining: 4,
+        near52w: 10,
+        rsi70: 5,
+        rsi30: 15,
+        rs50: 42,
+        rvol15: 8,
+      },
+      {
+        day: '2026-08-30',
+        above20: 55,
+        above50: 48,
+        above200: 40,
+        rsi50: 52,
+        adNet: -1,
+        advancing: 4,
+        declining: 6,
+        near52w: 12,
+        rsi70: 8,
+        rsi30: 12,
+        rs50: 48,
+        rvol15: 11,
+      },
+    ]
+    const bundle = computeBreadth(snapshot(stocks), 'asx200', { serverPoints })
+    expect(bundle.historyKind).toBe('server-daily')
+    expect(bundle.history.above20).toEqual([40, 55])
+    expect(bundle.history.advances).toEqual([6, 4])
+    expect(bundle.history.declines).toEqual([4, 6])
+    expect(bundle.history.near52w).toEqual([10, 12])
+    expect(bundle.history.rs50).toEqual([42, 48])
+    expect(bundle.history.dates[0]).toMatch(/29/)
+    expect(bundle.history.dates[1]).toMatch(/30/)
   })
 })
