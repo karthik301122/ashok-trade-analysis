@@ -110,6 +110,14 @@ export function getDb() {
       created_at INTEGER NOT NULL,
       is_admin INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS live_quotes (
+      ticker TEXT PRIMARY KEY,
+      close REAL NOT NULL,
+      change_p REAL,
+      volume INTEGER,
+      quote_ts INTEGER,
+      updated_at INTEGER NOT NULL
+    );
   `)
   dbSingleton = db
   return db

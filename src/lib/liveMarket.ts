@@ -329,6 +329,7 @@ export function assembleSnapshotFromPerfs(
       relativeVolume: perfCached.relativeVolume ?? 0,
       dollarVolume: perfCached.dollarVolume ?? 0,
       lastPrice: perfCached.lastPrice ?? 0,
+      liveAt: perfCached.liveAt,
       rsi: perfCached.rsi ?? 50,
     })
   }

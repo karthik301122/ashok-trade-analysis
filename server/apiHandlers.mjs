@@ -40,6 +40,8 @@ import {
   seriesRateLimitPerMinute,
   snapshotRateLimitPerMinute,
 } from './production.mjs'
+import { getLiveQuotesMeta } from './liveQuotes.mjs'
+import { runLiveQuoteRefresh } from './liveQuoteJob.mjs'
 
 const __apiDir = path.dirname(fileURLToPath(import.meta.url))
 let universeCountCache = null
@@ -326,6 +328,23 @@ export async function handleConnectApi(req, res, send) {
     return true
   }
 
+  if (url.pathname === '/api/live-quotes/refresh') {
+    if (requireSessionOrAdmin(req, send)) return true
+    if (req.method === 'POST') {
+      if (requireAdminOrSend(req, send)) return true
+      log('info', 'live_quotes.refresh', { started: true })
+      void runLiveQuoteRefresh().catch((err) => {
+        log('error', 'live_quotes.refresh.error', {
+          message: err instanceof Error ? err.message : String(err),
+        })
+      })
+      send(202, { ok: true, started: true, liveQuotes: getLiveQuotesMeta() })
+      return true
+    }
+    send(405, { error: 'Method not allowed' })
+    return true
+  }
+
   if (url.pathname === '/api/health') {
     const snap = readMarketSnapshotRow()
     const universeTotal = getUniverseCount()
@@ -360,6 +379,7 @@ export async function handleConnectApi(req, res, send) {
       database: dbPath(),
       snapshot: snapMeta,
       job: getSnapshotJobStatus(),
+      liveQuotes: getLiveQuotesMeta(),
     })
     return true
   }
@@ -464,6 +484,7 @@ export function mountExpressApi(app) {
       database: dbPath(),
       snapshot: snapMeta,
       job: getSnapshotJobStatus(),
+      liveQuotes: getLiveQuotesMeta(),
     })
   })
 
@@ -700,6 +721,23 @@ export function mountExpressApi(app) {
       })
     })
     return res.status(202).json({ ok: true, started: true, job: getSnapshotJobStatus() })
+  })
+
+  app.post('/api/live-quotes/refresh', (req, res) => {
+    if (requireSessionOrAdmin(req, (status, body) => res.status(status).json(body))) return
+    if (isProductionMode() && !isAdminRequest(req)) {
+      return res.status(403).json({
+        error: 'Admin only in production mode',
+        hint: 'Set ADMIN_USERS or call with x-admin-key header',
+      })
+    }
+    log('info', 'live_quotes.refresh', { started: true })
+    void runLiveQuoteRefresh().catch((err) => {
+      log('error', 'live_quotes.refresh.error', {
+        message: err instanceof Error ? err.message : String(err),
+      })
+    })
+    return res.status(202).json({ ok: true, started: true, liveQuotes: getLiveQuotesMeta() })
   })
 
   app.get('/api/breadth/daily', (req, res) => {

@@ -200,6 +200,21 @@ export default function App() {
   }, [canUseApp])
 
   useEffect(() => {
+    if (!canUseApp || !deskConfig?.productionMode) return
+    let lastLiveAt = deskConfig.liveQuotes?.updatedAt ?? 0
+    const id = setInterval(async () => {
+      const cfg = await fetchDeskServerConfig()
+      setDeskConfig(cfg)
+      const liveAt = cfg.liveQuotes?.updatedAt ?? 0
+      if (cfg.liveQuotes?.fresh && liveAt > lastLiveAt) {
+        lastLiveAt = liveAt
+        await load(false)
+      }
+    }, 5 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [canUseApp, deskConfig?.productionMode, load])
+
+  useEffect(() => {
     if (!canUseApp || startedLoad.current) return
     startedLoad.current = true
     void loadRef.current(false)
@@ -234,8 +249,12 @@ export default function App() {
     if (!meta) return null
     if (meta.source === 'server-sqlite') {
       const prov = deskConfig?.provider
-      if (deskConfig?.eodhdOnly || prov === 'eodhd') return ' · EODHD snapshot'
-      return ' · server SQLite snapshot'
+      const live =
+        deskConfig?.liveQuotes?.fresh && deskConfig.liveQuotes.marketOpen
+          ? ` · live (~${deskConfig.liveQuotes.delayedMinutes}m delay)`
+          : ''
+      if (deskConfig?.eodhdOnly || prov === 'eodhd') return ` · EODHD snapshot${live}`
+      return ` · server SQLite snapshot${live}`
     }
     if (meta.fromCache && !backfilling) return ' · cached (6h)'
     if (backfilling) {
@@ -419,7 +438,16 @@ export default function App() {
                 <ViewTabs active={view} onChange={setView} mood={displaySnapshot!.moodCounts} />
 
                 <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm md:p-5">
-                  {view === 'sector-table' && <SectorTable snapshot={displaySnapshot!} />}
+                  {view === 'sector-table' && (
+                    <SectorTable
+                      snapshot={displaySnapshot!}
+                      livePricesActive={
+                        Boolean(
+                          deskConfig?.liveQuotes?.fresh && deskConfig.liveQuotes.marketOpen,
+                        )
+                      }
+                    />
+                  )}
                   {view === 'money-rotation' && <MoneyRotation snapshot={displaySnapshot!} />}
                   {view === 'rotation-clock' && <RotationClock snapshot={displaySnapshot!} />}
                   {view === 'sector-analytics' && <SectorAnalytics snapshot={displaySnapshot!} />}

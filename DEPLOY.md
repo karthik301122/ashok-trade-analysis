@@ -149,6 +149,10 @@ curl -s https://tradersscope.com/api/health | jq '.readiness, .job'
 
 After the scheduled run, `snapshotLoaded` should be high (~2400+) and `snapshotAcceptable` true.
 
+### Live (delayed) prices during ASX session
+
+The server polls EODHD **live (delayed ~15 min)** quotes every **15 minutes** between **10:00–16:30 Sydney** and overlays **Price** and **Day %** on the sector table. No extra Azure cron needed — runs inside `tradersscope-app`. Optional admin/cron: `POST /api/live-quotes/refresh` with `x-admin-key`.
+
 
 ### Auth (mandatory in production)
 

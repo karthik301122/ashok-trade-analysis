@@ -45,6 +45,8 @@ export interface StockMetrics extends StockRaw, PerfBundle {
   dollarVolume: number
   /** Last session close (AUD) */
   lastPrice: number
+  /** EODHD live (delayed) quote applied */
+  liveAt?: number
   /** RSI(14) 0–100; 50 if unknown */
   rsi: number
 }

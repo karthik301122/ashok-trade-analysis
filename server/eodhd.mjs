@@ -294,3 +294,63 @@ async function fetchEodhdIntradayInner(symbol, interval, fromTs, toTs, opts, tok
   if (lastErr) console.warn(`[eodhd] intraday ${symbol}: ${lastErr.message || lastErr}`)
   return null
 }
+
+const REALTIME_BASE = 'https://eodhd.com/api/real-time'
+
+/**
+ * EODHD live (delayed ~15–20 min) quote batch — up to ~20 symbols per call.
+ * @param {string[]} yahooSymbols e.g. BHP.AX, ^AXJO
+ */
+export async function fetchEodhdLiveQuotes(yahooSymbols) {
+  const token = getEodhdToken()
+  if (!token || !yahooSymbols?.length) return []
+  const BATCH = 20
+  const out = []
+  for (let i = 0; i < yahooSymbols.length; i += BATCH) {
+    const batch = yahooSymbols.slice(i, i + BATCH)
+    const chunk = await withEodhdThrottle(() => fetchEodhdLiveQuotesBatch(batch, token))
+    if (chunk?.length) out.push(...chunk)
+  }
+  return out
+}
+
+async function fetchEodhdLiveQuotesBatch(yahooSymbols, token) {
+  const eodSymbols = yahooSymbols.map((s) => toEodhdSymbol(s))
+  const primary = eodSymbols[0]
+  if (!primary) return []
+  const url = new URL(`${REALTIME_BASE}/${encodeURIComponent(primary)}`)
+  url.searchParams.set('api_token', token)
+  url.searchParams.set('fmt', 'json')
+  if (eodSymbols.length > 1) {
+    url.searchParams.set('s', eodSymbols.slice(1).join(','))
+  }
+
+  const res = await fetch(url, { signal: AbortSignal.timeout(45000) })
+  if (res.status === 404) return []
+  if (res.status === 429) {
+    const waitMs = parseRetryAfterMs(res.headers)
+    console.warn(`[eodhd] live batch: rate limited — waiting ${Math.round(waitMs / 1000)}s`)
+    await sleep(waitMs)
+    return []
+  }
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`EODHD live ${res.status}: ${text.slice(0, 120)}`)
+  }
+  const data = await res.json()
+  if (data && typeof data === 'object' && !Array.isArray(data) && data.error) {
+    throw new Error(String(data.error))
+  }
+  const rows = Array.isArray(data) ? data : [data]
+  return rows.filter((r) => r && typeof r === 'object' && r.code)
+}
+
+/** Map EODHD code (BHP.AU) to app ticker (BHP). */
+export function eodhdCodeToAppTicker(code) {
+  const c = String(code).trim().toUpperCase()
+  if (!c) return ''
+  if (c === 'AXJO.INDX' || c === '^AXJO') return '^AXJO'
+  if (c.endsWith('.AU')) return c.slice(0, -3)
+  if (c.endsWith('.AX')) return c.slice(0, -3)
+  return c
+}

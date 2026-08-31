@@ -50,6 +50,8 @@ export type CachedPerf = {
   dollarVolume?: number
   /** Last session close (AUD) */
   lastPrice?: number
+  /** Server applied EODHD live (delayed) quote */
+  liveAt?: number
 }
 
 function sleep(ms: number) {

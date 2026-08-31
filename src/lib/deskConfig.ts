@@ -7,6 +7,13 @@ export type DeskServerConfig = {
   isAdmin: boolean
   provider?: string
   eodhdOnly?: boolean
+  liveQuotes?: {
+    fresh: boolean
+    marketOpen: boolean
+    updatedAt: number
+    count: number
+    delayedMinutes: number
+  }
 }
 
 const DEFAULT_CONFIG: DeskServerConfig = {
@@ -26,13 +33,18 @@ export async function fetchDeskServerConfig(
       const res = await fetch('/api/health', { credentials: 'include', signal: linked })
       clearTimeout(timer)
       if (!res.ok) continue
-      const j = (await res.json()) as Partial<DeskServerConfig> & { provider?: string; eodhdOnly?: boolean }
+      const j = (await res.json()) as Partial<DeskServerConfig> & {
+        provider?: string
+        eodhdOnly?: boolean
+        liveQuotes?: DeskServerConfig['liveQuotes']
+      }
       return {
         productionMode: Boolean(j.productionMode),
         browserUniverseFetch: Boolean(j.browserUniverseFetch),
         isAdmin: Boolean(j.isAdmin),
         provider: typeof j.provider === 'string' ? j.provider : undefined,
         eodhdOnly: Boolean(j.eodhdOnly),
+        liveQuotes: j.liveQuotes,
       }
     } catch {
       clearTimeout(timer)

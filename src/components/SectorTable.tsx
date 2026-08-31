@@ -21,7 +21,11 @@ import {
 } from '../lib/overviewPatternHits'
 import { useUnifiedSpecialScans } from './patterns/useUnifiedSpecialScans'
 
-type Props = { snapshot: MarketSnapshot }
+type Props = {
+  snapshot: MarketSnapshot
+  /** EODHD live (delayed) prices applied on server */
+  livePricesActive?: boolean
+}
 
 function biasChipClass(bias: string) {
   if (bias === 'bullish') return 'border-emerald-400/60 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200'
@@ -75,7 +79,7 @@ function PatternHitChips({ hits, prefs }: { hits: CachedPatternHit[]; prefs: Pat
   )
 }
 
-export function SectorTable({ snapshot }: Props) {
+export function SectorTable({ snapshot, livePricesActive = false }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [sectorFilters, setSectorFilters] = useState<string[]>([])
   const [industryFilter, setIndustryFilter] = useState<string | null>(null)
@@ -455,7 +459,7 @@ export function SectorTable({ snapshot }: Props) {
             <tr>
               {[
                 'Sector / Stock',
-                'Price',
+                livePricesActive ? 'Price (live)' : 'Price',
                 'Weight',
                 'Mood',
                 'Cycle',
@@ -503,6 +507,7 @@ export function SectorTable({ snapshot }: Props) {
                 weeklyVersion={weeklyVersion}
                 livermoreVersion={livermoreVersion}
                 scriptScanVersion={scriptScanVersion}
+                livePricesActive={livePricesActive}
               />
             ))}
             {!industries.length && (
@@ -572,6 +577,7 @@ function IndustryRows({
   weeklyVersion,
   livermoreVersion,
   scriptScanVersion,
+  livePricesActive = false,
 }: {
   ind: IndustryMetrics
   open: boolean
@@ -598,6 +604,7 @@ function IndustryRows({
   weeklyVersion: number
   livermoreVersion: number
   scriptScanVersion: number
+  livePricesActive?: boolean
 }) {
   const cycle = CYCLE_LABEL[ind.cycle]
   const mood = MOOD_LABEL[ind.mood]
@@ -711,6 +718,9 @@ function IndustryRows({
             </td>
             <td className="px-2 tabular-nums font-semibold">
               {formatPrice(resolveStockPrice(s) ?? 0)}
+              {livePricesActive && s.liveAt ? (
+                <span className="ml-1 text-[9px] font-normal text-sky-600 dark:text-sky-400">●</span>
+              ) : null}
             </td>
             <td className="px-2 tabular-nums">{s.weight.toFixed(2)}</td>
             <td className="px-2">

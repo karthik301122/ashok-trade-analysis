@@ -5,6 +5,7 @@ import { getDb } from './db.mjs'
 import { getCachedSeries } from './getSeries.mjs'
 import { eodhdEnabled } from './eodhd.mjs'
 import { seriesToCachedPerf, mapPool } from './perfMath.mjs'
+import { applyLiveQuotesToStockMap, getLiveQuotesMeta } from './liveQuotes.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -89,7 +90,7 @@ export function readMarketSnapshotRow() {
     loaded: Number(row.loaded),
     failed: Number(row.failed),
     indexPerf: JSON.parse(row.index_perf_json),
-    stocks: JSON.parse(row.stocks_perf_json),
+    stocks: applyLiveQuotesToStockMap(JSON.parse(row.stocks_perf_json)),
   }
 }
 
@@ -126,6 +127,7 @@ export function readMarketSnapshotMeta() {
     fresh: isSnapshotFresh(builtAt),
     indexPerf: JSON.parse(row.index_perf_json),
     store: 'sqlite',
+    liveQuotes: getLiveQuotesMeta(),
   }
 }
 
@@ -143,6 +145,7 @@ export function readMarketSnapshotStocksChunk(offset, limit) {
   const slice = keys.slice(safeOffset, safeOffset + safeLimit)
   const stocks = {}
   for (const k of slice) stocks[k] = map[k]
+  applyLiveQuotesToStockMap(stocks)
   return {
     offset: safeOffset,
     limit: safeLimit,

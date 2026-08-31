@@ -8,6 +8,7 @@ import {
 import { mountExpressApi } from './apiHandlers.mjs'
 import { loadEnvFile } from './loadEnv.mjs'
 import { maybeStartBackgroundSnapshot } from './snapshotJob.mjs'
+import { maybeStartLiveQuoteScheduler } from './liveQuoteJob.mjs'
 import { dbPath } from './db.mjs'
 
 loadEnvFile()
@@ -40,4 +41,5 @@ app.listen(port, () => {
   console.log(`SQLite: ${dbPath()}`)
   console.log(authEnabled() ? 'Auth: enabled (login required)' : 'Auth: disabled (set AUTH_SECRET)')
   maybeStartBackgroundSnapshot()
+  maybeStartLiveQuoteScheduler()
 })
