@@ -1,25 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Header } from './components/Header'
-import { ViewTabs, type ViewId } from './components/ViewTabs'
-import { SectorTable } from './components/SectorTable'
-import { MoneyRotation } from './components/MoneyRotation'
-import { RotationClock } from './components/RotationClock'
-import { SectorAnalytics } from './components/SectorAnalytics'
-import { IndustryAnalytics } from './components/IndustryAnalytics'
-import { BreadthAnalysis } from './components/BreadthAnalysis'
-import { AltAssetsPanel } from './components/AltAssetsPanel'
-import { AlertsPanel } from './components/AlertsPanel'
-import { SpecialPatternsPanel } from './components/SpecialPatternsPanel'
-import { VolumeScan } from './components/VolumeScan'
+import type { ViewId } from './components/ViewTabs'
+import { MainPagePanels } from './components/MainPagePanels'
 import { AuthPage } from './components/AuthPage'
-import { COMMODITIES, CRYPTO } from './data/altAssets'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
 import { fetchDeskServerConfig, type DeskServerConfig } from './lib/deskConfig'
 import { fetchAuthMe, logout as apiLogout } from './lib/auth'
 import type { MarketSnapshot } from './data/types'
 import { ASX_UNIVERSE_COUNT } from './data/universe'
 import { applyStocksOnlyFilter, STOCKS_ONLY_LS_KEY } from './lib/instrumentFilter'
-import { APP_NAME } from './lib/brand'
 import { RefreshCw } from 'lucide-react'
 import { PatternPrefsProvider } from './components/patterns/PatternPrefsContext'
 
@@ -192,13 +181,6 @@ export default function App() {
     await load(true)
   }, [deskConfig, load, waitForSnapshotJob])
 
-  const handlePageChange = useCallback(
-    (p: 'sector' | 'breadth' | 'alerts' | 'special-patterns') => {
-      startTransition(() => setPage(p))
-    },
-    [],
-  )
-
   const canUseApp = !authChecking && (!authRequired || Boolean(user))
 
   useEffect(() => {
@@ -281,7 +263,7 @@ export default function App() {
         dark={dark}
         onToggleDark={() => setDark((d) => !d)}
         page={page}
-        onPage={handlePageChange}
+        onPage={setPage}
         authRequired={authRequired}
         user={user}
         onLogout={authRequired ? handleLogout : undefined}
@@ -423,66 +405,16 @@ export default function App() {
               </button>
             </div>
 
-            <div hidden={page !== 'alerts'}>
-              <AlertsPanel />
-            </div>
-            <div hidden={page !== 'special-patterns'}>
-              <SpecialPatternsPanel
-                snapshot={displaySnapshot!}
-                active={page === 'special-patterns'}
-              />
-            </div>
-            <div hidden={page !== 'breadth'}>
-              <BreadthAnalysis snapshot={displaySnapshot!} active={page === 'breadth'} />
-            </div>
-            <div hidden={page !== 'sector'} className="space-y-4">
-              <div>
-                <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold tracking-tight md:text-3xl">
-                  {APP_NAME}
-                </h1>
-                <p className="text-sm text-[var(--color-ink-soft)]">
-                  {displaySnapshot!.asOf} · vs {displaySnapshot!.benchmark} ·{' '}
-                  {displaySnapshot!.industries.length} industries
-                  {backfilling ? ' · updating…' : ''}
-                </p>
-              </div>
-
-              <ViewTabs active={view} onChange={setView} mood={displaySnapshot!.moodCounts} />
-
-              <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm md:p-5">
-                {view === 'sector-table' && (
-                  <SectorTable
-                    snapshot={displaySnapshot!}
-                    livePricesActive={
-                      Boolean(
-                        deskConfig?.liveQuotes?.fresh && deskConfig.liveQuotes.marketOpen,
-                      )
-                    }
-                  />
-                )}
-                {view === 'money-rotation' && <MoneyRotation snapshot={displaySnapshot!} />}
-                {view === 'rotation-clock' && <RotationClock snapshot={displaySnapshot!} />}
-                {view === 'sector-analytics' && <SectorAnalytics snapshot={displaySnapshot!} />}
-                {view === 'industry-analytics' && <IndustryAnalytics snapshot={displaySnapshot!} />}
-                {view === 'volume-scan' && <VolumeScan snapshot={displaySnapshot!} />}
-                {view === 'commodities' && (
-                  <AltAssetsPanel
-                    title="Commodities Desk"
-                    subtitle="Live futures / spot proxies — gold, silver, copper, oil, ags, AUD"
-                    assets={COMMODITIES}
-                    benchmarkYahoo="GC=F"
-                  />
-                )}
-                {view === 'crypto' && (
-                  <AltAssetsPanel
-                    title="Crypto Desk"
-                    subtitle="Major coins with mood / cycle / returns vs BTC"
-                    assets={CRYPTO}
-                    benchmarkYahoo="BTC-USD"
-                  />
-                )}
-              </div>
-            </div>
+            <MainPagePanels
+              page={page}
+              snapshot={displaySnapshot!}
+              view={view}
+              onViewChange={setView}
+              livePricesActive={Boolean(
+                deskConfig?.liveQuotes?.fresh && deskConfig.liveQuotes.marketOpen,
+              )}
+              backfilling={backfilling}
+            />
           </>
         ) : null}
       </main>

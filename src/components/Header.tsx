@@ -58,6 +58,7 @@ export function Header({ dark, onToggleDark, page, onPage, authRequired, user, o
                 key={item.id}
                 type="button"
                 onClick={() => onPage(item.id)}
+                aria-current={active ? 'page' : undefined}
                 className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
                   active
                     ? 'bg-teal-700 text-white shadow-sm dark:bg-teal-600'
@@ -77,6 +78,7 @@ export function Header({ dark, onToggleDark, page, onPage, authRequired, user, o
                 key={item.id}
                 type="button"
                 onClick={() => onPage(item.id)}
+                aria-current={page === item.id ? 'page' : undefined}
                 className={`rounded-md px-2 py-1 text-[11px] font-semibold ${
                   page === item.id ? 'bg-teal-700 text-white' : 'text-[var(--color-ink-soft)]'
                 }`}
