@@ -3,6 +3,7 @@ import type { PatternHit } from './types'
 import type { SpecialPatternDef } from './specialCatalog'
 import { detectCustomRule } from './customRules'
 import { rulesFromCustom } from './scanScript'
+import { detectLaunchpad } from './launchpadDetect'
 import { detectVcpBreakout, detectVcpSetup } from './vcpDetect'
 
 export function evaluateSpecialScanPattern(
@@ -14,6 +15,9 @@ export function evaluateSpecialScanPattern(
   }
   if (pattern.id === 'vcp-breakout') {
     return detectVcpBreakout(bars, pattern)
+  }
+  if (pattern.id === 'launchpad') {
+    return detectLaunchpad(bars, pattern)
   }
   if (!pattern.scanScript?.trim()) return null
   const rules = rulesFromCustom(null, pattern.scanScript)

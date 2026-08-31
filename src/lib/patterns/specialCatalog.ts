@@ -209,6 +209,26 @@ export const VCP_PATTERNS: SpecialPatternDef[] = [
   },
 ]
 
+/** Launchpad — multi-factor compression coil under resistance (daily OHLC). */
+export const LAUNCHPAD_PATTERNS: SpecialPatternDef[] = [
+  {
+    id: 'launchpad',
+    name: 'Launchpad',
+    category: 'structure',
+    kind: 'scan',
+    bias: 'bullish',
+    formula:
+      'ATR(20) < ATR(20)[20]\n' +
+      'sum(high−low, 10) < sum(high−low, 10)[10]\n' +
+      'inside bars (5d) ≥ 2\n' +
+      'RS(20) > 0  AND  RS(5) > RS(20)\n' +
+      'ROC(20) > 0  AND  ROC(60) < 8%\n' +
+      'close > SMA(20)  AND  close < resistance(20) × 1.03',
+    description:
+      'Pre-breakout launchpad: volatility and range contraction, nested inside bars, improving short-term RS, positive month with capped quarter, price coiled under 20-day resistance.',
+  },
+]
+
 /**
  * Ashok desk formula patterns — evaluated on snapshot metrics (not OHLC shapes).
  * Add new entries here; implement the matching rule in specialDetect.ts.
@@ -382,6 +402,7 @@ export const SPECIAL_PATTERN_CATALOG: SpecialPatternDef[] = [
   ...KARTHIK_WEEKLY_PATTERNS,
   ...LIVERMORE_PATTERNS,
   ...VCP_PATTERNS,
+  ...LAUNCHPAD_PATTERNS,
   ...SNAPSHOT_PATTERN_CATALOG,
 ]
 
