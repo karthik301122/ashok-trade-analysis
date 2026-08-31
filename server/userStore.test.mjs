@@ -7,6 +7,11 @@ describe('userStore validation', () => {
     expect(validateUsername('karthik.trades')).toBeNull()
   })
 
+  it('accepts email addresses', () => {
+    expect(validateUsername('molabantirupak@gmail.com')).toBeNull()
+    expect(validateUsername('test@example.com')).toBeNull()
+  })
+
   it('rejects short or invalid usernames', () => {
     expect(validateUsername('ab')).not.toBeNull()
     expect(validateUsername('bad name')).not.toBeNull()

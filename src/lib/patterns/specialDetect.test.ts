@@ -33,6 +33,7 @@ function stock(partial: Partial<StockMetrics> & { ticker: string }): StockMetric
     avgVolume20: 0,
     relativeVolume: 1,
     dollarVolume: 0,
+    lastPrice: 0,
     rsi: 50,
     ...partial,
   }

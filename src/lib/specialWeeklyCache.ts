@@ -77,3 +77,17 @@ export function aggregateWeeklyHits(
 export function countWeeklyHits(tickers: string[], patternId: KarthikPatternId): number {
   return aggregateWeeklyHits(tickers, patternId).length
 }
+
+/** Hit counts per weekly pattern id — single localStorage read. */
+export function weeklyHitCounts(tickers: string[]): Map<string, number> {
+  const all = readAll()
+  const counts = new Map<string, number>()
+  for (const t of tickers) {
+    const row = all[t.toUpperCase()]
+    if (!row) continue
+    for (const h of row.hits) {
+      counts.set(h.patternId, (counts.get(h.patternId) ?? 0) + 1)
+    }
+  }
+  return counts
+}

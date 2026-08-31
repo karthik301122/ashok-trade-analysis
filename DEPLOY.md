@@ -78,7 +78,7 @@ See `.env.example`.
 | `ADMIN_API_KEY` | Optional `x-admin-key` header for cron (`POST /api/snapshot/refresh`) |
 | `SERIES_RATE_LIMIT` | `/api/series` per IP per minute (default `600` in production) |
 | `SNAPSHOT_RATE_LIMIT` | `/api/snapshot` GET per IP per minute (default `60` in production) |
-| `AUTH_SECRET` + `AUTH_USERS` | Optional login gate |
+| `AUTH_SECRET` + `AUTH_USERS` | **Required** when `PRODUCTION_MODE=true` — login is mandatory |
 | `DATABASE_PATH` | SQLite file path (default `./data/asx.sqlite`) |
 | `PORT` | Prod listen port (default `4173`) |
 
@@ -98,7 +98,34 @@ SERIES_RATE_LIMIT=600
 - Schedule: `curl -X POST -H "x-admin-key: $ADMIN_API_KEY" http://localhost:4173/api/snapshot/refresh?force=1`
 - Check readiness: `GET /api/health` → `readiness.multiUserReady`
 
-### Auth (optional)
+### Auth (mandatory in production)
+
+When `PRODUCTION_MODE=true`, the server **refuses to start** without `AUTH_SECRET`.
+All market APIs require a signed-in session.
+
+```powershell
+# Generate a secret
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+
+# .env
+AUTH_SECRET=<paste-secret>
+AUTH_USERS=username:$2b$10$...   # node scripts/hash-password.mjs "password"
+
+# Or seed SQLite users on the server:
+npm run create-user -- username password --admin
+```
+
+**Azure (tradersscope-app)** — Application settings:
+
+| Setting | Value |
+|---------|--------|
+| `AUTH_SECRET` | Long random string |
+| `AUTH_USERS` | `user:$2b$hash,...` (optional, alongside DB users) |
+| `PRODUCTION_MODE` | `true` |
+
+No public registration — accounts are seeded only.
+
+### Auth (optional local dev)
 
 ```powershell
 node scripts/hash-password.mjs "choose-a-strong-password"

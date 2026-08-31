@@ -3,11 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import {
   authEnabled,
-  sessionClearCookieHeader,
-  sessionSetCookieHeader,
-  createSessionToken,
-  verifyCredentials,
-  registerAccount,
+  assertAuthConfigured,
 } from './auth.mjs'
 import { mountExpressApi } from './apiHandlers.mjs'
 import { loadEnvFile } from './loadEnv.mjs'
@@ -15,6 +11,13 @@ import { maybeStartBackgroundSnapshot } from './snapshotJob.mjs'
 import { dbPath } from './db.mjs'
 
 loadEnvFile()
+
+try {
+  assertAuthConfigured()
+} catch (err) {
+  console.error(err instanceof Error ? err.message : err)
+  process.exit(1)
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -26,33 +29,6 @@ app.use(express.json({ limit: '8mb' }))
 
 mountExpressApi(app)
 
-app.post('/api/auth/register', async (req, res) => {
-  if (!authEnabled()) {
-    return res.status(400).json({ error: 'Auth is not configured on this server' })
-  }
-  const result = await registerAccount(req.body?.username, req.body?.password, req.body?.inviteCode)
-  if (!result.ok) return res.status(400).json({ error: result.error })
-  const token = createSessionToken(result.user)
-  res.setHeader('Set-Cookie', sessionSetCookieHeader(token))
-  return res.json({ user: result.user })
-})
-
-app.post('/api/auth/login', async (req, res) => {
-  if (!authEnabled()) {
-    return res.status(400).json({ error: 'Auth is not configured on this server' })
-  }
-  const user = await verifyCredentials(req.body?.username, req.body?.password)
-  if (!user) return res.status(401).json({ error: 'Invalid username or password' })
-  const token = createSessionToken(user)
-  res.setHeader('Set-Cookie', sessionSetCookieHeader(token))
-  return res.json({ user })
-})
-
-app.post('/api/auth/logout', (_req, res) => {
-  res.setHeader('Set-Cookie', sessionClearCookieHeader())
-  return res.json({ ok: true })
-})
-
 app.use(express.static(dist))
 
 app.get(/.*/, (_req, res) => {
@@ -62,6 +38,6 @@ app.get(/.*/, (_req, res) => {
 app.listen(port, () => {
   console.log(`ASX Sector Intelligence running on http://localhost:${port}`)
   console.log(`SQLite: ${dbPath()}`)
-  console.log(authEnabled() ? 'Auth: enabled' : 'Auth: disabled (set AUTH_SECRET)')
+  console.log(authEnabled() ? 'Auth: enabled (login required)' : 'Auth: disabled (set AUTH_SECRET)')
   maybeStartBackgroundSnapshot()
 })

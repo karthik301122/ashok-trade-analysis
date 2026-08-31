@@ -4,7 +4,8 @@ import type { IndustryMetrics, MarketSnapshot, Mood, StockMetrics } from '../dat
 import { ASX_UNIVERSE_COUNT } from '../data/universe'
 import type { PatternPrefs } from '../lib/patternPrefs'
 import { CYCLE_LABEL, MOOD_LABEL } from '../lib/market'
-import { formatPct, formatVsIndex, perfCellClass } from '../lib/format'
+import { formatPct, formatPrice, formatVsIndex, perfCellClass, resolveStockPrice } from '../lib/format'
+import { matchesSectorFilters } from '../lib/sectorFilter'
 import { copyTickersToTradingView } from '../lib/tradingview'
 import { Sparkline } from './Sparkline'
 import { StockChartModal } from './StockChartModal'
@@ -18,9 +19,7 @@ import {
   isSpecialOverviewHit,
   isStarredOverviewHit,
 } from '../lib/overviewPatternHits'
-import { useKarthikWeeklyScan } from './patterns/useKarthikWeeklyScan'
-import { useLivermoreScan } from './patterns/useLivermoreScan'
-import { useSpecialScriptScan } from './patterns/useSpecialScriptScan'
+import { useUnifiedSpecialScans } from './patterns/useUnifiedSpecialScans'
 
 type Props = { snapshot: MarketSnapshot }
 
@@ -78,7 +77,7 @@ function PatternHitChips({ hits, prefs }: { hits: CachedPatternHit[]; prefs: Pat
 
 export function SectorTable({ snapshot }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [sectorFilter, setSectorFilter] = useState<string | null>(null)
+  const [sectorFilters, setSectorFilters] = useState<string[]>([])
   const [industryFilter, setIndustryFilter] = useState<string | null>(null)
   const [moodFilter, setMoodFilter] = useState<Mood | 'all'>('all')
   const [starOnly, setStarOnly] = useState(false)
@@ -92,22 +91,14 @@ export function SectorTable({ snapshot }: Props) {
   const heavyPatternScans =
     snapshot.stocks.length >= Math.floor(ASX_UNIVERSE_COUNT * 0.85)
 
-  const { scanning: weeklyScanning, done: weeklyDone, total: weeklyTotal, version: weeklyVersion } =
-    useKarthikWeeklyScan(snapshot.stocks, heavyPatternScans)
-
   const {
-    scanning: livermoreScanning,
-    done: livermoreDone,
-    total: livermoreTotal,
-    version: livermoreVersion,
-  } = useLivermoreScan(snapshot.stocks, heavyPatternScans && !weeklyScanning)
-
-  const {
-    scanning: scriptScanning,
-    done: scriptDone,
-    total: scriptTotal,
-    version: scriptScanVersion,
-  } = useSpecialScriptScan(snapshot.stocks, heavyPatternScans && !weeklyScanning && !livermoreScanning)
+    scanning: specialScanning,
+    done: specialDone,
+    total: specialTotal,
+    version: weeklyVersion,
+    livermoreVersion,
+    scriptScanVersion,
+  } = useUnifiedSpecialScans(snapshot.stocks, heavyPatternScans)
 
   const indexM3 = snapshot.benchmarkPerf.m3
   const universe = snapshot.stocks
@@ -131,16 +122,16 @@ export function SectorTable({ snapshot }: Props) {
   const sectors = snapshot.sectors
 
   const industriesInSector = useMemo(() => {
-    if (!sectorFilter) return []
+    if (!sectorFilters.length) return []
     return snapshot.industries
-      .filter((i) => i.sector === sectorFilter)
+      .filter((i) => matchesSectorFilters(i.sector, sectorFilters))
       .slice()
       .sort((a, b) => b.weight - a.weight)
-  }, [snapshot.industries, sectorFilter])
+  }, [snapshot.industries, sectorFilters])
 
   const industries = useMemo(() => {
     let list = snapshot.industries
-    if (sectorFilter) list = list.filter((i) => i.sector === sectorFilter)
+    if (sectorFilters.length) list = list.filter((i) => matchesSectorFilters(i.sector, sectorFilters))
     if (industryFilter) list = list.filter((i) => i.name === industryFilter)
     if (moodFilter !== 'all') list = list.filter((i) => i.mood === moodFilter)
     if (starOnly) {
@@ -163,7 +154,7 @@ export function SectorTable({ snapshot }: Props) {
         .filter((i): i is IndustryMetrics => i != null)
     }
     return list
-  }, [snapshot.industries, sectorFilter, industryFilter, moodFilter, starOnly, query])
+  }, [snapshot.industries, sectorFilters, industryFilter, moodFilter, starOnly, query])
 
   const searching = query.trim().length > 0 || Boolean(industryFilter)
 
@@ -180,13 +171,25 @@ export function SectorTable({ snapshot }: Props) {
   const { scanning: patternScanning, done: patternDone, total: patternTotal } =
     useIndustryPatternScan(visibleTickers, hasOverviewChartWatch(prefs))
 
-  const selectSector = (name: string | null) => {
-    setSectorFilter(name)
+  const toggleSectorFilter = (name: string) => {
+    setSectorFilters((prev) => {
+      const next = prev.includes(name)
+        ? prev.filter((s) => s !== name)
+        : [...prev, name].sort((a, b) => a.localeCompare(b))
+      if (next.length) {
+        const names = snapshot.industries
+          .filter((i) => matchesSectorFilters(i.sector, next))
+          .map((i) => i.name)
+        setExpanded(new Set(names))
+      }
+      return next
+    })
     setIndustryFilter(null)
-    if (name) {
-      const names = snapshot.industries.filter((i) => i.sector === name).map((i) => i.name)
-      setExpanded(new Set(names))
-    }
+  }
+
+  const clearSectorFilters = () => {
+    setSectorFilters([])
+    setIndustryFilter(null)
   }
 
   const toggle = (name: string) => {
@@ -230,14 +233,30 @@ export function SectorTable({ snapshot }: Props) {
     }
   }
 
-  const selectedSectorStars = sectorFilter ? (sectorStarCounts.get(sectorFilter) ?? []) : []
+  const selectedSectorStars = useMemo(() => {
+    if (!sectorFilters.length) return []
+    const out: string[] = []
+    for (const sec of sectorFilters) {
+      out.push(...(sectorStarCounts.get(sec) ?? []))
+    }
+    return out
+  }, [sectorFilters, sectorStarCounts])
+
+  const copySelectedSectorStars = async () => {
+    if (!selectedSectorStars.length) return
+    const ok = await copyTickersToTradingView(selectedSectorStars)
+    if (ok) {
+      setCopiedSectorStars('selected')
+      setTimeout(() => setCopiedSectorStars(null), 1600)
+    }
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-1.5">
         {sectors.map((s) => {
           const sectorStars = sectorStarCounts.get(s.name) ?? []
-          const active = sectorFilter === s.name
+          const active = sectorFilters.includes(s.name)
           return (
             <div
               key={s.name}
@@ -249,7 +268,7 @@ export function SectorTable({ snapshot }: Props) {
             >
               <button
                 type="button"
-                onClick={() => selectSector(active ? null : s.name)}
+                onClick={() => toggleSectorFilter(s.name)}
                 className={`px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
                   active
                     ? 'text-sky-800 dark:text-sky-200'
@@ -277,12 +296,24 @@ export function SectorTable({ snapshot }: Props) {
             </div>
           )
         })}
+        {sectorFilters.length > 0 && (
+          <button
+            type="button"
+            onClick={clearSectorFilters}
+            className="rounded-full border border-[var(--color-border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]"
+          >
+            Clear sectors ({sectorFilters.length})
+          </button>
+        )}
       </div>
 
-      {sectorFilter && industriesInSector.length > 0 && (
+      {sectorFilters.length > 0 && industriesInSector.length > 0 && (
         <div className="rounded-xl border border-amber-500/40 bg-amber-50/80 p-3 dark:bg-amber-950/30">
           <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-amber-900 dark:text-amber-200">
-            {sectorFilter} · pick a category ({industriesInSector.length})
+            {sectorFilters.length === 1
+              ? sectorFilters[0]
+              : `${sectorFilters.length} sectors`}{' '}
+            · pick a category ({industriesInSector.length})
           </p>
           <div className="flex flex-wrap gap-1.5">
             <button
@@ -377,17 +408,9 @@ export function SectorTable({ snapshot }: Props) {
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
         <div className="text-[var(--color-ink-soft)]">
-          {weeklyScanning ? (
+          {specialScanning ? (
             <span className="font-medium text-amber-700 dark:text-amber-300">
-              Scanning weekly patterns… {weeklyDone}/{weeklyTotal}
-            </span>
-          ) : livermoreScanning ? (
-            <span className="font-medium text-amber-700 dark:text-amber-300">
-              Scanning Livermore… {livermoreDone}/{livermoreTotal}
-            </span>
-          ) : scriptScanning ? (
-            <span className="font-medium text-amber-700 dark:text-amber-300">
-              Scanning VCP… {scriptDone}/{scriptTotal}
+              Scanning special patterns… {specialDone}/{specialTotal}
             </span>
           ) : patternScanning ? (
             <span className="font-medium text-amber-700 dark:text-amber-300">
@@ -407,13 +430,13 @@ export function SectorTable({ snapshot }: Props) {
             <Star size={13} className="fill-amber-500 text-amber-500" />
             {copiedStars ? 'Copied!' : `Copy ${starCount} stars`}
           </button>
-          {sectorFilter && selectedSectorStars.length > 0 && (
+          {sectorFilters.length > 0 && selectedSectorStars.length > 0 && (
             <button
               type="button"
-              onClick={() => copySectorStars(sectorFilter)}
+              onClick={() => copySelectedSectorStars()}
               className="inline-flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-xs font-semibold"
             >
-              {copiedSectorStars === sectorFilter ? 'Copied!' : `Copy sector stars`}
+              {copiedSectorStars === 'selected' ? 'Copied!' : `Copy sector stars (${selectedSectorStars.length})`}
             </button>
           )}
           <button
@@ -432,6 +455,7 @@ export function SectorTable({ snapshot }: Props) {
             <tr>
               {[
                 'Sector / Stock',
+                'Price',
                 'Weight',
                 'Mood',
                 'Cycle',
@@ -601,6 +625,7 @@ function IndustryRows({
               <span className="text-[10px] text-[var(--color-ink-soft)]">{ind.sector}</span>
             </div>
           </td>
+          <td className="px-2 tabular-nums text-[var(--color-ink-soft)]">—</td>
           <td className="px-2 tabular-nums">{ind.weight.toFixed(1)}%</td>
           <td className="px-2">
             <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${mood.className}`}>
@@ -683,6 +708,9 @@ function IndustryRows({
                 </button>
               </div>
               <PatternHitChips hits={patternHits} prefs={prefs} />
+            </td>
+            <td className="px-2 tabular-nums font-semibold">
+              {formatPrice(resolveStockPrice(s) ?? 0)}
             </td>
             <td className="px-2 tabular-nums">{s.weight.toFixed(2)}</td>
             <td className="px-2">

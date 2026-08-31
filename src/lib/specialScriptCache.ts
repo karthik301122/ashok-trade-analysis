@@ -78,9 +78,10 @@ export function aggregateScriptHits(
   }>,
   patternId: string,
 ): ScriptScanRow[] {
+  const all = readAll()
   const out: ScriptScanRow[] = []
   for (const s of stocks) {
-    const cache = getTickerScriptScan(s.ticker)
+    const cache = all[s.ticker.toUpperCase()]
     const hit = cache?.hits.find((h) => h.patternId === patternId)
     if (!hit) continue
     out.push({
@@ -97,4 +98,20 @@ export function aggregateScriptHits(
     })
   }
   return out.sort((a, b) => b.rs - a.rs)
+}
+
+/** Hit counts per pattern id — single localStorage read. */
+export function scriptHitCounts(
+  stocks: Array<{ ticker: string }>,
+): Map<string, number> {
+  const all = readAll()
+  const counts = new Map<string, number>()
+  for (const s of stocks) {
+    const cache = all[s.ticker.toUpperCase()]
+    if (!cache) continue
+    for (const h of cache.hits) {
+      counts.set(h.patternId, (counts.get(h.patternId) ?? 0) + 1)
+    }
+  }
+  return counts
 }

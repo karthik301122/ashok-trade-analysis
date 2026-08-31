@@ -107,6 +107,7 @@ export function seriesToCachedPerf(series, indexM3) {
     avgVolume20: Math.round(avgVolume20),
     relativeVolume: round1(relativeVolume),
     dollarVolume: Math.round(dollarVolume),
+    lastPrice: round1(last),
     rsi: rsi(closes, 14) ?? 50,
   }
 }

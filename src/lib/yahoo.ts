@@ -48,6 +48,8 @@ export type CachedPerf = {
   avgVolume20?: number
   relativeVolume?: number
   dollarVolume?: number
+  /** Last session close (AUD) */
+  lastPrice?: number
 }
 
 function sleep(ms: number) {

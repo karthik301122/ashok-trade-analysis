@@ -109,3 +109,29 @@ export function aggregateLivermoreHits(
   return allLivermoreRows(stocks)
     .filter((h) => livermorePatternMatch(patternId, h.scores))
 }
+
+/** Hit counts per Livermore pattern id — single cache read. */
+export function livermoreHitCounts(
+  stocks: Array<{
+    ticker: string
+    name: string
+    sector: string
+    industry: string
+    rs: number
+    relativeVolume: number
+    from52wHigh: number
+  }>,
+  patternIds: string[],
+): Map<string, number> {
+  const rows = allLivermoreRows(stocks)
+  const counts = new Map<string, number>()
+  for (const id of patternIds) counts.set(id, 0)
+  for (const row of rows) {
+    for (const id of patternIds) {
+      if (livermorePatternMatch(id, row.scores)) {
+        counts.set(id, (counts.get(id) ?? 0) + 1)
+      }
+    }
+  }
+  return counts
+}

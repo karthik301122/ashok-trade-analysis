@@ -39,6 +39,7 @@ function stubStock(ticker: string, instrumentType?: string): StockMetrics {
     avgVolume20: 900,
     relativeVolume: 1.1,
     dollarVolume: 50000,
+    lastPrice: 50,
     rsi: 55,
   }
 }

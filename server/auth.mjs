@@ -10,8 +10,6 @@
 import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
 import {
-  countDbUsers,
-  createDbUser,
   normalizeUsername,
   verifyDbCredentials,
 } from './userStore.mjs'
@@ -24,20 +22,26 @@ export function authEnabled() {
   return Boolean(process.env.AUTH_SECRET?.trim())
 }
 
-export function registrationAllowed() {
-  const raw = process.env.ALLOW_REGISTRATION?.trim().toLowerCase()
-  return raw === '1' || raw === 'true' || raw === 'yes'
+function envBool(name, defaultValue = false) {
+  const raw = process.env[name]?.trim().toLowerCase()
+  if (!raw) return defaultValue
+  if (raw === '1' || raw === 'true' || raw === 'yes') return true
+  if (raw === '0' || raw === 'false' || raw === 'no') return false
+  return defaultValue
 }
 
-export function registrationInviteRequired() {
-  return Boolean(process.env.REGISTRATION_INVITE_CODE?.trim())
+/** Login required for all API access (production desk default). */
+export function authMandatory() {
+  return envBool('PRODUCTION_MODE', process.env.NODE_ENV === 'production') || envBool('AUTH_REQUIRED', false)
 }
 
-export function authPublicConfig() {
-  return {
-    authRequired: authEnabled(),
-    registrationOpen: authEnabled() && registrationAllowed(),
-    inviteRequired: registrationInviteRequired(),
+/** Exit or throw if mandatory auth is enabled but AUTH_SECRET is missing. */
+export function assertAuthConfigured() {
+  if (authMandatory() && !authEnabled()) {
+    const msg =
+      'Login is mandatory (PRODUCTION_MODE or AUTH_REQUIRED) but AUTH_SECRET is not set. ' +
+      'Add AUTH_SECRET to .env / Azure app settings. See DEPLOY.md'
+    throw new Error(msg)
   }
 }
 
@@ -57,6 +61,12 @@ export function loadUsers() {
   return map
 }
 
+export function authPublicConfig() {
+  return {
+    authRequired: authEnabled(),
+  }
+}
+
 export async function verifyCredentials(username, password) {
   if (!username || !password) return null
   const users = loadUsers()
@@ -67,25 +77,6 @@ export async function verifyCredentials(username, password) {
     if (ok) return key
   }
   return verifyDbCredentials(username, password)
-}
-
-export async function registerAccount(username, password, inviteCode) {
-  if (!authEnabled()) return { ok: false, error: 'Auth is not configured on this server' }
-  if (!registrationAllowed()) return { ok: false, error: 'Registration is disabled' }
-
-  const secret = process.env.REGISTRATION_INVITE_CODE?.trim()
-  if (secret && String(inviteCode ?? '').trim() !== secret) {
-    return { ok: false, error: 'Invalid invite code' }
-  }
-
-  const max = Number(process.env.REGISTRATION_MAX_USERS)
-  if (Number.isFinite(max) && max > 0 && countDbUsers() >= max) {
-    return { ok: false, error: 'Registration limit reached' }
-  }
-
-  const envUsers = loadUsers()
-  const firstAccount = countDbUsers() === 0 && envUsers.size === 0
-  return createDbUser(username, password, { isAdmin: firstAccount })
 }
 
 function b64url(buf) {
@@ -220,19 +211,7 @@ export async function handleAuthApi(req, res, send) {
   }
 
   if (path === '/api/auth/register' && method === 'POST') {
-    if (!authEnabled()) {
-      return send(400, { error: 'Auth is not configured on this server' })
-    }
-    let body
-    try {
-      body = await readJsonBody(req)
-    } catch {
-      return send(400, { error: 'Invalid JSON' })
-    }
-    const result = await registerAccount(body.username, body.password, body.inviteCode)
-    if (!result.ok) return send(400, { error: result.error })
-    const token = createSessionToken(result.user)
-    return send(200, { user: result.user }, { 'Set-Cookie': sessionSetCookieHeader(token) })
+    return send(403, { error: 'Registration is disabled' })
   }
 
   if (path === '/api/auth/login' && method === 'POST') {

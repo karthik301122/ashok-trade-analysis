@@ -22,6 +22,7 @@ export type SpecialPatternHit = {
   m3: number
   relativeVolume: number
   rsi: number
+  lastPrice: number
 }
 
 function vsIndex3m(stock: StockMetrics, indexM3: number): number {
@@ -99,6 +100,7 @@ export function scanSpecialPattern(
       m3: s.m3,
       relativeVolume: s.relativeVolume ?? 0,
       rsi: s.rsi ?? 50,
+      lastPrice: s.lastPrice ?? 0,
     }))
     .sort((a, b) => b.m3 - a.m3)
 }

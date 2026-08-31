@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Copy, Search, Sparkles, Star } from 'lucide-react'
 import type { MarketSnapshot } from '../data/types'
-import { formatPct, perfCellClass } from '../lib/format'
+import { formatPct, formatPrice, perfCellClass, resolveStockPrice } from '../lib/format'
 import {
   SPECIAL_PATTERN_CATALOG,
   SPECIAL_PATTERN_CATEGORIES,
@@ -9,13 +9,13 @@ import {
 } from '../lib/patterns/specialCatalog'
 import { scanAllSpecialPatterns, type SpecialPatternHit } from '../lib/patterns/specialDetect'
 import type { KarthikPatternId } from '../lib/patterns/karthikWeekly'
-import { aggregateWeeklyHits, type WeeklySpecialHit } from '../lib/specialWeeklyCache'
-import { aggregateLivermoreHits, type LivermoreHit } from '../lib/livermoreCache'
-import { aggregateScriptHits, type ScriptScanRow } from '../lib/specialScriptCache'
+import { aggregateWeeklyHits, weeklyHitCounts, type WeeklySpecialHit } from '../lib/specialWeeklyCache'
+import { aggregateLivermoreHits, livermoreHitCounts, type LivermoreHit } from '../lib/livermoreCache'
+import { aggregateScriptHits, scriptHitCounts, type ScriptScanRow } from '../lib/specialScriptCache'
+import { matchesSectorFilters } from '../lib/sectorFilter'
 import { copyTickersToTradingView } from '../lib/tradingview'
-import { useKarthikWeeklyScan } from './patterns/useKarthikWeeklyScan'
-import { useLivermoreScan } from './patterns/useLivermoreScan'
-import { useSpecialScriptScan } from './patterns/useSpecialScriptScan'
+import { MultiSelectDropdown } from './MultiSelectDropdown'
+import { useUnifiedSpecialScans } from './patterns/useUnifiedSpecialScans'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
 import { StockChartModal, type ChartPatternFocus } from './StockChartModal'
 
@@ -46,10 +46,10 @@ function formatWeekDate(t: number | null) {
 function matchSectorIndustry(
   sector: string,
   industry: string,
-  sectorFilter: string | null,
+  sectorFilters: string[],
   industryFilter: string | null,
 ) {
-  if (sectorFilter && sector !== sectorFilter) return false
+  if (!matchesSectorFilters(sector, sectorFilters)) return false
   if (industryFilter && industry !== industryFilter) return false
   return true
 }
@@ -58,7 +58,7 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
   const [selectedId, setSelectedId] = useState('stage-2')
   const [category, setCategory] = useState<string>('weekly-karthik')
   const [query, setQuery] = useState('')
-  const [sectorFilter, setSectorFilter] = useState<string | null>(null)
+  const [sectorFilters, setSectorFilters] = useState<string[]>([])
   const [industryFilter, setIndustryFilter] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [chartStock, setChartStock] = useState<{
@@ -84,30 +84,27 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
 
   const industries = useMemo(() => {
     let list = snapshot.industries
-    if (sectorFilter) list = list.filter((i) => i.sector === sectorFilter)
+    if (sectorFilters.length) list = list.filter((i) => matchesSectorFilters(i.sector, sectorFilters))
     return list
       .map((i) => i.name)
       .sort((a, b) => a.localeCompare(b))
-  }, [snapshot.industries, sectorFilter])
+  }, [snapshot.industries, sectorFilters])
 
-  const hasSectorFilter = Boolean(sectorFilter || industryFilter)
+  const priceForTicker = (ticker: string) => {
+    const stock = stockByTicker.get(ticker.toUpperCase())
+    return stock ? resolveStockPrice(stock) : null
+  }
 
-  const { scanning: weeklyScanning, done: weeklyDone, total: weeklyTotal, version } =
-    useKarthikWeeklyScan(snapshot.stocks, true)
-
-  const {
-    scanning: livermoreScanning,
-    done: livermoreDone,
-    total: livermoreTotal,
-    version: livermoreVersion,
-  } = useLivermoreScan(snapshot.stocks, !weeklyScanning)
+  const hasSectorFilter = Boolean(sectorFilters.length || industryFilter)
 
   const {
-    scanning: scriptScanning,
-    done: scriptDone,
-    total: scriptTotal,
-    version: scriptScanVersion,
-  } = useSpecialScriptScan(snapshot.stocks, !weeklyScanning && !livermoreScanning)
+    scanning: specialScanning,
+    done: specialDone,
+    total: specialTotal,
+    version,
+    livermoreVersion,
+    scriptScanVersion,
+  } = useUnifiedSpecialScans(snapshot.stocks, true)
 
   const snapshotScan = useMemo(
     () => scanAllSpecialPatterns(snapshot.stocks, indexM3),
@@ -136,8 +133,8 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
 
   const weeklyHits = useMemo(
     () =>
-      weeklyHitsAll.filter((h) => matchSectorIndustry(h.sector, h.industry, sectorFilter, industryFilter)),
-    [weeklyHitsAll, sectorFilter, industryFilter],
+      weeklyHitsAll.filter((h) => matchSectorIndustry(h.sector, h.industry, sectorFilters, industryFilter)),
+    [weeklyHitsAll, sectorFilters, industryFilter],
   )
 
   const snapshotHitsAll = useMemo(() => {
@@ -148,9 +145,9 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
   const snapshotHits = useMemo(
     () =>
       snapshotHitsAll.filter((h) =>
-        matchSectorIndustry(h.sector, h.industry, sectorFilter, industryFilter),
+        matchSectorIndustry(h.sector, h.industry, sectorFilters, industryFilter),
       ),
-    [snapshotHitsAll, sectorFilter, industryFilter],
+    [snapshotHitsAll, sectorFilters, industryFilter],
   )
 
   const livermoreHitsAll = useMemo(() => {
@@ -162,9 +159,9 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
   const livermoreHits = useMemo(
     () =>
       livermoreHitsAll.filter((h) =>
-        matchSectorIndustry(h.sector, h.industry, sectorFilter, industryFilter),
+        matchSectorIndustry(h.sector, h.industry, sectorFilters, industryFilter),
       ),
-    [livermoreHitsAll, sectorFilter, industryFilter],
+    [livermoreHitsAll, sectorFilters, industryFilter],
   )
 
   const scriptHitsAll = useMemo(() => {
@@ -176,9 +173,9 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
   const scriptHits = useMemo(
     () =>
       scriptHitsAll.filter((h) =>
-        matchSectorIndustry(h.sector, h.industry, sectorFilter, industryFilter),
+        matchSectorIndustry(h.sector, h.industry, sectorFilters, industryFilter),
       ),
-    [scriptHitsAll, sectorFilter, industryFilter],
+    [scriptHitsAll, sectorFilters, industryFilter],
   )
 
   const hitCountTotal =
@@ -214,19 +211,26 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
     return list
   }, [category, query])
 
+  const weeklyHitCountMap = useMemo(() => {
+    void version
+    return weeklyHitCounts(tickers)
+  }, [tickers, version])
+
+  const livermoreHitCountMap = useMemo(() => {
+    void livermoreVersion
+    const ids = SPECIAL_PATTERN_CATALOG.filter((p) => p.kind === 'livermore').map((p) => p.id)
+    return livermoreHitCounts(snapshot.stocks, ids)
+  }, [snapshot.stocks, livermoreVersion])
+
+  const scriptHitCountMap = useMemo(() => {
+    void scriptScanVersion
+    return scriptHitCounts(snapshot.stocks)
+  }, [snapshot.stocks, scriptScanVersion])
+
   const patternCount = (p: SpecialPatternDef) => {
-    if (p.kind === 'weekly') {
-      void version
-      return aggregateWeeklyHits(tickers, p.id as KarthikPatternId).length
-    }
-    if (p.kind === 'livermore') {
-      void livermoreVersion
-      return aggregateLivermoreHits(snapshot.stocks, p.id).length
-    }
-    if (p.kind === 'scan') {
-      void scriptScanVersion
-      return aggregateScriptHits(snapshot.stocks, p.id).length
-    }
+    if (p.kind === 'weekly') return weeklyHitCountMap.get(p.id) ?? 0
+    if (p.kind === 'livermore') return livermoreHitCountMap.get(p.id) ?? 0
+    if (p.kind === 'scan') return scriptHitCountMap.get(p.id) ?? 0
     return snapshotById.get(p.id)?.count ?? 0
   }
 
@@ -261,19 +265,15 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
               All specials show as ✦ chips on the Sector Table automatically. Star chart patterns
               (★) or create My Patterns for extra chips.
             </p>
-            {weeklyScanning && (
+            {specialScanning && (
               <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
-                Scanning weekly patterns… {weeklyDone}/{weeklyTotal}
-              </p>
-            )}
-            {livermoreScanning && (
-              <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
-                Scanning Livermore scores… {livermoreDone}/{livermoreTotal}
-              </p>
-            )}
-            {scriptScanning && (
-              <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
-                Scanning VCP / ScanScript patterns… {scriptDone}/{scriptTotal}
+                Scanning special patterns (weekly + Livermore + VCP)… {specialDone}/{specialTotal}
+                {specialTotal > 0 && (
+                  <span className="text-[var(--color-ink-soft)]">
+                    {' '}
+                    · one OHLC fetch per stock
+                  </span>
+                )}
               </p>
             )}
           </div>
@@ -359,9 +359,7 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
                                 : 'bg-[var(--color-muted)] text-[var(--color-ink-soft)]'
                             }`}
                           >
-                            {(weeklyScanning && p.kind === 'weekly' && count === 0) ||
-                            (livermoreScanning && p.kind === 'livermore' && count === 0) ||
-                            (scriptScanning && p.kind === 'scan' && count === 0)
+                            {(specialScanning && count === 0 && p.kind !== 'snapshot')
                               ? '…'
                               : count}
                           </span>
@@ -405,19 +403,16 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
             <label className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-ink-soft)]">
               Filter
             </label>
-            <select
-              value={sectorFilter ?? ''}
-              onChange={(e) => {
-                setSectorFilter(e.target.value || null)
+            <MultiSelectDropdown
+              options={sectors}
+              value={sectorFilters}
+              onChange={(next) => {
+                setSectorFilters(next)
                 setIndustryFilter(null)
               }}
-              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-ink)]"
-            >
-              <option value="">All sectors</option>
-              {sectors.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
+              emptyLabel="All sectors"
+              title="Filter by sector (multi-select)"
+            />
             <select
               value={industryFilter ?? ''}
               onChange={(e) => setIndustryFilter(e.target.value || null)}
@@ -432,7 +427,7 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
               <button
                 type="button"
                 onClick={() => {
-                  setSectorFilter(null)
+                  setSectorFilters([])
                   setIndustryFilter(null)
                 }}
                 className="text-[10px] font-semibold text-violet-700 hover:underline dark:text-violet-300"
@@ -454,25 +449,28 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
                 patternName={selected.name}
                 patternBias={selected.bias}
                 showTightness={selected.id === 'three-weeks-tight'}
-                scanning={weeklyScanning}
+                scanning={specialScanning}
                 onOpenChart={(ticker, name, focus) => setChartStock({ ticker, name, focus })}
+                priceForTicker={priceForTicker}
               />
             ) : selected?.kind === 'livermore' ? (
               <LivermoreHitsTable
                 hits={livermoreHits}
                 patternName={selected.name}
                 patternBias={selected.bias}
-                scanning={livermoreScanning}
+                scanning={specialScanning}
                 showDashboard={selected.id === 'livermore-dashboard'}
                 onOpenChart={(ticker, name, focus) => setChartStock({ ticker, name, focus })}
+                priceForTicker={priceForTicker}
               />
             ) : selected?.kind === 'scan' ? (
               <ScriptHitsTable
                 hits={scriptHits}
                 patternName={selected.name}
                 patternBias={selected.bias}
-                scanning={scriptScanning}
+                scanning={specialScanning}
                 onOpenChart={(ticker, name, focus) => setChartStock({ ticker, name, focus })}
+                priceForTicker={priceForTicker}
               />
             ) : (
               <SnapshotHitsTable
@@ -480,6 +478,7 @@ export function SpecialPatternsPanel({ snapshot }: Props) {
                 patternName={selected?.name ?? 'Special pattern'}
                 patternBias={selected?.bias ?? 'neutral'}
                 onOpenChart={(ticker, name, focus) => setChartStock({ ticker, name, focus })}
+                priceForTicker={priceForTicker}
               />
             )}
           </div>
@@ -505,6 +504,7 @@ function WeeklyHitsTable({
   showTightness,
   scanning,
   onOpenChart,
+  priceForTicker,
 }: {
   hits: WeeklySpecialHit[]
   patternName: string
@@ -512,10 +512,11 @@ function WeeklyHitsTable({
   showTightness: boolean
   scanning: boolean
   onOpenChart: (ticker: string, name: string, focus: ChartPatternFocus) => void
+  priceForTicker: (ticker: string) => number | null
 }) {
   const headers = showTightness
-    ? ['Stock', 'Sector', 'RS', 'RVOL', 'Tightness', 'Pattern started', 'Bias']
-    : ['Stock', 'Sector', 'RS', 'RVOL', 'Pattern started', 'Bias']
+    ? ['Stock', 'Price', 'Sector', 'RS', 'RVOL', 'Tightness', 'Pattern started', 'Bias']
+    : ['Stock', 'Price', 'Sector', 'RS', 'RVOL', 'Pattern started', 'Bias']
 
   const open = (h: WeeklySpecialHit) => {
     const startT = h.weekStartT ?? h.weekEndT ?? Math.floor(Date.now() / 1000)
@@ -565,6 +566,9 @@ function WeeklyHitsTable({
                 </button>
                 <div className="text-[10px] text-[var(--color-ink-soft)]">{h.name}</div>
               </td>
+              <td className="px-3 py-2 tabular-nums font-semibold">
+                {formatPrice(priceForTicker(h.ticker) ?? 0)}
+              </td>
               <td className="px-3 py-2 text-[var(--color-ink-soft)]">{h.sector}</td>
               <td className="px-3 py-2 font-bold tabular-nums">{h.rs}</td>
               <td className="px-3 py-2 tabular-nums">{h.relativeVolume.toFixed(1)}×</td>
@@ -606,6 +610,7 @@ function LivermoreHitsTable({
   scanning,
   showDashboard,
   onOpenChart,
+  priceForTicker,
 }: {
   hits: LivermoreHit[]
   patternName: string
@@ -613,10 +618,12 @@ function LivermoreHitsTable({
   scanning: boolean
   showDashboard: boolean
   onOpenChart: (ticker: string, name: string, focus: ChartPatternFocus) => void
+  priceForTicker: (ticker: string) => number | null
 }) {
   const headers = showDashboard
     ? [
         'Stock',
+        'Price',
         'Sector',
         'Final',
         'Acc',
@@ -628,7 +635,7 @@ function LivermoreHitsTable({
         'ADX',
         'Tier',
       ]
-    : ['Stock', 'Sector', 'Final', 'Acc', 'Liq', 'Brk', 'RVOL', 'Tier']
+    : ['Stock', 'Price', 'Sector', 'Final', 'Acc', 'Liq', 'Brk', 'RVOL', 'Tier']
 
   const open = (h: LivermoreHit) => {
     const endT = Math.floor(Date.now() / 1000)
@@ -677,6 +684,9 @@ function LivermoreHitsTable({
                 </button>
                 <div className="text-[10px] text-[var(--color-ink-soft)]">{h.name}</div>
               </td>
+              <td className="px-3 py-2 tabular-nums font-semibold">
+                {formatPrice(priceForTicker(h.ticker) ?? 0)}
+              </td>
               <td className="px-3 py-2 text-[var(--color-ink-soft)]">{h.sector}</td>
               <td className="px-3 py-2 font-bold tabular-nums">{h.scores.finalScore}</td>
               <td className="px-3 py-2 tabular-nums">{h.scores.accumulation}</td>
@@ -713,12 +723,14 @@ function ScriptHitsTable({
   patternBias,
   scanning,
   onOpenChart,
+  priceForTicker,
 }: {
   hits: ScriptScanRow[]
   patternName: string
   patternBias: SpecialPatternDef['bias']
   scanning: boolean
   onOpenChart: (ticker: string, name: string, focus: ChartPatternFocus) => void
+  priceForTicker: (ticker: string) => number | null
 }) {
   const open = (h: ScriptScanRow) => {
     onOpenChart(h.ticker, h.name, {
@@ -733,7 +745,7 @@ function ScriptHitsTable({
     <table className="min-w-[720px] w-full border-collapse text-left text-xs">
       <thead className="sticky top-0 bg-[var(--color-muted)] text-[10px] uppercase tracking-wide text-[var(--color-ink-soft)]">
         <tr>
-          {['Stock', 'Sector', 'RS', '3M', 'RVOL', 'RSI', 'Pattern started', 'Bias'].map((h) => (
+          {['Stock', 'Price', 'Sector', 'RS', '3M', 'RVOL', 'RSI', 'Pattern started', 'Bias'].map((h) => (
             <th key={h} className="whitespace-nowrap px-3 py-2.5 font-semibold">
               {h}
             </th>
@@ -743,7 +755,7 @@ function ScriptHitsTable({
       <tbody>
         {!hits.length ? (
           <tr>
-            <td colSpan={8} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
+            <td colSpan={9} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
               {scanning
                 ? 'Scanning daily OHLC across the universe…'
                 : 'No stocks match this ScanScript formula right now.'}
@@ -765,6 +777,9 @@ function ScriptHitsTable({
                   {h.ticker}
                 </button>
                 <div className="text-[10px] text-[var(--color-ink-soft)]">{h.name}</div>
+              </td>
+              <td className="px-3 py-2 tabular-nums font-semibold">
+                {formatPrice(priceForTicker(h.ticker) ?? 0)}
               </td>
               <td className="px-3 py-2 text-[var(--color-ink-soft)]">{h.sector}</td>
               <td className="px-3 py-2 font-bold tabular-nums">{h.rs}</td>
@@ -796,11 +811,13 @@ function SnapshotHitsTable({
   patternName,
   patternBias,
   onOpenChart,
+  priceForTicker,
 }: {
   hits: SpecialPatternHit[]
   patternName: string
   patternBias: SpecialPatternDef['bias']
   onOpenChart: (ticker: string, name: string, focus: ChartPatternFocus) => void
+  priceForTicker: (ticker: string) => number | null
 }) {
   const open = (h: SpecialPatternHit) => {
     const endT = Math.floor(Date.now() / 1000)
@@ -817,7 +834,7 @@ function SnapshotHitsTable({
     <table className="min-w-[720px] w-full border-collapse text-left text-xs">
       <thead className="sticky top-0 bg-[var(--color-muted)] text-[10px] uppercase tracking-wide text-[var(--color-ink-soft)]">
         <tr>
-          {['Stock', 'Sector', 'RS', '3M', 'RVOL', 'RSI', 'Bias'].map((h) => (
+          {['Stock', 'Price', 'Sector', 'RS', '3M', 'RVOL', 'RSI', 'Bias'].map((h) => (
             <th key={h} className="whitespace-nowrap px-3 py-2.5 font-semibold">
               {h}
             </th>
@@ -827,7 +844,7 @@ function SnapshotHitsTable({
       <tbody>
         {!hits.length ? (
           <tr>
-            <td colSpan={7} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
+            <td colSpan={8} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
               No stocks match this formula in the loaded universe right now.
             </td>
           </tr>
@@ -847,6 +864,9 @@ function SnapshotHitsTable({
                   {h.ticker}
                 </button>
                 <div className="text-[10px] text-[var(--color-ink-soft)]">{h.name}</div>
+              </td>
+              <td className="px-3 py-2 tabular-nums font-semibold">
+                {formatPrice(priceForTicker(h.ticker) ?? 0)}
               </td>
               <td className="px-3 py-2 text-[var(--color-ink-soft)]">{h.sector}</td>
               <td className="px-3 py-2 font-bold tabular-nums">{h.rs}</td>

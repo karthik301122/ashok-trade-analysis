@@ -28,3 +28,24 @@ export function formatVolume(n: number, asMoney = false): string {
   if (abs >= 1_000) return `${sign}${prefix}${(abs / 1_000).toFixed(1)}K`
   return `${sign}${prefix}${Math.round(abs).toLocaleString()}`
 }
+
+/** Last close in AUD — 2–4 decimals depending on magnitude. */
+export function formatPrice(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '—'
+  if (n >= 100) return `$${n.toFixed(2)}`
+  if (n >= 1) return `$${n.toFixed(3)}`
+  return `$${n.toFixed(4)}`
+}
+
+/** Use stored lastPrice, or infer from dollar volume ÷ share volume. */
+export function resolveStockPrice(s: {
+  lastPrice?: number
+  dollarVolume?: number
+  volume?: number
+}): number | null {
+  if (s.lastPrice != null && s.lastPrice > 0) return s.lastPrice
+  const vol = s.volume ?? 0
+  const dv = s.dollarVolume ?? 0
+  if (vol > 0 && dv > 0) return dv / vol
+  return null
+}

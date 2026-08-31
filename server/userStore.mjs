@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs'
 import { getDb } from './db.mjs'
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,31}$/i
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export function normalizeUsername(username) {
   return String(username).trim().toLowerCase()
@@ -10,10 +11,9 @@ export function normalizeUsername(username) {
 /** @returns {string | null} error message */
 export function validateUsername(username) {
   const u = normalizeUsername(username)
-  if (!USERNAME_RE.test(u)) {
-    return 'Username must be 3–32 characters (letters, numbers, . _ -)'
-  }
-  return null
+  if (EMAIL_RE.test(u) && u.length >= 5 && u.length <= 64) return null
+  if (USERNAME_RE.test(u)) return null
+  return 'Enter a valid email or username (3–32 letters, numbers, . _ -)'
 }
 
 /** @returns {string | null} error message */

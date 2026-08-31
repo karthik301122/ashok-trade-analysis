@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react'
 import { Copy, Search, Star, Volume2 } from 'lucide-react'
 import type { MarketSnapshot, Mood } from '../data/types'
 import { CYCLE_LABEL, MOOD_LABEL } from '../lib/market'
-import { formatPct, formatVolume, perfCellClass } from '../lib/format'
+import { formatPct, formatPrice, formatVolume, perfCellClass, resolveStockPrice } from '../lib/format'
+import { matchesSectorFilters } from '../lib/sectorFilter'
 import { copyTickersToTradingView } from '../lib/tradingview'
+import { MultiSelectDropdown } from './MultiSelectDropdown'
 import { Sparkline } from './Sparkline'
 import { StockChartModal } from './StockChartModal'
 
@@ -15,7 +17,7 @@ const LIMITS = [25, 50, 100, 200] as const
 export function VolumeScan({ snapshot }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>('dollarVolume')
   const [limit, setLimit] = useState<(typeof LIMITS)[number]>(50)
-  const [sectorFilter, setSectorFilter] = useState<string | null>(null)
+  const [sectorFilters, setSectorFilters] = useState<string[]>([])
   const [moodFilter, setMoodFilter] = useState<Mood | 'all'>('all')
   const [minRvol, setMinRvol] = useState(0)
   const [query, setQuery] = useState('')
@@ -29,7 +31,7 @@ export function VolumeScan({ snapshot }: Props) {
 
   const ranked = useMemo(() => {
     let list = snapshot.stocks.filter((s) => (s.dollarVolume ?? 0) > 0 || (s.volume ?? 0) > 0)
-    if (sectorFilter) list = list.filter((s) => s.sector === sectorFilter)
+    if (sectorFilters.length) list = list.filter((s) => matchesSectorFilters(s.sector, sectorFilters))
     if (moodFilter !== 'all') list = list.filter((s) => s.mood === moodFilter)
     if (minRvol > 0) list = list.filter((s) => (s.relativeVolume ?? 0) >= minRvol)
     if (query.trim()) {
@@ -44,7 +46,7 @@ export function VolumeScan({ snapshot }: Props) {
     return [...list]
       .sort((a, b) => (b[sortKey] ?? 0) - (a[sortKey] ?? 0))
       .slice(0, limit)
-  }, [snapshot.stocks, sortKey, limit, sectorFilter, moodFilter, minRvol, query])
+  }, [snapshot.stocks, sortKey, limit, sectorFilters, moodFilter, minRvol, query])
 
   const totals = useMemo(() => {
     const dollar = ranked.reduce((a, s) => a + (s.dollarVolume ?? 0), 0)
@@ -182,18 +184,13 @@ export function VolumeScan({ snapshot }: Props) {
             className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-2 pr-3 pl-9 text-sm"
           />
         </div>
-        <select
-          value={sectorFilter ?? ''}
-          onChange={(e) => setSectorFilter(e.target.value || null)}
-          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-ink)]"
-        >
-          <option value="">All sectors</option>
-          {sectors.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+        <MultiSelectDropdown
+          options={sectors}
+          value={sectorFilters}
+          onChange={setSectorFilters}
+          emptyLabel="All sectors"
+          title="Filter by sector (multi-select)"
+        />
         <select
           value={moodFilter}
           onChange={(e) => setMoodFilter(e.target.value as Mood | 'all')}
@@ -212,6 +209,7 @@ export function VolumeScan({ snapshot }: Props) {
             <tr className="border-b border-[var(--color-border)] bg-[var(--color-muted)]/50 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">
               <th className="px-3 py-2.5">#</th>
               <th className="px-3 py-2.5">Stock</th>
+              <th className="px-3 py-2.5 text-right">Price</th>
               <th className="px-3 py-2.5">Mood</th>
               <th className="px-3 py-2.5">Cycle</th>
               <th className="px-3 py-2.5 text-right">$ Volume</th>
@@ -228,7 +226,7 @@ export function VolumeScan({ snapshot }: Props) {
           <tbody>
             {ranked.length === 0 && (
               <tr>
-                <td colSpan={13} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
+                <td colSpan={14} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
                   No stocks match — try lowering Min RVOL or wait for live volume to finish loading.
                 </td>
               </tr>
@@ -266,6 +264,9 @@ export function VolumeScan({ snapshot }: Props) {
                     <div className="text-[10px] text-[var(--color-ink-soft)]">
                       {s.industry} · {s.sector}
                     </div>
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums font-semibold">
+                    {formatPrice(resolveStockPrice(s) ?? 0)}
                   </td>
                   <td className="px-3 py-2">
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${mood.className}`}>

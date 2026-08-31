@@ -1,7 +1,7 @@
 /**
  * Shared /api handlers for Vite middleware and Express prod server.
  */
-import { authEnabled, handleAuthApi, requireAuthOrSend, getUserFromRequest, authPublicConfig, registerAccount, createSessionToken, sessionSetCookieHeader, verifyCredentials, sessionClearCookieHeader } from './auth.mjs'
+import { authEnabled, handleAuthApi, requireAuthOrSend, getUserFromRequest, authPublicConfig, createSessionToken, sessionSetCookieHeader, verifyCredentials, sessionClearCookieHeader } from './auth.mjs'
 import { getCachedSeries, getIntradaySeries, seriesCacheFileCount } from './getSeries.mjs'
 import { readBreadthHistory, upsertBreadthPoint, UNIVERSE_IDS } from './breadthStore.mjs'
 import { dbPath } from './db.mjs'
@@ -455,15 +455,8 @@ export function mountExpressApi(app) {
     return res.json(authPublicConfig())
   })
 
-  app.post('/api/auth/register', async (req, res) => {
-    if (!authEnabled()) {
-      return res.status(400).json({ error: 'Auth is not configured on this server' })
-    }
-    const result = await registerAccount(req.body?.username, req.body?.password, req.body?.inviteCode)
-    if (!result.ok) return res.status(400).json({ error: result.error })
-    const token = createSessionToken(result.user)
-    res.setHeader('Set-Cookie', sessionSetCookieHeader(token))
-    return res.json({ user: result.user })
+  app.post('/api/auth/register', (_req, res) => {
+    return res.status(403).json({ error: 'Registration is disabled' })
   })
 
   app.post('/api/auth/login', async (req, res) => {

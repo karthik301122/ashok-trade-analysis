@@ -1,39 +1,18 @@
-import { useMemo, useState, type FormEvent } from 'react'
-import { ChevronLeft, Plus, Star, Trash2 } from 'lucide-react'
+﻿import { ChevronLeft, Plus, Star, Trash2 } from 'lucide-react'
 import type {
   CategorySummary,
-  PatternBias,
   PatternCategoryId,
   PatternHit,
   PatternScanWindow,
-  RuleCondition,
-  RuleMetric,
-  RuleOp,
   CustomRuleSet,
+  CandleShapeSpec,
 } from '../../lib/patterns'
 import {
-  PATTERN_CATALOG,
-  MAX_CONDITIONS,
-  RULE_METRIC_OPTIONS,
-  RULE_OP_OPTIONS,
   PATTERN_SCAN_WINDOWS,
-  CANDLE_SHAPE_PRESETS,
-  candlePresetById,
-  defaultCandleShape,
   describeCandleShape,
   describeRuleSet,
-  newCondition,
   scanWindowLabel,
-  SCANSCRIPT_EXAMPLE,
   SCANSCRIPT_NAME,
-  validateScanScript,
-  describeScanScript,
-  type BodyPosition,
-  type CandleContext,
-  type CandleDirection,
-  type CandleGeometry,
-  type CandleShapeSpec,
-  type CandleTimeframe,
 } from '../../lib/patterns'
 import { usePatternPrefs } from './usePatternPrefs'
 import { ChartIntervalDropdown } from './ChartIntervalDropdown'
@@ -49,15 +28,13 @@ type Props = {
   onScanWindowChange: (window: PatternScanWindow) => void
   chartInterval?: ChartIntervalPref
   onChartIntervalChange?: (interval: ChartIntervalPref) => void
-  /** Desk API bar interval (may differ from picker on EODHD). */
   chartBarInterval?: string
   activeCategory: PatternCategoryId | null
   selectedPatternId: string | null
   onSelectCategory: (id: PatternCategoryId | null) => void
   onSelectPattern: (hit: PatternHit) => void
+  onOpenCreateTab?: () => void
 }
-
-type DetectMode = 'rules' | 'candle' | 'alias' | 'script' | 'none'
 
 function biasClass(bias: string) {
   if (bias === 'bullish') return 'text-emerald-600'
@@ -100,27 +77,9 @@ export function PatternPanel({
   selectedPatternId,
   onSelectCategory,
   onSelectPattern,
+  onOpenCreateTab,
 }: Props) {
-  const { isStarred, toggleStar, createCustom, deleteCustom, customPatterns } = usePatternPrefs()
-  const [showCreate, setShowCreate] = useState(false)
-  const [cName, setCName] = useState('')
-  const [cBias, setCBias] = useState<PatternBias>('bullish')
-  const [cDesc, setCDesc] = useState('')
-  const [cBasedOn, setCBasedOn] = useState('')
-  const [detectMode, setDetectMode] = useState<DetectMode>('rules')
-  const [matchMode, setMatchMode] = useState<'all' | 'any'>('all')
-  const [conditions, setConditions] = useState<RuleCondition[]>(() => [newCondition('rsi')])
-  const [candleShape, setCandleShape] = useState<CandleShapeSpec>(() => defaultCandleShape('hammer'))
-  const [cScanScript, setCScanScript] = useState(SCANSCRIPT_EXAMPLE)
-
-  const scriptErrors = useMemo(
-    () => (detectMode === 'script' ? validateScanScript(cScanScript) : []),
-    [detectMode, cScanScript],
-  )
-  const scriptPreview = useMemo(
-    () => (detectMode === 'script' && scriptErrors.length === 0 ? describeScanScript(cScanScript) : ''),
-    [detectMode, cScanScript, scriptErrors.length],
-  )
+  const { isStarred, toggleStar, deleteCustom, customPatterns } = usePatternPrefs()
 
   const active = categories.find((c) => c.id === activeCategory) ?? null
   const totalHits = categories
@@ -136,84 +95,8 @@ export function PatternPanel({
       ? `auto (${chartIntervalLabel(labelInterval)})`
       : chartIntervalLabel(labelInterval)
 
-  const catalogNames = useMemo(
-    () => [...new Set(PATTERN_CATALOG.map((p) => p.name))].sort((a, b) => a.localeCompare(b)),
-    [],
-  )
-
-  const resetForm = () => {
-    setCName('')
-    setCDesc('')
-    setCBasedOn('')
-    setCBias('bullish')
-    setDetectMode('rules')
-    setMatchMode('all')
-    setConditions([newCondition('rsi')])
-    setCandleShape(defaultCandleShape('hammer'))
-    setCScanScript(SCANSCRIPT_EXAMPLE)
-    setShowCreate(false)
-  }
-
-  const applyPreset = (presetId: string) => {
-    const preset = candlePresetById(presetId)
-    if (!preset) return
-    setCandleShape((prev) => ({
-      ...prev,
-      presetId: preset.id,
-      geometry: { ...preset.geometry },
-    }))
-    setCBias(preset.bias)
-    if (!cName.trim()) setCName(preset.label)
-    if (!cDesc.trim()) setCDesc(preset.description)
-  }
-
-  const patchGeometry = (patch: Partial<CandleGeometry>) => {
-    setCandleShape((prev) => ({
-      ...prev,
-      presetId: 'custom',
-      geometry: { ...prev.geometry, ...patch },
-    }))
-  }
-
-  const updateCondition = (id: string, patch: Partial<RuleCondition>) => {
-    setConditions((prev) =>
-      prev.map((c) => {
-        if (c.id !== id) return c
-        const next = { ...c, ...patch }
-        if (patch.metric && patch.metric !== c.metric) {
-          const meta = RULE_METRIC_OPTIONS.find((m) => m.id === patch.metric)
-          if (meta) {
-            next.value = meta.defaultValue
-            next.op = meta.id === 'rsi' ? 'lte' : 'gte'
-          }
-        }
-        return next
-      }),
-    )
-  }
-
-  const submitCustom = (e: FormEvent) => {
-    e.preventDefault()
-    if (!cName.trim()) return
-    if (detectMode === 'script' && scriptErrors.length > 0) return
-    createCustom({
-      name: cName.trim(),
-      bias: cBias,
-      description: cDesc,
-      basedOn: detectMode === 'alias' ? cBasedOn || null : null,
-      rules:
-        detectMode === 'rules' && conditions.length > 0
-          ? { match: matchMode, conditions }
-          : null,
-      candleShape: detectMode === 'candle' ? candleShape : null,
-      scanScript: detectMode === 'script' ? cScanScript : null,
-    })
-    resetForm()
-    onSelectCategory('custom')
-  }
-
   return (
-    <aside className="flex h-full w-full max-w-sm flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)]">
+    <aside className="flex h-full w-full flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className="border-b border-[var(--color-border)] px-3 py-2.5">
         <h3 className="text-sm font-bold">Pattern Analysis</h3>
         <p className="text-[10px] text-[var(--color-ink-soft)]">
@@ -247,11 +130,11 @@ export function PatternPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-2">
+      <div className="min-h-0 flex-1 overflow-auto p-3">
         {loading && (
-          <p className="p-3 text-xs text-[var(--color-ink-soft)]">Scanning OHLC for patterns…</p>
+          <p className="p-3 text-sm text-[var(--color-ink-soft)]">Scanning OHLC for patterns…</p>
         )}
-        {error && <p className="p-3 text-xs text-rose-600">{error}</p>}
+        {error && <p className="p-3 text-sm text-rose-600">{error}</p>}
 
         {!loading && !error && !active && (
           <div className="space-y-3">
@@ -293,407 +176,27 @@ export function PatternPanel({
               })}
             </ul>
 
-            <div className="rounded-lg border border-dashed border-teal-400/60 bg-[var(--color-bg)] p-2.5">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-[11px] font-bold text-teal-800 dark:text-teal-200">
-                  Create my pattern
-                </p>
+            <div className="rounded-xl border border-dashed border-teal-400/60 bg-[var(--color-bg)] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold text-teal-800 dark:text-teal-200">
+                    Create my pattern
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
+                    Full-width builder for rules, candle shapes, or scan script.
+                  </p>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setShowCreate((v) => !v)}
-                  className="inline-flex items-center gap-1 rounded-md border border-teal-600 bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-900 dark:bg-teal-950/50 dark:text-teal-100"
+                  onClick={() => onOpenCreateTab?.()}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-teal-600 bg-teal-50 px-3 py-2 text-sm font-bold text-teal-900 dark:bg-teal-950/50 dark:text-teal-100"
                 >
-                  <Plus size={12} />
-                  {showCreate ? 'Close' : 'New'}
+                  <Plus size={16} />
+                  New
                 </button>
               </div>
-              {showCreate && (
-                <form onSubmit={submitCustom} className="space-y-2">
-                  <input
-                    value={cName}
-                    onChange={(e) => setCName(e.target.value)}
-                    placeholder="Pattern name"
-                    className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-xs"
-                    required
-                  />
-                  <select
-                    value={cBias}
-                    onChange={(e) => setCBias(e.target.value as PatternBias)}
-                    className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-xs"
-                  >
-                    <option value="bullish">Bullish</option>
-                    <option value="bearish">Bearish</option>
-                    <option value="neutral">Neutral</option>
-                  </select>
-                  <textarea
-                    value={cDesc}
-                    onChange={(e) => setCDesc(e.target.value)}
-                    placeholder="Notes (optional)"
-                    rows={2}
-                    className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-xs"
-                  />
-
-                  <fieldset className="space-y-1.5">
-                    <legend className="text-[10px] font-semibold text-[var(--color-ink-soft)]">
-                      How to detect
-                    </legend>
-                    {(
-                      [
-                        ['rules', 'My conditions (RSI, RVOL, MAs…)'],
-                        ['script', SCANSCRIPT_NAME + ' (text rules)'],
-                        ['candle', 'Candle shape builder'],
-                        ['alias', 'Reuse a built-in scanner'],
-                        ['none', 'Name only (no auto-detect)'],
-                      ] as const
-                    ).map(([id, label]) => (
-                      <label
-                        key={id}
-                        className="flex cursor-pointer items-center gap-2 text-[11px]"
-                      >
-                        <input
-                          type="radio"
-                          name="detectMode"
-                          checked={detectMode === id}
-                          onChange={() => setDetectMode(id)}
-                        />
-                        {label}
-                      </label>
-                    ))}
-                  </fieldset>
-
-                  {detectMode === 'candle' && (
-                    <div className="space-y-2 rounded-md border border-violet-300/60 bg-violet-50/40 p-2 dark:border-violet-800 dark:bg-violet-950/20">
-                      <label className="block text-[10px] text-[var(--color-ink-soft)]">
-                        Preset
-                        <select
-                          value={candleShape.presetId}
-                          onChange={(e) => applyPreset(e.target.value)}
-                          className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-1 text-[11px]"
-                        >
-                          {CANDLE_SHAPE_PRESETS.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <div className="flex flex-wrap gap-2">
-                        <label className="text-[10px] text-[var(--color-ink-soft)]">
-                          Timeframe
-                          <select
-                            value={candleShape.timeframe}
-                            onChange={(e) =>
-                              setCandleShape((prev) => ({
-                                ...prev,
-                                timeframe: e.target.value as CandleTimeframe,
-                              }))
-                            }
-                            className="ml-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
-                          >
-                            <option value="daily">Daily</option>
-                            <option value="weekly">Weekly</option>
-                          </select>
-                        </label>
-                        <label className="text-[10px] text-[var(--color-ink-soft)]">
-                          Candles
-                          <select
-                            value={candleShape.candleCount}
-                            onChange={(e) =>
-                              setCandleShape((prev) => ({
-                                ...prev,
-                                candleCount: Number(e.target.value) === 2 ? 2 : 1,
-                              }))
-                            }
-                            className="ml-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
-                          >
-                            <option value={1}>1 candle</option>
-                            <option value={2}>2 consecutive</option>
-                          </select>
-                        </label>
-                      </div>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        <label className="text-[9px] text-[var(--color-ink-soft)]">
-                          Lower wick ≥ × body
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.5}
-                            value={candleShape.geometry.minLowerWickBodyMult}
-                            onChange={(e) =>
-                              patchGeometry({ minLowerWickBodyMult: Number(e.target.value) })
-                            }
-                            className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
-                          />
-                        </label>
-                        <label className="text-[9px] text-[var(--color-ink-soft)]">
-                          Upper wick ≥ × body
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.5}
-                            value={candleShape.geometry.minUpperWickBodyMult}
-                            onChange={(e) =>
-                              patchGeometry({ minUpperWickBodyMult: Number(e.target.value) })
-                            }
-                            className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
-                          />
-                        </label>
-                        <label className="text-[9px] text-[var(--color-ink-soft)]">
-                          Max upper wick (% range)
-                          <input
-                            type="number"
-                            min={1}
-                            max={100}
-                            step={1}
-                            value={Math.round(candleShape.geometry.maxUpperWickRangeFrac * 100)}
-                            onChange={(e) =>
-                              patchGeometry({
-                                maxUpperWickRangeFrac: Number(e.target.value) / 100,
-                              })
-                            }
-                            className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
-                          />
-                        </label>
-                        <label className="text-[9px] text-[var(--color-ink-soft)]">
-                          Max lower wick (% range)
-                          <input
-                            type="number"
-                            min={1}
-                            max={100}
-                            step={1}
-                            value={Math.round(candleShape.geometry.maxLowerWickRangeFrac * 100)}
-                            onChange={(e) =>
-                              patchGeometry({
-                                maxLowerWickRangeFrac: Number(e.target.value) / 100,
-                              })
-                            }
-                            className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
-                          />
-                        </label>
-                        <label className="text-[9px] text-[var(--color-ink-soft)]">
-                          Max body (% range)
-                          <input
-                            type="number"
-                            min={1}
-                            max={100}
-                            step={1}
-                            value={Math.round(candleShape.geometry.maxBodyRangeFrac * 100)}
-                            onChange={(e) =>
-                              patchGeometry({ maxBodyRangeFrac: Number(e.target.value) / 100 })
-                            }
-                            className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
-                          />
-                        </label>
-                        <label className="text-[9px] text-[var(--color-ink-soft)]">
-                          Min body (% range)
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={1}
-                            value={Math.round(candleShape.geometry.minBodyRangeFrac * 100)}
-                            onChange={(e) =>
-                              patchGeometry({ minBodyRangeFrac: Number(e.target.value) / 100 })
-                            }
-                            className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
-                          />
-                        </label>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <label className="text-[10px] text-[var(--color-ink-soft)]">
-                          Body position
-                          <select
-                            value={candleShape.geometry.bodyPosition}
-                            onChange={(e) =>
-                              patchGeometry({ bodyPosition: e.target.value as BodyPosition })
-                            }
-                            className="ml-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
-                          >
-                            <option value="any">Anywhere</option>
-                            <option value="near_top">Near top</option>
-                            <option value="near_bottom">Near bottom</option>
-                          </select>
-                        </label>
-                        <label className="text-[10px] text-[var(--color-ink-soft)]">
-                          Direction
-                          <select
-                            value={candleShape.geometry.direction}
-                            onChange={(e) =>
-                              patchGeometry({ direction: e.target.value as CandleDirection })
-                            }
-                            className="ml-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
-                          >
-                            <option value="either">Either</option>
-                            <option value="bullish">Bullish</option>
-                            <option value="bearish">Bearish</option>
-                          </select>
-                        </label>
-                        <label className="text-[10px] text-[var(--color-ink-soft)]">
-                          Context
-                          <select
-                            value={candleShape.geometry.context}
-                            onChange={(e) =>
-                              patchGeometry({ context: e.target.value as CandleContext })
-                            }
-                            className="ml-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 text-[11px]"
-                          >
-                            <option value="any">Any</option>
-                            <option value="after_decline">After decline</option>
-                            <option value="after_rally">After rally</option>
-                          </select>
-                        </label>
-                      </div>
-                      <p className="text-[9px] text-[var(--color-ink-soft)]">
-                        {describeCandleShape(candleShape)}. Scans last ~16 completed bars/weeks. Set
-                        a wick multiple to 0 to turn that rule off; max wick % = 100 means no max.
-                      </p>
-                    </div>
-                  )}
-
-                  {detectMode === 'script' && (
-                    <div className="space-y-2 rounded-md border border-sky-300/60 bg-sky-50/40 p-2 dark:border-sky-800 dark:bg-sky-950/20">
-                      <p className="text-[10px] font-semibold text-sky-900 dark:text-sky-100">
-                        {SCANSCRIPT_NAME}
-                      </p>
-                      <textarea
-                        value={cScanScript}
-                        onChange={(e) => setCScanScript(e.target.value)}
-                        rows={8}
-                        spellCheck={false}
-                        className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 font-mono text-[10px] leading-relaxed"
-                      />
-                      {scriptErrors.length > 0 && (
-                        <ul className="space-y-0.5 text-[10px] text-rose-600">
-                          {scriptErrors.map((err) => (
-                            <li key={err}>{err}</li>
-                          ))}
-                        </ul>
-                      )}
-                      {scriptPreview && (
-                        <p className="text-[9px] text-[var(--color-ink-soft)]">
-                          Compiles to: {scriptPreview}
-                        </p>
-                      )}
-                      <p className="text-[9px] text-[var(--color-ink-soft)]">
-                        Headers: <code className="text-[9px]">match all</code>,{' '}
-                        <code className="text-[9px]">bias bullish</code>. Conditions:{' '}
-                        <code className="text-[9px]">rsi(14) &lt;= 35</code>,{' '}
-                        <code className="text-[9px]">rvol &gt;= 1.5</code>,{' '}
-                        <code className="text-[9px]">above_sma(50)</code>,{' '}
-                        <code className="text-[9px]">pct_chg(5) &gt;= 3</code>. Scans full ASX
-                        when saved.
-                      </p>
-                    </div>
-                  )}
-
-                  {detectMode === 'rules' && (
-                    <div className="space-y-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
-                      <label className="flex items-center gap-2 text-[10px] text-[var(--color-ink-soft)]">
-                        Match
-                        <select
-                          value={matchMode}
-                          onChange={(e) => setMatchMode(e.target.value as 'all' | 'any')}
-                          className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[11px]"
-                        >
-                          <option value="all">All conditions (AND)</option>
-                          <option value="any">Any condition (OR)</option>
-                        </select>
-                      </label>
-                      {conditions.map((c) => (
-                        <div key={c.id} className="flex flex-wrap items-center gap-1">
-                          <select
-                            value={c.metric}
-                            onChange={(e) =>
-                              updateCondition(c.id, { metric: e.target.value as RuleMetric })
-                            }
-                            className="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-1 text-[10px]"
-                          >
-                            {RULE_METRIC_OPTIONS.map((m) => (
-                              <option key={m.id} value={m.id}>
-                                {m.label}
-                              </option>
-                            ))}
-                          </select>
-                          <select
-                            value={c.op}
-                            onChange={(e) =>
-                              updateCondition(c.id, { op: e.target.value as RuleOp })
-                            }
-                            className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-1 text-[10px]"
-                          >
-                            {RULE_OP_OPTIONS.map((o) => (
-                              <option key={o.id} value={o.id}>
-                                {o.label}
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            type="number"
-                            step="any"
-                            value={c.value}
-                            onChange={(e) =>
-                              updateCondition(c.id, { value: Number(e.target.value) })
-                            }
-                            className="w-14 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-1 text-[10px]"
-                          />
-                          <button
-                            type="button"
-                            disabled={conditions.length <= 1}
-                            onClick={() =>
-                              setConditions((prev) => prev.filter((x) => x.id !== c.id))
-                            }
-                            className="rounded p-0.5 text-rose-600 disabled:opacity-30"
-                            title="Remove condition"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
-                      ))}
-                      {conditions.length < MAX_CONDITIONS && (
-                        <button
-                          type="button"
-                          onClick={() => setConditions((prev) => [...prev, newCondition()])}
-                          className="text-[10px] font-semibold text-teal-700 hover:underline dark:text-teal-300"
-                        >
-                          + Add condition
-                        </button>
-                      )}
-                      <p className="text-[9px] text-[var(--color-ink-soft)]">
-                        Fires if true on any of the last ~10 sessions.
-                      </p>
-                    </div>
-                  )}
-
-                  {detectMode === 'alias' && (
-                    <label className="block text-[10px] text-[var(--color-ink-soft)]">
-                      Built-in scanner
-                      <select
-                        value={cBasedOn}
-                        onChange={(e) => setCBasedOn(e.target.value)}
-                        className="mt-0.5 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-xs"
-                        required
-                      >
-                        <option value="">Select…</option>
-                        {catalogNames.map((n) => (
-                          <option key={n} value={n}>
-                            {n}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={detectMode === 'script' && scriptErrors.length > 0}
-                    className="w-full rounded-md bg-teal-700 px-2 py-1.5 text-xs font-bold text-white hover:bg-teal-800 disabled:opacity-50"
-                  >
-                    Save private pattern
-                  </button>
-                </form>
-              )}
-              {!showCreate && customPatterns.length > 0 && (
-                <ul className="mt-1 space-y-1">
+              {customPatterns.length > 0 && (
+                <ul className="mt-3 space-y-1.5 border-t border-teal-400/30 pt-3">
                   {customPatterns.map((c) => (
                     <li
                       key={c.id}

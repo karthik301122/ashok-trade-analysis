@@ -2,10 +2,12 @@
  * Vite middleware: ASX prices via EODHD (or Yahoo fallback) + SQLite cache/snapshot.
  */
 import { handleConnectApi } from './apiHandlers.mjs'
+import { assertAuthConfigured } from './auth.mjs'
 import { loadEnvFile } from './loadEnv.mjs'
 import { maybeStartBackgroundSnapshot } from './snapshotJob.mjs'
 
 loadEnvFile()
+assertAuthConfigured()
 
 function sendJson(res, status, body, extraHeaders = {}) {
   res.statusCode = status
