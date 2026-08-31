@@ -102,7 +102,7 @@ export function SectorTable({ snapshot, livePricesActive = false }: Props) {
     version: weeklyVersion,
     livermoreVersion,
     scriptScanVersion,
-  } = useUnifiedSpecialScans(snapshot.stocks, heavyPatternScans)
+  } = useUnifiedSpecialScans(snapshot.stocks, heavyPatternScans, snapshot.benchmarkPerf.m3)
 
   const indexM3 = snapshot.benchmarkPerf.m3
   const universe = snapshot.stocks

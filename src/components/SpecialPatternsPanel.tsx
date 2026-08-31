@@ -105,7 +105,7 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
     version,
     livermoreVersion,
     scriptScanVersion,
-  } = useUnifiedSpecialScans(snapshot.stocks, active)
+  } = useUnifiedSpecialScans(snapshot.stocks, active, indexM3)
 
   const snapshotScan = useMemo(
     () => (active ? scanAllSpecialPatterns(deferredStocks, indexM3) : []),

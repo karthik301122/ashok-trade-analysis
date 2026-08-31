@@ -20,9 +20,10 @@ type EventRow = {
   delivered: boolean
 }
 
-const SCAN_PATTERN_OPTIONS = SPECIAL_PATTERN_CATALOG
-  .filter((p) => p.kind === 'scan')
-  .map((p) => ({ id: p.id, label: p.name }))
+const PATTERN_ALERT_OPTIONS = SPECIAL_PATTERN_CATALOG.map((p) => ({
+  id: p.id,
+  label: `${p.name} (${p.kind})`,
+}))
 
 const TYPES: {
   id: string
@@ -151,9 +152,10 @@ export function AlertsPanel() {
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-[var(--color-ink-soft)]">
             Snapshot rules (RS, RVOL, breadth) need <code className="text-xs">npm run snapshot</code>.
-            Pattern forming alerts use OHLC scan scores uploaded from your desk session (Landscape,
-            Launchpad, VCP, etc.) — open Markets or Patterns so scans run, then alerts fire at your
-            threshold (e.g. 60% of conditions met before a full hit).
+            Pattern forming alerts use scores uploaded when Markets or Patterns runs OHLC scans
+            (VCP, Launchpad, Landscape, Livermore, weekly Karthik, and snapshot desk rules). Open
+            those views so scans run, then alerts fire at your threshold (e.g. 60% before a full
+            hit).
           </p>
         </div>
         <button
@@ -199,7 +201,7 @@ export function AlertsPanel() {
               onChange={(e) => setPatternId(e.target.value)}
               className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-sm"
             >
-              {SCAN_PATTERN_OPTIONS.map((p) => (
+              {PATTERN_ALERT_OPTIONS.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.label}
                 </option>

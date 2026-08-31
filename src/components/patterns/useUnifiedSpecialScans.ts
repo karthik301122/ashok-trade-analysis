@@ -14,6 +14,7 @@ import type { LivermoreScores } from '../../lib/patterns/livermoreScores'
 import { getTickerScriptScan, setManyTickerScriptScan } from '../../lib/specialScriptCache'
 import type { ScriptScanHit } from '../../lib/specialScriptCache'
 import { scanOhlcForSpecialPatterns } from '../../lib/patterns/specialScriptScan'
+import { collectOhlcPatternUploadRows, collectSnapshotPatternUploadRows } from '../../lib/patterns/patternAlertScores'
 import { postPatternScanBatch, type PatternScanUploadRow } from '../../lib/patternScanApi'
 
 const CONCURRENCY = 6
@@ -33,7 +34,11 @@ function isStale(updatedAt: number | undefined, now: number) {
  * One OHLC fetch per ticker, then weekly + Livermore + ScanScript in the same worker.
  * Replaces three staggered scans that each walked the full universe.
  */
-export function useUnifiedSpecialScans(stocks: StockMetrics[], enabled: boolean) {
+export function useUnifiedSpecialScans(
+  stocks: StockMetrics[],
+  enabled: boolean,
+  indexM3 = 0,
+) {
   const [scanning, setScanning] = useState(false)
   const [done, setDone] = useState(0)
   const [total, setTotal] = useState(0)
@@ -165,6 +170,54 @@ export function useUnifiedSpecialScans(stocks: StockMetrics[], enabled: boolean)
             if (cancelled || g !== gen.current) return
             if (!ohlc?.length) continue
 
+            let lmScores: LivermoreScores | null = null
+            if (needLivermore && meta) {
+              lmScores = computeLivermoreScores(ohlc, {
+                indexReturn20,
+                from52wHigh: meta.from52wHigh,
+                relativeVolume: meta.relativeVolume ?? 0,
+                rsRating: meta.rs ?? 0,
+              })
+              if (lmScores) pendingLivermore[key] = lmScores
+            }
+
+            const runOhlcAlerts =
+              meta && (needWeekly || needLivermore || needScript)
+            if (runOhlcAlerts) {
+              const scanned =
+                needScript && SCAN_PATTERNS.length
+                  ? scanOhlcForSpecialPatterns(ohlc, SCAN_PATTERNS, {
+                      launchpad: indexCtx,
+                      landscape: indexCtx,
+                    })
+                  : []
+              if (needScript && SCAN_PATTERNS.length) {
+                const lastT = ohlc[ohlc.length - 1].t
+                pendingScript[key] = scanned
+                  .filter((s) => s.score >= 60)
+                  .map((s) => ({
+                    patternId: s.patternId,
+                    startT: s.hit?.startT ?? lastT,
+                    endT: s.hit?.endT ?? lastT,
+                    score: s.score,
+                    confirmed: s.confirmed,
+                  }))
+              }
+              pendingPatternUpload.push(
+                ...collectOhlcPatternUploadRows(
+                  key,
+                  ohlc,
+                  lmScores,
+                  {
+                    from52wHigh: meta.from52wHigh,
+                    relativeVolume: meta.relativeVolume ?? 0,
+                  },
+                  { launchpad: indexCtx, landscape: indexCtx },
+                  scanned,
+                ),
+              )
+            }
+
             if (needWeekly && meta) {
               const hits: WeeklySpecialHit[] = []
               for (const pid of PATTERN_IDS) {
@@ -186,43 +239,6 @@ export function useUnifiedSpecialScans(stocks: StockMetrics[], enabled: boolean)
               }
               pendingWeekly[key] = hits
             }
-
-            if (needLivermore && meta) {
-              const scores = computeLivermoreScores(ohlc, {
-                indexReturn20,
-                from52wHigh: meta.from52wHigh,
-                relativeVolume: meta.relativeVolume ?? 0,
-                rsRating: meta.rs ?? 0,
-              })
-              if (scores) pendingLivermore[key] = scores
-            }
-
-            if (needScript && SCAN_PATTERNS.length) {
-              const scanned = scanOhlcForSpecialPatterns(ohlc, SCAN_PATTERNS, {
-                launchpad: indexCtx,
-                landscape: indexCtx,
-              })
-              const lastT = ohlc[ohlc.length - 1].t
-              pendingScript[key] = scanned
-                .filter((s) => s.score >= 60)
-                .map((s) => ({
-                  patternId: s.patternId,
-                  startT: s.hit?.startT ?? lastT,
-                  endT: s.hit?.endT ?? lastT,
-                  score: s.score,
-                  confirmed: s.confirmed,
-                }))
-              for (const s of scanned) {
-                if (s.score >= 60) {
-                  pendingPatternUpload.push({
-                    ticker: key,
-                    patternId: s.patternId,
-                    score: s.score,
-                    confirmed: s.confirmed,
-                  })
-                }
-              }
-            }
           } catch {
             /* skip ticker */
           }
@@ -231,7 +247,7 @@ export function useUnifiedSpecialScans(stocks: StockMetrics[], enabled: boolean)
             Object.keys(pendingWeekly).length +
             Object.keys(pendingLivermore).length +
             Object.keys(pendingScript).length
-          if (pendingCount >= BATCH_WRITE) flushWrites()
+          if (pendingCount >= BATCH_WRITE || pendingPatternUpload.length >= 200) flushWrites()
 
           finished++
           if (!cancelled && g === gen.current && (finished % UI_TICK === 0 || finished === need.length)) {
@@ -243,6 +259,10 @@ export function useUnifiedSpecialScans(stocks: StockMetrics[], enabled: boolean)
       await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()))
       if (!cancelled && g === gen.current) {
         flushWrites()
+        const snapshotRows = collectSnapshotPatternUploadRows(stocks, indexM3)
+        if (snapshotRows.length) {
+          void postPatternScanBatch(snapshotRows)
+        }
         setDone(need.length)
         setScanning(false)
       }
@@ -251,7 +271,7 @@ export function useUnifiedSpecialScans(stocks: StockMetrics[], enabled: boolean)
     return () => {
       cancelled = true
     }
-  }, [tickerKey, enabled, stockByTicker])
+  }, [tickerKey, enabled, stockByTicker, indexM3, stocks])
 
   return {
     scanning,
