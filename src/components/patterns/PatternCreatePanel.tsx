@@ -1,6 +1,7 @@
-import { useMemo, useState, type FormEvent } from 'react'
-import { Trash2 } from 'lucide-react'
+import { useMemo, useState, useEffect, type FormEvent } from 'react'
+import { Pencil, Trash2 } from 'lucide-react'
 import type {
+  OhlcBar,
   PatternBias,
   PatternCategoryId,
   RuleCondition,
@@ -28,17 +29,22 @@ import {
   type CandleShapeSpec,
   type CandleTimeframe,
 } from '../../lib/patterns'
+import type { DrawnTool } from '../../lib/patterns/drawnPattern'
+import { describeDrawnSpec, defaultTriggerForTool } from '../../lib/patterns/drawnPattern'
+import { PatternDrawChart } from './PatternDrawChart'
 import { usePatternPrefs } from './usePatternPrefs'
 
-type DetectMode = 'rules' | 'candle' | 'alias' | 'script' | 'none'
+type DetectMode = 'draw' | 'rules' | 'candle' | 'alias' | 'script' | 'none'
 
 type Props = {
+  bars?: OhlcBar[]
+  ticker?: string
   onSaved?: (category: PatternCategoryId) => void
   onCancel?: () => void
 }
 
-export function PatternCreatePanel({ onSaved, onCancel }: Props) {
-  const { createCustom, customPatterns, deleteCustom } = usePatternPrefs()
+export function PatternCreatePanel({ bars = [], ticker, onSaved, onCancel }: Props) {
+  const { createCustom, updateCustom, customPatterns, deleteCustom } = usePatternPrefs()
   const [cName, setCName] = useState('')
   const [cBias, setCBias] = useState<PatternBias>('bullish')
   const [cDesc, setCDesc] = useState('')
@@ -48,6 +54,9 @@ export function PatternCreatePanel({ onSaved, onCancel }: Props) {
   const [conditions, setConditions] = useState<RuleCondition[]>(() => [newCondition('rsi')])
   const [candleShape, setCandleShape] = useState<CandleShapeSpec>(() => defaultCandleShape('hammer'))
   const [cScanScript, setCScanScript] = useState(SCANSCRIPT_EXAMPLE)
+  const [drawTools, setDrawTools] = useState<DrawnTool[]>([])
+  const [drawTimeframe, setDrawTimeframe] = useState<'daily' | 'weekly'>('daily')
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const scriptErrors = useMemo(
     () => (detectMode === 'script' ? validateScanScript(cScanScript) : []),
@@ -57,6 +66,13 @@ export function PatternCreatePanel({ onSaved, onCancel }: Props) {
     () => (detectMode === 'script' && scriptErrors.length === 0 ? describeScanScript(cScanScript) : ''),
     [detectMode, cScanScript, scriptErrors.length],
   )
+
+  useEffect(() => {
+    if (detectMode !== 'draw' || !drawTools.length) return
+    setDrawTools((prev) =>
+      prev.map((t) => ({ ...t, trigger: defaultTriggerForTool(t.type, cBias) })),
+    )
+  }, [cBias, detectMode])
 
   const catalogNames = useMemo(
     () => [...new Set(PATTERN_CATALOG.map((p) => p.name))].sort((a, b) => a.localeCompare(b)),
@@ -68,11 +84,43 @@ export function PatternCreatePanel({ onSaved, onCancel }: Props) {
     setCDesc('')
     setCBasedOn('')
     setCBias('bullish')
-    setDetectMode('rules')
+    setDetectMode('draw')
     setMatchMode('all')
     setConditions([newCondition('rsi')])
     setCandleShape(defaultCandleShape('hammer'))
     setCScanScript(SCANSCRIPT_EXAMPLE)
+    setDrawTools([])
+    setDrawTimeframe('daily')
+    setEditingId(null)
+  }
+
+  const loadForEdit = (id: string) => {
+    const c = customPatterns.find((p) => p.id === id)
+    if (!c) return
+    setEditingId(c.id)
+    setCName(c.name)
+    setCBias(c.bias)
+    setCDesc(c.description)
+    if (c.drawnSpec?.tools?.length) {
+      setDetectMode('draw')
+      setDrawTools(c.drawnSpec.tools)
+      setDrawTimeframe(c.drawnSpec.timeframe)
+    } else if (c.candleShape) {
+      setDetectMode('candle')
+      setCandleShape(c.candleShape)
+    } else if (c.scanScript) {
+      setDetectMode('script')
+      setCScanScript(c.scanScript)
+    } else if (c.rules?.conditions?.length) {
+      setDetectMode('rules')
+      setMatchMode(c.rules.match)
+      setConditions(c.rules.conditions)
+    } else if (c.basedOn) {
+      setDetectMode('alias')
+      setCBasedOn(c.basedOn)
+    } else {
+      setDetectMode('none')
+    }
   }
 
   const applyPreset = (presetId: string) => {
@@ -117,7 +165,9 @@ export function PatternCreatePanel({ onSaved, onCancel }: Props) {
     e.preventDefault()
     if (!cName.trim()) return
     if (detectMode === 'script' && scriptErrors.length > 0) return
-    createCustom({
+    if (detectMode === 'draw' && drawTools.length === 0) return
+
+    const payload = {
       name: cName.trim(),
       bias: cBias,
       description: cDesc,
@@ -128,7 +178,17 @@ export function PatternCreatePanel({ onSaved, onCancel }: Props) {
           : null,
       candleShape: detectMode === 'candle' ? candleShape : null,
       scanScript: detectMode === 'script' ? cScanScript : null,
-    })
+      drawnSpec:
+        detectMode === 'draw'
+          ? { timeframe: drawTimeframe, tools: drawTools }
+          : null,
+    }
+
+    if (editingId) {
+      updateCustom(editingId, payload)
+    } else {
+      createCustom(payload)
+    }
     resetForm()
     onSaved?.('custom')
   }
@@ -141,7 +201,8 @@ export function PatternCreatePanel({ onSaved, onCancel }: Props) {
             Create my pattern
           </h3>
           <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
-            Private pattern saved on this device. Scans the full ASX when saved — use rules, candle shapes, or scan script.
+            Private pattern saved on this device. Draw levels on the chart, or use rules, candle shapes, or scan script.
+            {ticker ? ` Template chart: ${ticker}.` : ''} Scans the full ASX when saved.
           </p>
         </div>
 
@@ -179,6 +240,7 @@ export function PatternCreatePanel({ onSaved, onCancel }: Props) {
                 </legend>
                 {(
                   [
+                    ['draw', 'Draw on chart (levels, trendlines, zones)'],
                     ['rules', 'My conditions (RSI, RVOL, MAs…)'],
                     ['script', SCANSCRIPT_NAME + ' (text rules)'],
                     ['candle', 'Candle shape builder'],
@@ -200,6 +262,36 @@ export function PatternCreatePanel({ onSaved, onCancel }: Props) {
             </div>
 
             <div className="min-h-[320px] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+              {detectMode === 'draw' && (
+                <div className="space-y-4">
+                  <h4 className="text-sm font-bold">Draw pattern on chart</h4>
+                  <label className="text-xs font-semibold text-[var(--color-ink-soft)]">
+                    Scan timeframe
+                    <select
+                      value={drawTimeframe}
+                      onChange={(e) =>
+                        setDrawTimeframe(e.target.value === 'weekly' ? 'weekly' : 'daily')
+                      }
+                      className="ml-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-sm"
+                    >
+                      <option value="daily">Daily bars</option>
+                      <option value="weekly">Weekly bars</option>
+                    </select>
+                  </label>
+                  <PatternDrawChart
+                    bars={bars}
+                    tools={drawTools}
+                    onToolsChange={setDrawTools}
+                    bias={cBias}
+                  />
+                  {drawTools.length > 0 && (
+                    <p className="text-xs text-[var(--color-ink-soft)]">
+                      {describeDrawnSpec({ timeframe: drawTimeframe, tools: drawTools })}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {detectMode === 'candle' && (
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold">Candle shape</h4>
@@ -531,11 +623,23 @@ export function PatternCreatePanel({ onSaved, onCancel }: Props) {
           <div className="flex flex-wrap items-center gap-3 border-t border-[var(--color-border)] pt-4">
             <button
               type="submit"
-              disabled={detectMode === 'script' && scriptErrors.length > 0}
+              disabled={
+                (detectMode === 'script' && scriptErrors.length > 0) ||
+                (detectMode === 'draw' && drawTools.length === 0)
+              }
               className="rounded-lg bg-teal-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-teal-800 disabled:opacity-50"
             >
-              Save private pattern
+              {editingId ? 'Update pattern' : 'Save private pattern'}
             </button>
+            {editingId && (
+              <button
+                type="button"
+                onClick={() => resetForm()}
+                className="rounded-lg border border-[var(--color-border)] px-5 py-2.5 text-sm font-semibold hover:bg-[var(--color-muted)]"
+              >
+                Cancel edit
+              </button>
+            )}
             {onCancel && (
               <button
                 type="button"
@@ -560,15 +664,28 @@ export function PatternCreatePanel({ onSaved, onCancel }: Props) {
                   <span>
                     <span className="font-semibold">{c.name}</span>
                     <span className="text-[var(--color-ink-soft)]"> · {c.bias}</span>
+                    {c.drawnSpec?.tools?.length ? (
+                      <span className="text-[var(--color-ink-soft)]"> · drawn</span>
+                    ) : null}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => deleteCustom(c.id)}
-                    className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                    title="Delete"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  <div className="flex shrink-0 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => loadForEdit(c.id)}
+                      className="rounded-lg p-1.5 text-teal-700 hover:bg-teal-50 dark:hover:bg-teal-950/40"
+                      title="Edit"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteCustom(c.id)}
+                      className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                      title="Delete"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>

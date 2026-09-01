@@ -465,6 +465,8 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
 
       {modalTab === 'createPattern' ? (
         <PatternCreatePanel
+          bars={dailyBars ?? []}
+          ticker={ticker}
           onSaved={(category) => {
             setModalTab('chart')
             setActiveCategory(category)

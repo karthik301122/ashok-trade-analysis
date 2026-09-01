@@ -13,11 +13,13 @@ import {
   setPatternScanWindow,
   setChartInterval,
   toggleStarredName,
+  updateCustomPattern,
   type PatternPrefs,
 } from '../../lib/patternPrefs'
 import type { PatternBias } from '../../lib/patterns'
 import type { CustomRuleSet } from '../../lib/patterns/customRules'
 import type { CandleShapeSpec } from '../../lib/patterns/candleShape'
+import type { DrawnPatternSpec } from '../../lib/patterns/drawnPattern'
 import type { PatternScanWindow } from '../../lib/patterns/scanWindow'
 import type { ChartIntervalPref } from '../../lib/chartInterval'
 import {
@@ -96,8 +98,28 @@ export function PatternPrefsProvider({
       rules?: CustomRuleSet | null
       candleShape?: CandleShapeSpec | null
       scanScript?: string | null
+      drawnSpec?: DrawnPatternSpec | null
     }) => {
       setPrefs((p) => addCustomPattern(p, input))
+    },
+    [],
+  )
+
+  const updateCustom = useCallback(
+    (
+      id: string,
+      input: {
+        name: string
+        bias: PatternBias
+        description: string
+        basedOn: string | null
+        rules?: CustomRuleSet | null
+        candleShape?: CandleShapeSpec | null
+        scanScript?: string | null
+        drawnSpec?: DrawnPatternSpec | null
+      },
+    ) => {
+      setPrefs((p) => updateCustomPattern(p, id, input))
     },
     [],
   )
@@ -177,6 +199,7 @@ export function PatternPrefsProvider({
       isStarred,
       toggleStar,
       createCustom,
+      updateCustom,
       deleteCustom,
       customPatterns: prefs.customPatterns,
       scanWindow: prefs.scanWindow,
@@ -197,6 +220,7 @@ export function PatternPrefsProvider({
       isStarred,
       toggleStar,
       createCustom,
+      updateCustom,
       deleteCustom,
       hitsByTicker,
       rememberHits,

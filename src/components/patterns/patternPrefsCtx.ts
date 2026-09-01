@@ -3,6 +3,7 @@ import type { CustomPattern, PatternPrefs } from '../../lib/patternPrefs'
 import type { PatternBias } from '../../lib/patterns'
 import type { CustomRuleSet } from '../../lib/patterns/customRules'
 import type { CandleShapeSpec } from '../../lib/patterns/candleShape'
+import type { DrawnPatternSpec } from '../../lib/patterns/drawnPattern'
 import type { ChartIntervalPref } from '../../lib/chartInterval'
 import type { PatternScanWindow } from '../../lib/patterns/scanWindow'
 import type { CachedPatternHit, TickerPatternCache } from '../../lib/patternHitsCache'
@@ -20,7 +21,21 @@ export type PatternPrefsContextValue = {
     rules?: CustomRuleSet | null
     candleShape?: CandleShapeSpec | null
     scanScript?: string | null
+    drawnSpec?: DrawnPatternSpec | null
   }) => void
+  updateCustom: (
+    id: string,
+    input: {
+      name: string
+      bias: PatternBias
+      description: string
+      basedOn: string | null
+      rules?: CustomRuleSet | null
+      candleShape?: CandleShapeSpec | null
+      scanScript?: string | null
+      drawnSpec?: DrawnPatternSpec | null
+    },
+  ) => void
   deleteCustom: (id: string) => void
   customPatterns: CustomPattern[]
   scanWindow: PatternScanWindow

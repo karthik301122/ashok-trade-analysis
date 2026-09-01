@@ -19,7 +19,11 @@ import { getTickerWeeklySpecial } from './specialWeeklyCache'
 
 export function isDetectableCustom(c: CustomPattern): boolean {
   return Boolean(
-    c.rules?.conditions?.length || c.basedOn || c.candleShape || c.scanScript?.trim(),
+    c.drawnSpec?.tools?.length ||
+      c.rules?.conditions?.length ||
+      c.basedOn ||
+      c.candleShape ||
+      c.scanScript?.trim(),
   )
 }
 

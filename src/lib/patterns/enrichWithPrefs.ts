@@ -4,6 +4,7 @@ import { getTickerScriptScan } from '../specialScriptCache'
 import { getTickerWeeklySpecial } from '../specialWeeklyCache'
 import { PATTERN_CATALOG } from './catalog'
 import { detectCandleShape } from './candleShape'
+import { detectDrawnPattern } from './drawnPattern'
 import { detectCustomRule } from './customRules'
 import { rulesFromCustom } from './scanScript'
 import {
@@ -169,7 +170,15 @@ function resolveCustomHit(
 ): PatternHit | null {
   const asOf = bars?.length ? bars[bars.length - 1].t : null
   let hit: PatternHit | null = null
-  if (c.candleShape && bars?.length) {
+  if (c.drawnSpec?.tools?.length && bars?.length) {
+    hit = detectDrawnPattern(bars, {
+      id: c.id,
+      name: c.name,
+      bias: c.bias,
+      description: c.description,
+      drawnSpec: c.drawnSpec,
+    })
+  } else if (c.candleShape && bars?.length) {
     hit = detectCandleShape(bars, {
       id: c.id,
       name: c.name,

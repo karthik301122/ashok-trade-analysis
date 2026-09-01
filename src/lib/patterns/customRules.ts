@@ -4,6 +4,7 @@ import {
   detectAllCandleShapes,
   type CandleShapeSpec,
 } from './candleShape'
+import { detectAllDrawnPatterns } from './drawnPattern'
 import { rulesFromCustom } from './scanScript'
 
 export type RuleMetric =
@@ -204,10 +205,13 @@ export function detectAllCustomRules(
     rules?: CustomRuleSet | null
     candleShape?: CandleShapeSpec | null
     scanScript?: string | null
+    drawnSpec?: import('./drawnPattern').DrawnPatternSpec | null
   }[],
 ): PatternHit[] {
   const hits: PatternHit[] = []
+  hits.push(...detectAllDrawnPatterns(bars, customs))
   for (const c of customs) {
+    if (c.drawnSpec?.tools?.length) continue
     const rules = rulesFromCustom(c.rules, c.scanScript)
     if (!rules?.conditions?.length) continue
     const hit = detectCustomRule(bars, {

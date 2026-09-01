@@ -16,6 +16,10 @@ import {
   parsePatternScanWindow,
   type PatternScanWindow,
 } from './patterns/scanWindow'
+import {
+  normalizeDrawnSpec,
+  type DrawnPatternSpec,
+} from './patterns/drawnPattern'
 import { parseChartIntervalPref, type ChartIntervalPref } from './chartInterval'
 
 export type CustomPattern = {
@@ -31,6 +35,8 @@ export type CustomPattern = {
   candleShape: CandleShapeSpec | null
   /** ScanScript source — compiled to rules on save. */
   scanScript: string | null
+  /** User-drawn levels/zones on chart. */
+  drawnSpec: DrawnPatternSpec | null
   createdAt: number
 }
 
@@ -70,6 +76,7 @@ function parseCustom(p: unknown): CustomPattern | null {
     rules: normalizeRuleSet(o.rules),
     candleShape: normalizeCandleShape(o.candleShape),
     scanScript: typeof o.scanScript === 'string' && o.scanScript.trim() ? o.scanScript.trim() : null,
+    drawnSpec: normalizeDrawnSpec(o.drawnSpec),
     createdAt: typeof o.createdAt === 'number' ? o.createdAt : Date.now(),
   }
   const rules = rulesFromCustom(custom.rules, custom.scanScript)
@@ -120,26 +127,29 @@ export function addCustomPattern(
     rules?: CustomRuleSet | null
     candleShape?: CandleShapeSpec | null
     scanScript?: string | null
+    drawnSpec?: DrawnPatternSpec | null
   },
 ): PatternPrefs {
   const name = input.name.trim()
   if (!name) return prefs
-  const candleShape = normalizeCandleShape(input.candleShape)
+  const drawnSpec = normalizeDrawnSpec(input.drawnSpec)
+  const candleShape = drawnSpec ? null : normalizeCandleShape(input.candleShape)
   let scanScript =
     typeof input.scanScript === 'string' && input.scanScript.trim()
       ? input.scanScript.trim()
       : null
-  let rules = candleShape ? null : normalizeRuleSet(input.rules)
-  const basedOn = candleShape || rules || scanScript ? null : input.basedOn?.trim() || null
+  let rules = drawnSpec || candleShape ? null : normalizeRuleSet(input.rules)
+  const basedOn =
+    drawnSpec || candleShape || rules || scanScript ? null : input.basedOn?.trim() || null
 
-  if (scanScript && !candleShape) {
+  if (scanScript && !candleShape && !drawnSpec) {
     const compiled = compileScanScript(scanScript)
     if (!compiled.ok) return prefs
     rules = compiled.rules
     if (compiled.bias) {
       input = { ...input, bias: compiled.bias }
     }
-  } else if (!candleShape && !rules) {
+  } else if (!candleShape && !drawnSpec && !rules) {
     scanScript = null
   }
 
@@ -152,9 +162,66 @@ export function addCustomPattern(
     rules,
     candleShape,
     scanScript,
+    drawnSpec,
     createdAt: Date.now(),
   }
   return { ...prefs, customPatterns: [...prefs.customPatterns, custom] }
+}
+
+export function updateCustomPattern(
+  prefs: PatternPrefs,
+  id: string,
+  input: {
+    name: string
+    bias: PatternBias
+    description: string
+    basedOn: string | null
+    rules?: CustomRuleSet | null
+    candleShape?: CandleShapeSpec | null
+    scanScript?: string | null
+    drawnSpec?: DrawnPatternSpec | null
+  },
+): PatternPrefs {
+  const idx = prefs.customPatterns.findIndex((p) => p.id === id)
+  if (idx < 0) return prefs
+  const name = input.name.trim()
+  if (!name) return prefs
+
+  const drawnSpec = normalizeDrawnSpec(input.drawnSpec)
+  const candleShape = drawnSpec ? null : normalizeCandleShape(input.candleShape)
+  let scanScript =
+    typeof input.scanScript === 'string' && input.scanScript.trim()
+      ? input.scanScript.trim()
+      : null
+  let rules = drawnSpec || candleShape ? null : normalizeRuleSet(input.rules)
+  const basedOn =
+    drawnSpec || candleShape || rules || scanScript ? null : input.basedOn?.trim() || null
+  let bias = input.bias
+
+  if (scanScript && !candleShape && !drawnSpec) {
+    const compiled = compileScanScript(scanScript)
+    if (!compiled.ok) return prefs
+    rules = compiled.rules
+    if (compiled.bias) bias = compiled.bias
+  } else if (!candleShape && !drawnSpec && !rules) {
+    scanScript = null
+  }
+
+  const prev = prefs.customPatterns[idx]
+  const updated: CustomPattern = {
+    ...prev,
+    name,
+    bias,
+    description: input.description.trim(),
+    basedOn,
+    rules,
+    candleShape,
+    scanScript,
+    drawnSpec,
+  }
+  const customPatterns = [...prefs.customPatterns]
+  customPatterns[idx] = updated
+  return { ...prefs, customPatterns }
 }
 
 export function removeCustomPattern(prefs: PatternPrefs, id: string): PatternPrefs {

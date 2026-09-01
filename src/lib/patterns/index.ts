@@ -149,6 +149,21 @@ export {
   type CandleTimeframe,
 } from './candleShape'
 export {
+  describeDrawnSpec,
+  describeDrawnTool,
+  detectAllDrawnPatterns,
+  detectDrawnPattern,
+  defaultTriggerForTool,
+  newDrawnTool,
+  normalizeDrawnSpec,
+  snapAnchorToBar,
+  type DrawnAnchor,
+  type DrawnPatternSpec,
+  type DrawnTool,
+  type DrawnToolType,
+  type DrawnTrigger,
+} from './drawnPattern'
+export {
   SCANSCRIPT_EXAMPLE,
   SCANSCRIPT_NAME,
   compileScanScript,
