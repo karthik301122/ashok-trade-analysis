@@ -256,18 +256,47 @@ export function clearBreadthChartCache() {
 }
 
 /**
- * ASX 200 index OHLC for the diffusion chart upper pane (from SQLite bars).
+ * ASX 200 index OHLC for the diffusion chart upper pane (from DB bars).
  * @param {number} [days]
  */
 export async function getIndexBarsForChart(days = DEFAULT_DAYS) {
-  const barsMap = await loadBarsMap([INDEX_SYMBOL])
-  const indexBars = barsMap.get(INDEX_SYMBOL) ?? []
-  return indexBars.slice(-days).map((b) => ({
-    t: b.t,
-    o: b.o,
-    h: b.h,
-    l: b.l,
-    c: b.c,
-    v: b.v ?? 0,
-  }))
+  const aliases = ['^AXJO', 'AXJO.INDX', 'XJO']
+  const ph = aliases.map(() => '?').join(',')
+  const rows = await sqlAll(
+    `SELECT t, o, h, l, c, v FROM bars WHERE symbol IN (${ph}) ORDER BY t`,
+    aliases,
+  )
+  if (rows.length >= 10) {
+    return rows.slice(-days).map((b) => ({
+      t: b.t,
+      o: b.o,
+      h: b.h,
+      l: b.l,
+      c: b.c,
+      v: b.v ?? 0,
+    }))
+  }
+
+  try {
+    const from = new Date()
+    from.setUTCDate(from.getUTCDate() - (days + 30))
+    const fromIso = from.toISOString().slice(0, 10)
+    const { getCachedSeries } = await import('./getSeries.mjs')
+    const series = await getCachedSeries('^AXJO', fromIso, { staleOk: true })
+    const closes = series?.closes ?? []
+    if (closes.length >= 10) {
+      return closes.slice(-days).map((b) => ({
+        t: b.t,
+        o: b.o,
+        h: b.h,
+        l: b.l,
+        c: b.c,
+        v: b.v ?? 0,
+      }))
+    }
+  } catch {
+    /* optional */
+  }
+
+  return []
 }

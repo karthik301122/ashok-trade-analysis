@@ -27,12 +27,31 @@ type Props = {
 
 const INDEX_SYMBOL = '^AXJO'
 
+/** Snap bar timestamps to noon UTC so index pane aligns with breadth daily points. */
+function noonUtcFromUnix(t: number): number {
+  const day = new Date(t * 1000).toISOString().slice(0, 10)
+  return Math.floor(new Date(`${day}T12:00:00Z`).getTime() / 1000)
+}
+
+function normalizeIndexBarsForChart(bars: OhlcBar[]): OhlcBar[] {
+  const byDay = new Map<string, OhlcBar>()
+  for (const b of bars) {
+    if (!Number.isFinite(b.t) || !Number.isFinite(b.c)) continue
+    const day = new Date(b.t * 1000).toISOString().slice(0, 10)
+    byDay.set(day, { ...b, t: noonUtcFromUnix(b.t) })
+  }
+  return [...byDay.values()].sort((a, b) => a.t - b.t)
+}
+
 function filterIndexToSeries(indexBars: OhlcBar[], seriesTimes: number[]): OhlcBar[] {
-  if (!seriesTimes.length) return indexBars.slice(-63)
+  const normalized = normalizeIndexBarsForChart(indexBars)
+  if (!normalized.length) return []
+  if (!seriesTimes.length) return normalized.slice(-63)
   const min = Math.min(...seriesTimes)
   const max = Math.max(...seriesTimes)
   const pad = 5 * 86400
-  return indexBars.filter((b) => b.t >= min - pad && b.t <= max + pad)
+  const filtered = normalized.filter((b) => b.t >= min - pad && b.t <= max + pad)
+  return filtered.length ? filtered : normalized.slice(-63)
 }
 
 export function DiffusionIndicatorsView({
@@ -69,7 +88,23 @@ export function DiffusionIndicatorsView({
   }, [universeId])
 
   useEffect(() => {
-    if (serverIndexBars.length || historyLoading) return
+    if (historyLoading) return
+    if (serverIndexBars.length >= 10) {
+      setIndexLoading(false)
+      return
+    }
+    if (fallbackIndexBars.length >= 10) {
+      setIndexLoading(false)
+      return
+    }
+    const probe = filterIndexToSeries(
+      serverIndexBars.length ? serverIndexBars : fallbackIndexBars,
+      seriesTimes,
+    )
+    if (probe.length >= 10) {
+      setIndexLoading(false)
+      return
+    }
     let cancelled = false
     setIndexLoading(true)
     const earliest = chartHistory[0]?.day ?? bundle.dailyHistory[0]?.day
@@ -88,7 +123,14 @@ export function DiffusionIndicatorsView({
     return () => {
       cancelled = true
     }
-  }, [serverIndexBars.length, historyLoading, chartHistory, bundle.dailyHistory])
+  }, [
+    historyLoading,
+    serverIndexBars.length,
+    fallbackIndexBars.length,
+    seriesTimes,
+    chartHistory,
+    bundle.dailyHistory,
+  ])
 
   const alignedIndex = useMemo(
     () => filterIndexToSeries(indexBars, seriesTimes),

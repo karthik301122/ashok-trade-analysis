@@ -51,7 +51,8 @@ export function DiffusionChart({
   referenceLevels,
 }: Props) {
   const dark = useIsDark()
-  const [chartError, setChartError] = useState<string | null>(null)
+  const [indexChartError, setIndexChartError] = useState<string | null>(null)
+  const [breadthChartError, setBreadthChartError] = useState<string | null>(null)
   const indexWrapRef = useRef<HTMLDivElement>(null)
   const breadthWrapRef = useRef<HTMLDivElement>(null)
   const indexChartRef = useRef<IChartApi | null>(null)
@@ -63,7 +64,8 @@ export function DiffusionChart({
   const fittedRef = useRef(false)
 
   useEffect(() => {
-    setChartError(null)
+    setIndexChartError(null)
+    setBreadthChartError(null)
     const indexEl = indexWrapRef.current
     const breadthEl = breadthWrapRef.current
     if (!indexEl || !breadthEl) return
@@ -158,7 +160,8 @@ export function DiffusionChart({
       fittedRef.current = false
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      setChartError(message)
+      setIndexChartError(message)
+      setBreadthChartError(message)
       indexChart?.remove()
       breadthChart?.remove()
       return undefined
@@ -179,16 +182,16 @@ export function DiffusionChart({
   useEffect(() => {
     const indexSeries = indexSeriesRef.current
     const indexChart = indexChartRef.current
-    if (!indexSeries || !indexChart || !indexBars.length) return
+    if (!indexSeries || !indexChart) return
+    if (!indexBars.length) return
     try {
       indexSeries.setData(barsToIndexLine(indexBars))
-      if (!fittedRef.current) {
-        indexChart.timeScale().fitContent()
-        fittedRef.current = true
-      }
+      indexChart.timeScale().fitContent()
+      fittedRef.current = true
+      setIndexChartError(null)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      setChartError(message)
+      setIndexChartError(message)
     }
   }, [indexBars])
 
@@ -232,9 +235,10 @@ export function DiffusionChart({
       }
 
       breadthChart.timeScale().fitContent()
+      setBreadthChartError(null)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      setChartError(message)
+      setBreadthChartError(message)
     }
   }, [indicatorSeries, indicatorLabel, indicatorColor, referenceLevels, scale, dark])
 
@@ -258,25 +262,32 @@ export function DiffusionChart({
           </span>
         </div>
       </div>
-      {chartError ? (
-        <div className="flex h-[calc(100%-2.5rem)] flex-col items-center justify-center gap-2 px-6 text-center text-sm text-rose-700 dark:text-rose-300">
-          <p className="font-semibold">Chart could not be drawn</p>
-          <p className="font-mono text-xs text-[var(--color-ink-soft)]">{chartError}</p>
-        </div>
-      ) : (
-        <>
-          <div
-            ref={indexWrapRef}
-            className="w-full overflow-hidden border-b border-[var(--color-border)]"
-            style={{ height: INDEX_PANE_PX }}
-          />
-          <div
-            ref={breadthWrapRef}
-            className="w-full overflow-hidden"
-            style={{ height: BREADTH_PANE_PX }}
-          />
-        </>
-      )}
+      <div
+        className="relative w-full overflow-hidden border-b border-[var(--color-border)]"
+        style={{ height: INDEX_PANE_PX }}
+      >
+        <div ref={indexWrapRef} className="h-full w-full" />
+        {!indexBars.length && !indexChartError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-surface)]/90 text-xs text-[var(--color-ink-soft)]">
+            Loading ASX 200 index…
+          </div>
+        )}
+        {indexChartError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-[var(--color-surface)]/95 px-4 text-center text-xs text-rose-700 dark:text-rose-300">
+            <p className="font-semibold">Index chart unavailable</p>
+            <p className="font-mono text-[10px] text-[var(--color-ink-soft)]">{indexChartError}</p>
+          </div>
+        )}
+      </div>
+      <div className="relative w-full overflow-hidden" style={{ height: BREADTH_PANE_PX }}>
+        <div ref={breadthWrapRef} className="h-full w-full" />
+        {breadthChartError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-[var(--color-surface)]/95 px-4 text-center text-xs text-rose-700 dark:text-rose-300">
+            <p className="font-semibold">Breadth chart unavailable</p>
+            <p className="font-mono text-[10px] text-[var(--color-ink-soft)]">{breadthChartError}</p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
