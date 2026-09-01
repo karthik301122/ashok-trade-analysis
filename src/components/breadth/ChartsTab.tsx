@@ -10,90 +10,76 @@ import {
   YAxis,
 } from 'recharts'
 import type { ReactNode } from 'react'
+import { useState } from 'react'
 import type { BreadthBundle } from './breadthMath'
 
-type TooltipCoord = { x?: number; y?: number }
-type TooltipRect = { x?: number; y?: number; width?: number; height?: number }
-
-/** Place tooltip above or below the cursor so it does not cover chart lines. */
-function offsetChartTooltipPosition(
-  coord?: TooltipCoord,
-  rect?: TooltipRect,
-): { x: number; y: number } {
-  const x0 = coord?.x ?? 0
-  const y0 = coord?.y ?? 0
-  const width = rect?.width ?? 280
-  const height = rect?.height ?? 200
-  const boxW = 132
-  const boxH = 76
-  const pad = 8
-  let x = x0 - boxW / 2
-  x = Math.max(pad, Math.min(x, width - boxW - pad))
-  const yAbove = y0 - boxH - 14
-  const maxY = height - boxH - pad
-  const y = yAbove >= pad ? yAbove : Math.min(y0 + 14, maxY)
-  return { x, y }
+type HoverTip = {
+  label?: string | number
+  payload?: Array<{ name?: string; value?: number; color?: string }>
 }
+
+type ChartMouseState = {
+  activeLabel?: string | number
+  activePayload?: HoverTip['payload']
+}
+
+const CHART_MARGIN = { top: 8, right: 12, left: 4, bottom: 4 }
+const CHART_MARGIN_WITH_LEGEND = { top: 8, right: 12, left: 4, bottom: 28 }
 
 const chartTooltipCursor = { stroke: '#94a3b8', strokeDasharray: '4 4', strokeWidth: 1 }
 
-type ChartTooltipPayload = {
-  active?: boolean
-  payload?: Array<{ name?: string; value?: number; color?: string }>
-  label?: string | number
-  coordinate?: TooltipCoord
-  viewBox?: TooltipRect
+function useChartHover() {
+  const [tip, setTip] = useState<HoverTip | null>(null)
+  return {
+    tip,
+    onMouseMove: (state: ChartMouseState) => {
+      if (state?.activePayload?.length) {
+        setTip({ label: state.activeLabel, payload: state.activePayload })
+      }
+    },
+    onMouseLeave: () => setTip(null),
+  }
 }
 
-function ChartTooltipContent({
-  active,
-  payload,
-  label,
-  coordinate,
-  viewBox,
-}: ChartTooltipPayload) {
-  if (!active || !payload?.length) return null
-  const rect: TooltipRect = {
-    width: viewBox?.width,
-    height: viewBox?.height,
+function ChartHoverReadout({ tip }: { tip: HoverTip | null }) {
+  if (!tip?.payload?.length) {
+    return <span className="text-[var(--color-ink-soft)]">Hover chart for values</span>
   }
-  const { x, y } = offsetChartTooltipPosition(coordinate as TooltipCoord, rect)
   return (
-    <div
-      className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-xs shadow-md"
-      style={{
-        position: 'absolute',
-        left: x,
-        top: y,
-        pointerEvents: 'none',
-        minWidth: '7rem',
-      }}
-    >
-      {label != null && label !== '' && (
-        <p className="mb-1 font-semibold text-[var(--color-ink)]">{label}</p>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+      {tip.label != null && tip.label !== '' && (
+        <span className="font-semibold text-[var(--color-ink)]">{tip.label}</span>
       )}
-      {payload.map((entry) => (
-        <p
+      {tip.payload.map((entry) => (
+        <span
           key={String(entry.name)}
-          className="tabular-nums"
+          className="tabular-nums font-medium"
           style={{ color: entry.color ?? 'var(--color-ink-soft)' }}
         >
-          {entry.name} : {entry.value}
-        </p>
+          {entry.name}: {entry.value}
+        </span>
       ))}
     </div>
   )
 }
 
-function ChartTooltip() {
+function ChartPlot({ tip, children }: { tip: HoverTip | null; children: ReactNode }) {
   return (
-    <Tooltip
-      content={<ChartTooltipContent />}
-      wrapperStyle={{ pointerEvents: 'none', zIndex: 20, outline: 'none' }}
-      cursor={chartTooltipCursor}
-      isAnimationActive={false}
-    />
+    <div className="flex h-full flex-col">
+      <div
+        className="flex h-10 shrink-0 items-center border-b border-[var(--color-border)] bg-[var(--color-muted)]/40 px-2 text-xs"
+        aria-live="polite"
+      >
+        <ChartHoverReadout tip={tip} />
+      </div>
+      <div className="min-h-0 flex-1">{children}</div>
+    </div>
   )
+}
+
+/** Vertical crosshair only — values render in the header strip above the chart. */
+function ChartCrosshair() {
+  return <Tooltip content={() => null} cursor={chartTooltipCursor} isAnimationActive={false} />
 }
 
 function ChartCard({
@@ -115,7 +101,7 @@ function ChartCard({
     <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm">
       <h3 className="text-base font-bold">{title}</h3>
       <p className="mb-3 text-xs text-[var(--color-ink-soft)]">{subtitle}</p>
-      <div className="h-56 w-full">{children}</div>
+      <div className="h-56 w-full overflow-visible">{children}</div>
       <div className="mt-4 space-y-2 border-t border-[var(--color-border)] pt-3 text-sm">
         <p>
           <span className="font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
@@ -165,6 +151,16 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
   const advNow = bundle.advancing
   const decNow = bundle.declining
 
+  const advHover = useChartHover()
+  const sma20Hover = useChartHover()
+  const sma50Hover = useChartHover()
+  const sma200Hover = useChartHover()
+  const thrustHover = useChartHover()
+  const nearHover = useChartHover()
+  const rsiHover = useChartHover()
+  const rsHover = useChartHover()
+  const rvolHover = useChartHover()
+
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
@@ -190,13 +186,19 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             : 'Advances lead — dips are more buyable while this persists.'
         }
       >
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={advDec}>
+        <ChartPlot tip={advHover.tip}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={advDec}
+              margin={CHART_MARGIN_WITH_LEGEND}
+              onMouseMove={advHover.onMouseMove}
+              onMouseLeave={advHover.onMouseLeave}
+            >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} />
-            <ChartTooltip />
-            <Legend />
+            <ChartCrosshair />
+            <Legend verticalAlign="bottom" height={24} />
             <Line
               type="monotone"
               dataKey="Advances"
@@ -212,7 +214,8 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
               strokeWidth={2}
             />
           </LineChart>
-        </ResponsiveContainer>
+          </ResponsiveContainer>
+        </ChartPlot>
       </ChartCard>
 
       <ChartCard
@@ -222,15 +225,22 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
         reading={`${bundle.pctAbove20}% of stocks are above the 20-day SMA — ${bundle.pctAbove20 < 40 ? 'weak' : bundle.pctAbove20 > 60 ? 'strong' : 'mixed'} reading.`}
         action="Improvement here is usually the first sign of a broader rebound — watch for it to turn up."
       >
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={sma20}>
+        <ChartPlot tip={sma20Hover.tip}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={sma20}
+              margin={CHART_MARGIN}
+              onMouseMove={sma20Hover.onMouseMove}
+              onMouseLeave={sma20Hover.onMouseLeave}
+            >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <ChartTooltip />
+            <ChartCrosshair />
             <Line type="monotone" dataKey="v" name="20 SMA" stroke="#e11d48" dot={false} strokeWidth={2} />
           </LineChart>
-        </ResponsiveContainer>
+          </ResponsiveContainer>
+        </ChartPlot>
       </ChartCard>
 
       <ChartCard
@@ -240,15 +250,22 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
         reading={`${bundle.pctAbove50}% of stocks are above the 50-day SMA — ${bundle.pctAbove50 < 40 ? 'weak' : bundle.pctAbove50 > 60 ? 'strong' : 'neutral'} reading.`}
         action="Trend quality is mixed when this sits mid-range — be selective with medium-term positions."
       >
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={sma50}>
+        <ChartPlot tip={sma50Hover.tip}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={sma50}
+              margin={CHART_MARGIN}
+              onMouseMove={sma50Hover.onMouseMove}
+              onMouseLeave={sma50Hover.onMouseLeave}
+            >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <ChartTooltip />
+            <ChartCrosshair />
             <Line type="monotone" dataKey="v" name="50 SMA" stroke="#db2777" dot={false} strokeWidth={2} />
           </LineChart>
-        </ResponsiveContainer>
+          </ResponsiveContainer>
+        </ChartPlot>
       </ChartCard>
 
       <ChartCard
@@ -258,15 +275,22 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
         reading={`${bundle.pctAbove200}% of stocks are above the 200-day SMA — ${bundle.pctAbove200 < 40 ? 'bearish' : bundle.pctAbove200 > 60 ? 'bullish' : 'neutral'} reading.`}
         action="If structural support is mixed, manage risk carefully and prefer leaders still above the 200."
       >
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={sma200}>
+        <ChartPlot tip={sma200Hover.tip}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={sma200}
+              margin={CHART_MARGIN}
+              onMouseMove={sma200Hover.onMouseMove}
+              onMouseLeave={sma200Hover.onMouseLeave}
+            >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <ChartTooltip />
+            <ChartCrosshair />
             <Line type="monotone" dataKey="v" name="200 SMA" stroke="#f43f5e" dot={false} strokeWidth={2} />
           </LineChart>
-        </ResponsiveContainer>
+          </ResponsiveContainer>
+        </ChartPlot>
       </ChartCard>
 
       <ChartCard
@@ -276,17 +300,24 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
         reading={`Thrust at ${thrustNow.toFixed(3)} — ${thrustNow > 0.615 ? 'thrust zone' : thrustNow < 0.4 ? 'capitulation zone' : 'neutral range'}.`}
         action="Range-bound thrust: lean on other breadth signals before sizing up."
       >
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={thrust}>
+        <ChartPlot tip={thrustHover.tip}>
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart
+              data={thrust}
+              margin={CHART_MARGIN_WITH_LEGEND}
+              onMouseMove={thrustHover.onMouseMove}
+              onMouseLeave={thrustHover.onMouseLeave}
+            >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 1]} tick={{ fontSize: 10 }} />
-            <ChartTooltip />
-            <Legend />
+            <ChartCrosshair />
+            <Legend verticalAlign="bottom" height={24} />
             <Line type="monotone" dataKey="Thrust" stroke="#7c3aed" dot={false} strokeWidth={2} />
             <Line type="monotone" dataKey="Ma" name="10-MA" stroke="#d97706" dot={false} strokeWidth={2} />
           </ComposedChart>
-        </ResponsiveContainer>
+          </ResponsiveContainer>
+        </ChartPlot>
       </ChartCard>
 
       <ChartCard
@@ -300,15 +331,22 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             : 'Leadership is healthier — prefer names near highs with sector confirmation.'
         }
       >
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={near}>
+        <ChartPlot tip={nearHover.tip}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={near}
+              margin={CHART_MARGIN}
+              onMouseMove={nearHover.onMouseMove}
+              onMouseLeave={nearHover.onMouseLeave}
+            >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} />
-            <ChartTooltip />
+            <ChartCrosshair />
             <Line type="monotone" dataKey="v" name="Near 52W High" stroke="#2563eb" dot={false} strokeWidth={2} />
           </LineChart>
-        </ResponsiveContainer>
+          </ResponsiveContainer>
+        </ChartPlot>
       </ChartCard>
 
       <ChartCard
@@ -318,18 +356,25 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
         reading={`${bundle.pctRsi70}% overbought (RSI ≥ 70) · ${h.rsiOs.at(-1) ?? 0}% oversold (RSI ≤ 30).`}
         action="Oversold dominance can precede bounces, but needs breadth confirmation from advances and SMA %."
       >
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rsi}>
+        <ChartPlot tip={rsiHover.tip}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={rsi}
+              margin={CHART_MARGIN_WITH_LEGEND}
+              onMouseMove={rsiHover.onMouseMove}
+              onMouseLeave={rsiHover.onMouseLeave}
+            >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <ChartTooltip />
-            <Legend />
+            <ChartCrosshair />
+            <Legend verticalAlign="bottom" height={24} />
             <Line type="monotone" dataKey="Overbought" stroke="#7c3aed" dot={false} strokeWidth={2} />
             <Line type="monotone" dataKey="Oversold" stroke="#ef4444" dot={false} strokeWidth={2} />
             <Line type="monotone" dataKey="Neutral" stroke="#f59e0b" dot={false} strokeWidth={2} />
           </LineChart>
-        </ResponsiveContainer>
+          </ResponsiveContainer>
+        </ChartPlot>
       </ChartCard>
 
       <ChartCard
@@ -343,15 +388,22 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             : 'RS breadth is healthy — dips in strong-RS names are more constructive.'
         }
       >
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rsSeries}>
+        <ChartPlot tip={rsHover.tip}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={rsSeries}
+              margin={CHART_MARGIN}
+              onMouseMove={rsHover.onMouseMove}
+              onMouseLeave={rsHover.onMouseLeave}
+            >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <ChartTooltip />
+            <ChartCrosshair />
             <Line type="monotone" dataKey="v" name="RS ≥ 50" stroke="#0d9488" dot={false} strokeWidth={2} />
           </LineChart>
-        </ResponsiveContainer>
+          </ResponsiveContainer>
+        </ChartPlot>
       </ChartCard>
 
       <ChartCard
@@ -365,15 +417,22 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             : 'Quiet tape — breakouts with rising RVOL stand out more.'
         }
       >
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rvolSeries}>
+        <ChartPlot tip={rvolHover.tip}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={rvolSeries}
+              margin={CHART_MARGIN}
+              onMouseMove={rvolHover.onMouseMove}
+              onMouseLeave={rvolHover.onMouseLeave}
+            >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <ChartTooltip />
+            <ChartCrosshair />
             <Line type="monotone" dataKey="v" name="RVOL ≥ 1.5×" stroke="#ca8a04" dot={false} strokeWidth={2} />
           </LineChart>
-        </ResponsiveContainer>
+          </ResponsiveContainer>
+        </ChartPlot>
       </ChartCard>
     </div>
   )
