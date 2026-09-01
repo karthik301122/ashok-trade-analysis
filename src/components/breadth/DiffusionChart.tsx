@@ -53,6 +53,11 @@ function dayKeyFromUnix(t: number): string {
   return new Date(t * 1000).toISOString().slice(0, 10)
 }
 
+function coerceBarField(v: unknown): number {
+  const n = typeof v === 'number' ? v : Number(v)
+  return Number.isFinite(n) ? n : NaN
+}
+
 export function DiffusionChart({
   indexBars,
   indexLabel,
@@ -64,13 +69,18 @@ export function DiffusionChart({
   referenceLevels,
 }: Props) {
   const indexData = indexBars
-    .filter((b) => Number.isFinite(b.t) && Number.isFinite(b.c))
-    .map((b) => ({
-      key: dayKeyFromUnix(b.t),
-      d: new Date(b.t * 1000).toLocaleDateString('en-AU', { month: 'short', day: 'numeric' }),
-      index: b.c,
-      sort: b.t,
-    }))
+    .map((b) => {
+      const t = coerceBarField(b.t)
+      const c = coerceBarField(b.c)
+      if (!Number.isFinite(t) || !Number.isFinite(c)) return null
+      return {
+        key: dayKeyFromUnix(t),
+        d: new Date(t * 1000).toLocaleDateString('en-AU', { month: 'short', day: 'numeric' }),
+        index: c,
+        sort: t,
+      }
+    })
+    .filter((row): row is NonNullable<typeof row> => row != null)
     .sort((a, b) => a.sort - b.sort)
 
   const breadthData = indicatorSeries

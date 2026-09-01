@@ -13,8 +13,13 @@ import {
   findDiffusionIndicator,
 } from './diffusionIndicators'
 import type { Time } from 'lightweight-charts'
-import { fetchYahooOhlc, type OhlcBar } from '../../lib/yahoo'
-import type { BreadthDailyPoint, BreadthIndexBar } from '../../lib/breadthApi'
+import {
+  coerceIndexBar,
+  coerceIndexBars,
+  fetchIndexBarsForChart,
+  type BreadthDailyPoint,
+  type BreadthIndexBar,
+} from '../../lib/breadthApi'
 
 type Props = {
   bundle: BreadthBundle
@@ -26,7 +31,9 @@ type Props = {
   onOpenClassic?: () => void
 }
 
-const INDEX_SYMBOL = '^AXJO'
+const MIN_INDEX_BARS = 2
+
+type OhlcBar = BreadthIndexBar
 
 function timeToUnix(time: Time): number {
   if (typeof time === 'number' && Number.isFinite(time)) return time
@@ -43,8 +50,9 @@ function noonUtcFromUnix(t: number): number {
 
 function normalizeIndexBarsForChart(bars: OhlcBar[]): OhlcBar[] {
   const byDay = new Map<string, OhlcBar>()
-  for (const b of bars) {
-    if (!Number.isFinite(b.t) || !Number.isFinite(b.c)) continue
+  for (const raw of bars) {
+    const b = coerceIndexBar(raw)
+    if (!b) continue
     const day = new Date(b.t * 1000).toISOString().slice(0, 10)
     byDay.set(day, { ...b, t: noonUtcFromUnix(b.t) })
   }
@@ -86,7 +94,10 @@ export function DiffusionIndicatorsView({
   )
 
   const indexBars = useMemo<OhlcBar[]>(
-    () => (serverIndexBars.length ? serverIndexBars : fallbackIndexBars),
+    () => {
+      const server = coerceIndexBars(serverIndexBars)
+      return server.length ? server : fallbackIndexBars
+    },
     [serverIndexBars, fallbackIndexBars],
   )
 
@@ -96,13 +107,14 @@ export function DiffusionIndicatorsView({
 
   useEffect(() => {
     if (historyLoading) return
-    if (serverIndexBars.length >= 10) return
-    if (fallbackIndexBars.length >= 10) return
+    const serverBars = coerceIndexBars(serverIndexBars)
+    if (serverBars.length >= MIN_INDEX_BARS) return
+    if (fallbackIndexBars.length >= MIN_INDEX_BARS) return
     const probe = filterIndexToSeries(
-      serverIndexBars.length ? serverIndexBars : fallbackIndexBars,
+      serverBars.length ? serverBars : fallbackIndexBars,
       seriesTimes,
     )
-    if (probe.length >= 10) return
+    if (probe.length >= MIN_INDEX_BARS) return
     let cancelled = false
     const earliest = chartHistory[0]?.day ?? bundle.dailyHistory[0]?.day
     const from =
@@ -111,15 +123,15 @@ export function DiffusionIndicatorsView({
         : new Date(Date.now() - 120 * 86400 * 1000)
     from.setUTCDate(from.getUTCDate() - 10)
     const fromIso = from.toISOString().slice(0, 10)
-    void fetchYahooOhlc(INDEX_SYMBOL, fromIso).then((bars) => {
-      if (!cancelled) setFallbackIndexBars(bars ?? [])
+    void fetchIndexBarsForChart(fromIso).then((bars) => {
+      if (!cancelled) setFallbackIndexBars(bars)
     })
     return () => {
       cancelled = true
     }
   }, [
     historyLoading,
-    serverIndexBars.length,
+    serverIndexBars,
     fallbackIndexBars.length,
     seriesTimes,
     chartHistory,

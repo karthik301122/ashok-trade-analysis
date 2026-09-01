@@ -31,6 +31,28 @@ export function mergeBars(a, b) {
   return [...map.values()].sort((x, y) => x.t - y.t)
 }
 
+/** Postgres BIGINT / numeric fields may arrive as strings — coerce for chart math. */
+export function coerceOhlcRow(row) {
+  if (!row || typeof row !== 'object') return null
+  const t = Number(row.t)
+  const c = Number(row.c)
+  if (!Number.isFinite(t) || !Number.isFinite(c)) return null
+  const o = Number(row.o)
+  const h = Number(row.h)
+  const l = Number(row.l)
+  const v = Number(row.v)
+  const close = c
+  const open = Number.isFinite(o) ? o : close
+  return {
+    t,
+    o: open,
+    h: Number.isFinite(h) ? h : Math.max(open, close),
+    l: Number.isFinite(l) ? l : Math.min(open, close),
+    c: close,
+    v: Number.isFinite(v) ? v : 0,
+  }
+}
+
 /**
  * @param {string} symbol
  */
@@ -51,14 +73,7 @@ export async function readSeriesCache(symbol) {
   return {
     symbol,
     updatedAt: Number(meta.updated_at),
-    closes: rows.map((r) => ({
-      t: r.t,
-      o: r.o,
-      h: r.h,
-      l: r.l,
-      c: r.c,
-      v: r.v,
-    })),
+    closes: rows.map((r) => coerceOhlcRow(r)).filter(Boolean),
     last: Number(meta.last),
     high52: Number(meta.high52),
     meta: metaObj,

@@ -1,4 +1,12 @@
 import { sqlAll } from './db.mjs'
+import {
+  readSeriesCache,
+  writeSeriesCache,
+  mergeBars,
+  recomputeHigh52,
+  coerceOhlcRow,
+} from './seriesStore.mjs'
+import { fetchChartCloses } from './fetchSeries.mjs'
 import { UNIVERSE_IDS } from './breadthStore.mjs'
 import { tickersForUniverseId } from './eodhdIndexMembers.mjs'
 import fs from 'fs'
@@ -255,48 +263,73 @@ export function clearBreadthChartCache() {
   chartCache.clear()
 }
 
+function dedupeIndexBarsByDay(rows) {
+  const byDay = new Map()
+  for (const row of rows) {
+    const bar = coerceOhlcRow(row)
+    if (!bar) continue
+    const day = new Date(bar.t * 1000).toISOString().slice(0, 10)
+    byDay.set(day, bar)
+  }
+  return [...byDay.values()].sort((a, b) => a.t - b.t)
+}
+
 /**
  * ASX 200 index OHLC for the diffusion chart upper pane (from DB bars).
  * @param {number} [days]
  */
 export async function getIndexBarsForChart(days = DEFAULT_DAYS) {
+  const minBars = 2
+  const sliceLast = (bars) => (bars.length > days ? bars.slice(-days) : bars)
+
+  const cached = await readSeriesCache('^AXJO')
+  if (cached?.closes?.length >= minBars) {
+    const bars = dedupeIndexBarsByDay(cached.closes)
+    if (bars.length >= minBars) return sliceLast(bars)
+  }
+
   const aliases = ['^AXJO', 'AXJO.INDX', 'XJO']
   const ph = aliases.map(() => '?').join(',')
   const rows = await sqlAll(
     `SELECT t, o, h, l, c, v FROM bars WHERE symbol IN (${ph}) ORDER BY t`,
     aliases,
   )
-  if (rows.length >= 10) {
-    return rows.slice(-days).map((b) => ({
-      t: b.t,
-      o: b.o,
-      h: b.h,
-      l: b.l,
-      c: b.c,
-      v: b.v ?? 0,
-    }))
+  const fromDb = dedupeIndexBarsByDay(rows)
+  if (fromDb.length >= minBars) return sliceLast(fromDb)
+
+  const from = new Date()
+  from.setUTCDate(from.getUTCDate() - (days + 90))
+  const fromIso = from.toISOString().slice(0, 10)
+
+  try {
+    const { getCachedSeries } = await import('./getSeries.mjs')
+    const series = await getCachedSeries('^AXJO', fromIso, { staleOk: true })
+    const fromSeries = dedupeIndexBarsByDay(series?.closes ?? [])
+    if (fromSeries.length >= minBars) return sliceLast(fromSeries)
+  } catch {
+    /* optional */
   }
 
   try {
-    const from = new Date()
-    from.setUTCDate(from.getUTCDate() - (days + 30))
-    const fromIso = from.toISOString().slice(0, 10)
-    const { getCachedSeries } = await import('./getSeries.mjs')
-    const series = await getCachedSeries('^AXJO', fromIso, { staleOk: true })
-    const closes = series?.closes ?? []
-    if (closes.length >= 10) {
-      return closes.slice(-days).map((b) => ({
-        t: b.t,
-        o: b.o,
-        h: b.h,
-        l: b.l,
-        c: b.c,
-        v: b.v ?? 0,
-      }))
+    const fresh = await fetchChartCloses('^AXJO', fromIso, { attempts: 5, baseDelayMs: 600 })
+    const freshBars = dedupeIndexBarsByDay(fresh?.closes ?? [])
+    if (freshBars.length >= minBars) {
+      const merged = cached?.closes?.length
+        ? mergeBars(cached.closes, fresh.closes)
+        : fresh.closes
+      await writeSeriesCache({
+        symbol: '^AXJO',
+        updatedAt: Date.now(),
+        closes: merged,
+        last: merged[merged.length - 1].c,
+        high52: recomputeHigh52(merged),
+        meta: fresh.meta || {},
+      })
+      return sliceLast(freshBars)
     }
   } catch {
     /* optional */
   }
 
-  return []
+  return fromDb.length ? sliceLast(fromDb) : []
 }
