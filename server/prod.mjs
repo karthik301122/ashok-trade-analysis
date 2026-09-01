@@ -36,10 +36,13 @@ app.get(/.*/, (_req, res) => {
   res.sendFile(path.join(dist, 'index.html'))
 })
 
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
   console.log(`ASX Sector Intelligence running on http://localhost:${port}`)
   console.log(`SQLite: ${dbPath()}`)
   console.log(authEnabled() ? 'Auth: enabled (login required)' : 'Auth: disabled (set AUTH_SECRET)')
-  maybeStartBackgroundSnapshot()
-  maybeStartLiveQuoteScheduler()
+  // Defer heavy background work so Azure sees the port open quickly after deploy.
+  setTimeout(() => {
+    maybeStartBackgroundSnapshot()
+    maybeStartLiveQuoteScheduler()
+  }, 5000)
 })

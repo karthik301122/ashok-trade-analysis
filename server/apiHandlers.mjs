@@ -480,6 +480,10 @@ export async function handleConnectApi(req, res, send) {
  * @param {import('express').Express} app
  */
 export function mountExpressApi(app) {
+  app.get('/api/ping', (_req, res) => {
+    res.status(200).json({ ok: true })
+  })
+
   app.get('/api/health', (req, res) => {
     const snap = readMarketSnapshotRow()
     const universeTotal = getUniverseCount()
