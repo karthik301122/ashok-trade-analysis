@@ -1,5 +1,4 @@
-import { describe, it } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, expect, it } from 'vitest'
 import {
   eodhdComponentToTicker,
   tickersFromComponentRows,
@@ -7,8 +6,8 @@ import {
 
 describe('eodhdIndexMembers', () => {
   it('maps AU component codes to tickers', () => {
-    assert.equal(eodhdComponentToTicker({ Code: 'BHP', Exchange: 'AU' }), 'BHP')
-    assert.equal(eodhdComponentToTicker({ Code: 'BHP.AU' }), 'BHP')
+    expect(eodhdComponentToTicker({ Code: 'BHP', Exchange: 'AU' })).toBe('BHP')
+    expect(eodhdComponentToTicker({ Code: 'BHP.AU' })).toBe('BHP')
   })
 
   it('sorts by weight and dedupes', () => {
@@ -17,6 +16,6 @@ describe('eodhdIndexMembers', () => {
       { Code: 'BHP', Weight: 0.05 },
       { Code: 'BHP', Weight: 0.05 },
     ])
-    assert.deepEqual(tickers, ['BHP', 'AAA'])
+    expect(tickers).toEqual(['BHP', 'AAA'])
   })
 })
