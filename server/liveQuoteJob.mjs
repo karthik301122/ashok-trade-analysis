@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { fetchEodhdLiveQuotes, eodhdEnabled } from './eodhd.mjs'
+import { isEodhdDailyLimitExceeded } from './eodhdLimit.mjs'
 import { resolveYahooSymbol } from './getSeries.mjs'
 import { isAsxMarketSession, upsertLiveQuotesFromEodhd } from './liveQuotes.mjs'
 
@@ -19,6 +20,7 @@ function loadTickers() {
 
 export async function runLiveQuoteRefresh() {
   if (!eodhdEnabled()) return { skipped: true, reason: 'eodhd_disabled' }
+  if (isEodhdDailyLimitExceeded()) return { skipped: true, reason: 'eodhd_daily_limit' }
   if (!isAsxMarketSession()) return { skipped: true, reason: 'market_closed' }
   if (runningJob) return runningJob
 

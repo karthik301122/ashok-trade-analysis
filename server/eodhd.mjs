@@ -1,5 +1,9 @@
 import { loadEnvFile } from './loadEnv.mjs'
-import { withEodhdThrottle, parseRetryAfterMs } from './eodhdThrottle.mjs'
+import {
+  EodhdDailyLimitError,
+  isEodhdDailyLimitExceeded,
+  maybeMarkEodhdDailyLimit,
+} from './eodhdLimit.mjs'
 import { sanitizeOhlcBars } from './ohlcSanitize.mjs'
 import {
   aggregateOhlcBars,
@@ -102,7 +106,7 @@ function rowsToBars(rows) {
  */
 export async function fetchEodhdChart(symbol, period1 = '2023-01-01', opts = {}) {
   const token = getEodhdToken()
-  if (!token) return null
+  if (!token || isEodhdDailyLimitExceeded()) return null
   return withEodhdThrottle(() => fetchEodhdChartInner(symbol, period1, opts, token))
 }
 
@@ -122,6 +126,7 @@ async function fetchEodhdChartInner(symbol, period1, opts, token) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(45000) })
       if (res.status === 404) return null
+      if (maybeMarkEodhdDailyLimit(res.status)) return null
       if (res.status === 429) {
         const waitMs = parseRetryAfterMs(res.headers)
         console.warn(`[eodhd] ${symbol}: rate limited — waiting ${Math.round(waitMs / 1000)}s`)
@@ -241,6 +246,7 @@ async function fetchEodhdIntradayInner(symbol, interval, fromTs, toTs, opts, tok
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(60000) })
       if (res.status === 404) return null
+      if (maybeMarkEodhdDailyLimit(res.status)) return null
       if (res.status === 429) {
         const waitMs = parseRetryAfterMs(res.headers)
         console.warn(`[eodhd] intraday ${symbol}: rate limited — waiting ${Math.round(waitMs / 1000)}s`)
@@ -303,7 +309,7 @@ const REALTIME_BASE = 'https://eodhd.com/api/real-time'
  */
 export async function fetchEodhdLiveQuotes(yahooSymbols) {
   const token = getEodhdToken()
-  if (!token || !yahooSymbols?.length) return []
+  if (!token || !yahooSymbols?.length || isEodhdDailyLimitExceeded()) return []
   const BATCH = 20
   const out = []
   for (let i = 0; i < yahooSymbols.length; i += BATCH) {
@@ -327,6 +333,7 @@ async function fetchEodhdLiveQuotesBatch(yahooSymbols, token) {
 
   const res = await fetch(url, { signal: AbortSignal.timeout(45000) })
   if (res.status === 404) return []
+  if (maybeMarkEodhdDailyLimit(res.status)) return []
   if (res.status === 429) {
     const waitMs = parseRetryAfterMs(res.headers)
     console.warn(`[eodhd] live batch: rate limited — waiting ${Math.round(waitMs / 1000)}s`)

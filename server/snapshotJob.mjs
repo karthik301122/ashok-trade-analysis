@@ -9,6 +9,7 @@ import { seriesToCachedPerf, mapPool } from './perfMath.mjs'
 import { applyLiveQuotesToStockMap, getLiveQuotesMeta, stripLiveOverlayFromPerf } from './liveQuotes.mjs'
 import { clearBreadthChartCache } from './breadthHistory.mjs'
 import { readinessFromSnapshot } from './production.mjs'
+import { isEodhdDailyLimitExceeded } from './eodhdLimit.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -262,7 +263,7 @@ async function retryFailedTickers(
   started,
   totalUniverse,
 ) {
-  if (!tickers.length) return tickers
+  if (!tickers.length || isEodhdDailyLimitExceeded()) return tickers
 
   console.log(`[snapshot] retry pass for ${tickers.length} tickers (cooldown ${RETRY_COOLDOWN_MS / 1000}s)…`)
   await setJob('running', {
@@ -455,6 +456,25 @@ export async function runUniverseSnapshot(opts = {}) {
         )
       }
 
+      if (isEodhdDailyLimitExceeded()) {
+        const loaded = Object.keys(stocks).length
+        const failed = total - loaded
+        const { builtAt, asOf } = await persistSnapshot(stocks, indexPerf, loaded, failed)
+        await setJob('error', {
+          started_at: started,
+          finished_at: builtAt,
+          message:
+            'EODHD daily API limit reached — progress saved. Resumes after UTC midnight.',
+          loaded,
+          failed,
+          total,
+        })
+        console.warn(
+          `[snapshot] paused (EODHD daily limit) · loaded=${loaded} failed=${failed} total=${total}`,
+        )
+        return { loaded, failed, builtAt, asOf, pausedDailyLimit: true }
+      }
+
       let stillFailed = failedTickers
       if (retryFailedOnly) {
         stillFailed = await retryFailedTickers(
@@ -465,7 +485,11 @@ export async function runUniverseSnapshot(opts = {}) {
           started,
           total,
         )
-      } else if (!skipRetryPass && failedTickers.length > 0) {
+      } else if (
+        !skipRetryPass &&
+        failedTickers.length > 0 &&
+        !isEodhdDailyLimitExceeded()
+      ) {
         stillFailed = await retryFailedTickers(
           failedTickers,
           from2y,

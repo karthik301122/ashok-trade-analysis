@@ -45,6 +45,7 @@ import {
 import { getLiveQuotesMeta } from './liveQuotes.mjs'
 import { runLiveQuoteRefresh } from './liveQuoteJob.mjs'
 import { maintenanceEnabled, maintenanceMessage } from './maintenance.mjs'
+import { eodhdDailyLimitMeta } from './eodhdLimit.mjs'
 
 const __apiDir = path.dirname(fileURLToPath(import.meta.url))
 let universeCountCache = null
@@ -400,6 +401,7 @@ export async function handleConnectApi(req, res, send) {
       authRequired: authEnabled(),
       maintenance: maintenanceEnabled(),
       maintenanceMessage: maintenanceEnabled() ? maintenanceMessage() : undefined,
+      eodhdDailyLimit: eodhdDailyLimitMeta(),
       seriesCached: await seriesCacheFileCount(),
       store: dbStoreLabel(),
       database: dbPath(),
@@ -529,6 +531,7 @@ export function mountExpressApi(app) {
       authRequired: authEnabled(),
       maintenance: maintenanceEnabled(),
       maintenanceMessage: maintenanceEnabled() ? maintenanceMessage() : undefined,
+      eodhdDailyLimit: eodhdDailyLimitMeta(),
       seriesCached: await seriesCacheFileCount(),
       store: dbStoreLabel(),
       database: dbPath(),
