@@ -85,8 +85,8 @@ export function DiffusionIndicatorsView({
 
   const def = findDiffusionIndicator(indicatorId)
   const indicatorSeries = useMemo(
-    () => buildDiffusionSeries(bundle, indicatorId, chartHistory),
-    [bundle, indicatorId, chartHistory],
+    () => buildDiffusionSeries(bundle, indicatorId),
+    [bundle, indicatorId],
   )
   const seriesTimes = useMemo(
     () => indicatorSeries.map((p) => timeToUnix(p.time)).filter((t) => t > 0),

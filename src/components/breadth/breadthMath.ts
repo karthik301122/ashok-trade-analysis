@@ -425,6 +425,38 @@ function applyDailyHistory(
   })
 }
 
+/** Reconstruct daily points from spark-proxy history for charting when OHLC history is thin. */
+export function sparkHistoryToDailyPoints(bundle: BreadthBundle): DailyHistoryPoint[] {
+  const h = bundle.history
+  const n = h.dates.length
+  if (n < 2) return []
+  const anchor = new Date()
+  anchor.setUTCHours(12, 0, 0, 0)
+  const out: DailyHistoryPoint[] = []
+  for (let i = 0; i < n; i++) {
+    const offset = n - 1 - i
+    const d = new Date(anchor)
+    d.setUTCDate(d.getUTCDate() - offset)
+    const day = d.toISOString().slice(0, 10)
+    out.push({
+      day,
+      above20: h.above20[i] ?? 0,
+      above50: h.above50[i] ?? 0,
+      above200: h.above200[i] ?? 0,
+      rsi50: round1(100 - (h.rsiOb[i] ?? 0) - (h.rsiOs[i] ?? 0)) || 50,
+      adNet: (h.advances[i] ?? 0) - (h.declines[i] ?? 0),
+      advancing: h.advances[i],
+      declining: h.declines[i],
+      near52w: h.near52w[i],
+      rsi70: h.rsiOb[i],
+      rsi30: h.rsiOs[i],
+      rs50: h.rs50[i],
+      rvol15: h.rvol15[i],
+    })
+  }
+  return out
+}
+
 export function computeBreadth(
   snapshot: MarketSnapshot,
   universeId: UniverseId,

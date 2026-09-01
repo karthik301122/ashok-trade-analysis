@@ -44,6 +44,14 @@ function BreadthAnalysisBody({
 }) {
   const bundleCache = useRef<BreadthBundle | null>(null)
   const [universeId, setUniverseId] = useState<UniverseId>('asx200')
+  const handleUniverseChange = (id: UniverseId) => {
+    if (id === universeId) return
+    setChartHistory([])
+    setServerPoints([])
+    setIndexBars([])
+    setHistoryLoading(true)
+    setUniverseId(id)
+  }
   const [viewMode, setViewMode] = useState<ViewMode>('diffusion')
   const [tab, setTab] = useState<TabId>('sma')
   const [copied, setCopied] = useState(false)
@@ -167,7 +175,7 @@ function BreadthAnalysisBody({
             indexBars={indexBars}
             historyLoading={historyLoading}
             universeId={universeId}
-            onUniverseChange={setUniverseId}
+            onUniverseChange={handleUniverseChange}
             onOpenClassic={() => setViewMode('classic')}
           />
         </>
@@ -225,7 +233,7 @@ function BreadthAnalysisBody({
             type="button"
             title={u.hint}
             disabled={paused}
-            onClick={() => setUniverseId(u.id)}
+            onClick={() => handleUniverseChange(u.id)}
             className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${
               universeId === u.id
                 ? 'border-sky-500 bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200'

@@ -65,6 +65,29 @@ describe('diffusionIndicators', () => {
     expect(series[1].value).toBe(46)
   })
 
+  it('uses universe-specific daily history (not a shared stale series)', () => {
+    const asx200 = buildDiffusionSeries(
+      bundle({
+        dailyHistory: [
+          { day: '2025-06-01', above20: 30, above50: 28, above200: 20, rsi50: 40, adNet: 1 },
+          { day: '2025-06-02', above20: 32, above50: 30, above200: 22, rsi50: 42, adNet: 2 },
+        ],
+      }),
+      'sma-20',
+    )
+    const small = buildDiffusionSeries(
+      bundle({
+        dailyHistory: [
+          { day: '2025-06-01', above20: 70, above50: 65, above200: 55, rsi50: 60, adNet: 4 },
+          { day: '2025-06-02', above20: 72, above50: 68, above200: 58, rsi50: 62, adNet: 5 },
+        ],
+      }),
+      'sma-20',
+    )
+    expect(asx200.at(-1)?.value).toBe(32)
+    expect(small.at(-1)?.value).toBe(72)
+  })
+
   it('reads current SMA value from bundle', () => {
     expect(currentDiffusionValue(bundle(), 'sma-20')).toBe(46)
   })

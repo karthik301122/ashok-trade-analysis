@@ -117,9 +117,15 @@ function barsUpTo(sorted, t) {
 async function loadBarsMap(tickers) {
   const map = new Map()
   const symbolToTicker = new Map()
-  for (const t of tickers) {
+  for (const raw of tickers) {
+    const t = String(raw).toUpperCase()
     map.set(t, [])
-    symbolToTicker.set(toBarSymbol(t), t)
+    const sym = toBarSymbol(t)
+    symbolToTicker.set(sym, t)
+    symbolToTicker.set(t, t)
+    if (sym.endsWith('.AX')) {
+      symbolToTicker.set(sym.slice(0, -3), t)
+    }
   }
   const symbols = [...new Set(tickers.map(toBarSymbol))]
   if (symbols.includes(INDEX_SYMBOL) === false) {
@@ -137,7 +143,12 @@ async function loadBarsMap(tickers) {
       chunk,
     )
     for (const r of rows) {
-      const key = symbolToTicker.get(r.symbol) ?? r.symbol
+      const sym = String(r.symbol ?? '').toUpperCase()
+      const key =
+        symbolToTicker.get(sym) ??
+        symbolToTicker.get(sym.replace(/\.AX$/i, '')) ??
+        symbolToTicker.get(toBarSymbol(sym))
+      if (!key) continue
       const list = map.get(key)
       if (list) list.push(r)
     }

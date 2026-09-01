@@ -1,6 +1,7 @@
 import type { LineData, Time } from 'lightweight-charts'
 import type { UTCTimestamp } from 'lightweight-charts'
 import type { BreadthBundle } from './breadthMath'
+import { sparkHistoryToDailyPoints } from './breadthMath'
 import type { BreadthDailyPoint } from '../../lib/breadthApi'
 
 export type DiffusionIndicatorId =
@@ -137,17 +138,13 @@ function seriesFromBundleHistory(
 export function buildDiffusionSeries(
   bundle: BreadthBundle,
   indicatorId: DiffusionIndicatorId,
-  chartHistory?: BreadthDailyPoint[],
 ): LineData<Time>[] {
   const def = findDiffusionIndicator(indicatorId)
-  const daily =
-    chartHistory && chartHistory.length >= 2
-      ? chartHistory
-      : bundle.dailyHistory.length >= 10
-        ? bundle.dailyHistory
-        : bundle.historyKind === 'ohlc-daily'
-          ? bundle.dailyHistory
-          : []
+  let daily: BreadthDailyPoint[] =
+    bundle.dailyHistory.length >= 2 ? bundle.dailyHistory : []
+  if (daily.length < 2) {
+    daily = sparkHistoryToDailyPoints(bundle)
+  }
 
   if (def.field && daily.length) {
     return seriesFromDailyHistory(daily, def.field)
