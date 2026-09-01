@@ -79,12 +79,40 @@ function PatternHitChips({ hits, prefs }: { hits: CachedPatternHit[]; prefs: Pat
   )
 }
 
+function parsePriceInput(raw: string): number | null {
+  const t = raw.trim().replace(/^\$/, '')
+  if (!t) return null
+  const n = Number(t)
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+function matchesPriceRange(
+  s: StockMetrics,
+  min: number | null,
+  max: number | null,
+): boolean {
+  const p = resolveStockPrice(s)
+  if (p == null || p <= 0) return false
+  if (min != null && p < min) return false
+  if (max != null && p > max) return false
+  return true
+}
+
+const PRICE_PRESETS: { label: string; min: number | null; max: number | null }[] = [
+  { label: '< $1', min: null, max: 1 },
+  { label: '$1–10', min: 1, max: 10 },
+  { label: '$10–50', min: 10, max: 50 },
+  { label: '> $50', min: 50, max: null },
+]
+
 export function SectorTable({ snapshot, livePricesActive = false }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [sectorFilters, setSectorFilters] = useState<string[]>([])
   const [industryFilter, setIndustryFilter] = useState<string | null>(null)
   const [moodFilter, setMoodFilter] = useState<Mood | 'all'>('all')
   const [starOnly, setStarOnly] = useState(false)
+  const [priceMin, setPriceMin] = useState('')
+  const [priceMax, setPriceMax] = useState('')
   const [query, setQuery] = useState('')
   const [copiedStars, setCopiedStars] = useState(false)
   const [copiedSectorStars, setCopiedSectorStars] = useState<string | null>(null)
@@ -106,6 +134,13 @@ export function SectorTable({ snapshot, livePricesActive = false }: Props) {
 
   const indexM3 = snapshot.benchmarkPerf.m3
   const universe = snapshot.stocks
+
+  const priceMinNum = parsePriceInput(priceMin)
+  const priceMaxNum = parsePriceInput(priceMax)
+  const priceFilterActive = priceMinNum != null || priceMaxNum != null
+  const activePricePreset = PRICE_PRESETS.find(
+    (p) => p.min === priceMinNum && p.max === priceMaxNum,
+  )?.label
 
   const starCount = useMemo(
     () => snapshot.stocks.filter((s) => s.star).length,
@@ -143,6 +178,14 @@ export function SectorTable({ snapshot, livePricesActive = false }: Props) {
         .map((i) => ({ ...i, stocks: i.stocks.filter((s) => s.star) }))
         .filter((i) => i.stocks.length > 0)
     }
+    if (priceFilterActive) {
+      list = list
+        .map((i) => ({
+          ...i,
+          stocks: i.stocks.filter((s) => matchesPriceRange(s, priceMinNum, priceMaxNum)),
+        }))
+        .filter((i) => i.stocks.length > 0)
+    }
     if (query.trim()) {
       const q = query.toLowerCase().trim()
       list = list
@@ -158,9 +201,20 @@ export function SectorTable({ snapshot, livePricesActive = false }: Props) {
         .filter((i): i is IndustryMetrics => i != null)
     }
     return list
-  }, [snapshot.industries, sectorFilters, industryFilter, moodFilter, starOnly, query])
+  }, [
+    snapshot.industries,
+    sectorFilters,
+    industryFilter,
+    moodFilter,
+    starOnly,
+    priceFilterActive,
+    priceMinNum,
+    priceMaxNum,
+    query,
+  ])
 
-  const searching = query.trim().length > 0 || Boolean(industryFilter)
+  const searching =
+    query.trim().length > 0 || Boolean(industryFilter) || priceFilterActive
 
   const visibleTickers = useMemo(() => {
     const set = new Set<string>()
@@ -408,6 +462,69 @@ export function SectorTable({ snapshot, livePricesActive = false }: Props) {
             className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-2 pl-9 pr-3 text-sm outline-none focus:border-teal-500"
           />
         </div>
+
+        <div
+          className={`flex flex-wrap items-center gap-1.5 rounded-lg border px-2 py-1.5 ${
+            priceFilterActive
+              ? 'border-teal-600 bg-teal-50/80 dark:bg-teal-950/30'
+              : 'border-[var(--color-border)] bg-[var(--color-surface)]'
+          }`}
+          title="Filter stocks by last price (AUD)"
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">
+            Price
+          </span>
+          <input
+            type="number"
+            min={0}
+            step="any"
+            value={priceMin}
+            onChange={(e) => setPriceMin(e.target.value)}
+            placeholder="Min"
+            className="w-16 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-1 text-xs outline-none focus:border-teal-500"
+            aria-label="Minimum price"
+          />
+          <span className="text-[var(--color-ink-soft)]">–</span>
+          <input
+            type="number"
+            min={0}
+            step="any"
+            value={priceMax}
+            onChange={(e) => setPriceMax(e.target.value)}
+            placeholder="Max"
+            className="w-16 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-1 text-xs outline-none focus:border-teal-500"
+            aria-label="Maximum price"
+          />
+          {PRICE_PRESETS.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              onClick={() => {
+                setPriceMin(p.min != null ? String(p.min) : '')
+                setPriceMax(p.max != null ? String(p.max) : '')
+              }}
+              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                activePricePreset === p.label
+                  ? 'bg-teal-600 text-white'
+                  : 'text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+          {priceFilterActive && (
+            <button
+              type="button"
+              onClick={() => {
+                setPriceMin('')
+                setPriceMax('')
+              }}
+              className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-teal-700 dark:text-teal-300"
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
@@ -457,9 +574,20 @@ export function SectorTable({ snapshot, livePricesActive = false }: Props) {
         <table className="min-w-[1100px] w-full border-collapse text-left text-xs">
           <thead className="sticky top-0 z-10 bg-[var(--color-muted)] text-[10px] uppercase tracking-wide text-[var(--color-ink-soft)]">
             <tr>
+              <th className="whitespace-nowrap px-2 py-2.5 font-semibold">Sector / Stock</th>
+              <th
+                className={`whitespace-nowrap px-2 py-2.5 font-semibold ${
+                  priceFilterActive ? 'text-teal-700 dark:text-teal-300' : ''
+                }`}
+              >
+                {livePricesActive ? 'Price (live)' : 'Price'}
+                {priceFilterActive && (
+                  <span className="ml-1 normal-case text-[9px] font-normal text-teal-600 dark:text-teal-400">
+                    filtered
+                  </span>
+                )}
+              </th>
               {[
-                'Sector / Stock',
-                livePricesActive ? 'Price (live)' : 'Price',
                 'Weight',
                 'Mood',
                 'Cycle',
@@ -513,7 +641,11 @@ export function SectorTable({ snapshot, livePricesActive = false }: Props) {
             {!industries.length && (
               <tr>
                 <td colSpan={17} className="px-4 py-10 text-center text-sm text-[var(--color-ink-soft)]">
-                  No sectors/stocks match “{query}”
+                  {query.trim()
+                    ? `No sectors/stocks match “${query}”`
+                    : priceFilterActive
+                      ? 'No stocks in this price range'
+                      : 'No sectors/stocks match the current filters'}
                 </td>
               </tr>
             )}
