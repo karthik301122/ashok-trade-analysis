@@ -52,3 +52,11 @@ export function clearEodhdDailyLimitForTests() {
   dailyLimitHit = false
   dailyLimitAt = 0
 }
+
+/** Clear pause after a successful EODHD response (e.g. extra calls purchased). */
+export function clearEodhdDailyLimitOnSuccess() {
+  if (!dailyLimitHit) return
+  dailyLimitHit = false
+  dailyLimitAt = 0
+  console.log('[eodhd] API calls resumed after successful response')
+}

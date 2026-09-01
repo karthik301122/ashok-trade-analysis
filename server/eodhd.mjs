@@ -2,6 +2,7 @@ import { loadEnvFile } from './loadEnv.mjs'
 import {
   isEodhdDailyLimitExceeded,
   maybeMarkEodhdDailyLimit,
+  clearEodhdDailyLimitOnSuccess,
 } from './eodhdLimit.mjs'
 import { sanitizeOhlcBars } from './ohlcSanitize.mjs'
 import {
@@ -146,6 +147,7 @@ async function fetchEodhdChartInner(symbol, period1, opts, token) {
       }
       const parsed = rowsToBars(data)
       if (!parsed) return null
+      clearEodhdDailyLimitOnSuccess()
       return {
         symbol,
         closes: parsed.closes,
@@ -277,6 +279,7 @@ async function fetchEodhdIntradayInner(symbol, interval, fromTs, toTs, opts, tok
       const yearAgo = closes[closes.length - 1].t - 365 * 24 * 3600
       const lastYear = closes.filter((b) => b.t >= yearAgo)
       const high52 = Math.max(...lastYear.map((b) => b.h ?? b.c), last)
+      clearEodhdDailyLimitOnSuccess()
       return {
         symbol,
         closes,
@@ -348,6 +351,7 @@ async function fetchEodhdLiveQuotesBatch(yahooSymbols, token) {
     throw new Error(String(data.error))
   }
   const rows = Array.isArray(data) ? data : [data]
+  clearEodhdDailyLimitOnSuccess()
   return rows.filter((r) => r && typeof r === 'object' && r.code)
 }
 
