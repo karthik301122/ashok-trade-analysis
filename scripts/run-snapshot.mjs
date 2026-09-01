@@ -1,17 +1,16 @@
 /**
- * CLI: build / refresh the SQLite universe snapshot.
- * Usage: npm run snapshot
- *        npm run snapshot -- --force
- *        npm run snapshot -- --retry-failed
+ * CLI: build / refresh the universe snapshot.
  */
 import {
   runUniverseSnapshot,
   runRetryFailedSnapshot,
 } from '../server/snapshotJob.mjs'
-import { dbPath } from '../server/db.mjs'
+import { dbPath, initDb } from '../server/db.mjs'
 
 const force = process.argv.includes('--force')
 const retryFailed = process.argv.includes('--retry-failed')
+
+await initDb()
 console.log(`Database: ${dbPath()}`)
 if (retryFailed) {
   console.log('Retrying failed tickers only (slow pass, force refresh)…')

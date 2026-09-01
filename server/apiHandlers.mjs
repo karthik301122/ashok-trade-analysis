@@ -5,7 +5,7 @@ import { authEnabled, handleAuthApi, requireAuthOrSend, getUserFromRequest, auth
 import { getCachedSeries, getIntradaySeries, seriesCacheFileCount } from './getSeries.mjs'
 import { readBreadthHistory, upsertBreadthPoint, UNIVERSE_IDS } from './breadthStore.mjs'
 import { computeBreadthChartHistory, getIndexBarsForChart } from './breadthHistory.mjs'
-import { dbPath } from './db.mjs'
+import { dbPath, dbStoreLabel, initDb } from './db.mjs'
 import {
   getSnapshotJobStatus,
   isSnapshotFresh,
@@ -112,6 +112,7 @@ function seriesRateLimitOrExpress(req, res) {
  * @param {(status: number, body: unknown, headers?: Record<string, string>) => void} send
  */
 export async function handleConnectApi(req, res, send) {
+  await initDb()
   const url = new URL(req.url || '/', 'http://localhost')
   if (!url.pathname.startsWith('/api/')) return false
   const started = Date.now()
@@ -129,7 +130,7 @@ export async function handleConnectApi(req, res, send) {
         return true
       }
       const skipForce =
-        isProductionMode() && !isAdminRequest(req) && url.searchParams.get('refresh') === '1'
+        isProductionMode() && !(await isAdminRequest(req)) && url.searchParams.get('refresh') === '1'
       const result = await loadSeriesForTicker(ticker, url.searchParams, {
         skipForceRefresh: skipForce,
       })
@@ -162,12 +163,12 @@ export async function handleConnectApi(req, res, send) {
 
   if (url.pathname === '/api/snapshot/meta' && req.method === 'GET') {
     if (rateLimitOrSend(req, send, 'snapshot', snapshotRateLimitPerMinute())) return true
-    const meta = readMarketSnapshotMeta()
+    const meta = await readMarketSnapshotMeta()
     if (!meta) {
-      maybeStartBackgroundSnapshot()
+      void maybeStartBackgroundSnapshot()
       send(404, {
         error: 'No snapshot yet',
-        job: getSnapshotJobStatus(),
+        job: await getSnapshotJobStatus(),
         hint: 'POST /api/snapshot/refresh or wait for background build',
       })
       return true
@@ -184,9 +185,9 @@ export async function handleConnectApi(req, res, send) {
     if (rateLimitOrSend(req, send, 'snapshot', snapshotRateLimitPerMinute())) return true
     const offset = Number(url.searchParams.get('offset') || 0)
     const limit = Number(url.searchParams.get('limit') || 500)
-    const chunk = readMarketSnapshotStocksChunk(offset, limit)
+    const chunk = await readMarketSnapshotStocksChunk(offset, limit)
     if (!chunk) {
-      send(404, { error: 'No snapshot yet', job: getSnapshotJobStatus() })
+      send(404, { error: 'No snapshot yet', job: await getSnapshotJobStatus() })
       return true
     }
     send(200, chunk)
@@ -196,12 +197,12 @@ export async function handleConnectApi(req, res, send) {
   if (url.pathname === '/api/snapshot') {
     if (req.method === 'GET') {
       if (rateLimitOrSend(req, send, 'snapshot', snapshotRateLimitPerMinute())) return true
-      const row = readMarketSnapshotRow()
+      const row = await readMarketSnapshotRow()
       if (!row) {
-        maybeStartBackgroundSnapshot()
+        void maybeStartBackgroundSnapshot()
         send(404, {
           error: 'No snapshot yet',
-          job: getSnapshotJobStatus(),
+          job: await getSnapshotJobStatus(),
           hint: 'POST /api/snapshot/refresh or wait for background build',
         })
         return true
@@ -214,7 +215,7 @@ export async function handleConnectApi(req, res, send) {
         fresh: isSnapshotFresh(row.builtAt),
         indexPerf: row.indexPerf,
         stocks: row.stocks,
-        store: 'sqlite',
+        store: dbStoreLabel(),
         browserUniverseFetch: browserUniverseFetchEnabled(),
         productionMode: isProductionMode(),
       })
@@ -226,9 +227,9 @@ export async function handleConnectApi(req, res, send) {
 
   if (url.pathname === '/api/snapshot/refresh') {
     if (req.method === 'GET') {
-      const row = readMarketSnapshotRow()
+      const row = await readMarketSnapshotRow()
       send(200, {
-        job: getSnapshotJobStatus(),
+        job: await getSnapshotJobStatus(),
         snapshot: row
           ? {
               builtAt: row.builtAt,
@@ -240,12 +241,12 @@ export async function handleConnectApi(req, res, send) {
       })
       return true
     }
-    if (requireSessionOrAdmin(req, send)) return true
+    if (await requireSessionOrAdmin(req, send)) return true
     if (req.method === 'POST') {
-      if (requireAdminOrSend(req, send)) return true
+      if (await requireAdminOrSend(req, send)) return true
       const force = url.searchParams.get('force') === '1'
       // Kick async; return job status immediately if already running
-      const status = getSnapshotJobStatus()
+      const status = await getSnapshotJobStatus()
       if (status.status === 'running') {
         log('info', 'snapshot.refresh', { alreadyRunning: true, force })
         send(202, { ok: true, job: status })
@@ -257,7 +258,7 @@ export async function handleConnectApi(req, res, send) {
           message: err instanceof Error ? err.message : String(err),
         })
       })
-      send(202, { ok: true, started: true, job: getSnapshotJobStatus() })
+      send(202, { ok: true, started: true, job: await getSnapshotJobStatus() })
       return true
     }
     send(405, { error: 'Method not allowed' })
@@ -265,10 +266,10 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/snapshot/retry-failed') {
-    if (requireSessionOrAdmin(req, send)) return true
+    if (await requireSessionOrAdmin(req, send)) return true
     if (req.method === 'POST') {
-      if (requireAdminOrSend(req, send)) return true
-      const status = getSnapshotJobStatus()
+      if (await requireAdminOrSend(req, send)) return true
+      const status = await getSnapshotJobStatus()
       if (status.status === 'running') {
         log('info', 'snapshot.retry_failed', { alreadyRunning: true })
         send(202, { ok: true, job: status })
@@ -280,7 +281,7 @@ export async function handleConnectApi(req, res, send) {
           message: err instanceof Error ? err.message : String(err),
         })
       })
-      send(202, { ok: true, started: true, job: getSnapshotJobStatus() })
+      send(202, { ok: true, started: true, job: await getSnapshotJobStatus() })
       return true
     }
     send(405, { error: 'Method not allowed' })
@@ -288,10 +289,10 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/snapshot/rebuild-cache') {
-    if (requireSessionOrAdmin(req, send)) return true
+    if (await requireSessionOrAdmin(req, send)) return true
     if (req.method === 'POST') {
-      if (requireAdminOrSend(req, send)) return true
-      const status = getSnapshotJobStatus()
+      if (await requireAdminOrSend(req, send)) return true
+      const status = await getSnapshotJobStatus()
       if (status.status === 'running') {
         log('info', 'snapshot.rebuild_cache', { alreadyRunning: true })
         send(202, { ok: true, job: status })
@@ -303,7 +304,7 @@ export async function handleConnectApi(req, res, send) {
           message: err instanceof Error ? err.message : String(err),
         })
       })
-      send(202, { ok: true, started: true, job: getSnapshotJobStatus() })
+      send(202, { ok: true, started: true, job: await getSnapshotJobStatus() })
       return true
     }
     send(405, { error: 'Method not allowed' })
@@ -318,20 +319,20 @@ export async function handleConnectApi(req, res, send) {
         send(400, { error: 'Invalid universe' })
         return true
       }
-      const snap = readMarketSnapshotRow()
+      const snap = await readMarketSnapshotRow()
       const builtAt = snap?.builtAt ?? 0
-      const chartHistory = computeBreadthChartHistory(
+      const chartHistory = await computeBreadthChartHistory(
         universe,
         snap?.stocks ?? {},
         builtAt,
       )
-      const indexBars = getIndexBarsForChart()
+      const indexBars = await getIndexBarsForChart()
       send(200, {
         universe,
-        points: readBreadthHistory(universe),
+        points: await readBreadthHistory(universe),
         chartHistory,
         indexBars,
-        store: 'sqlite',
+        store: dbStoreLabel(),
       }, { 'Cache-Control': 'no-store' })
       return true
     }
@@ -342,8 +343,8 @@ export async function handleConnectApi(req, res, send) {
         send(400, { error: 'Invalid universe' })
         return true
       }
-      const points = upsertBreadthPoint(universe, body)
-      send(200, { universe, points, store: 'sqlite' })
+      const points = await upsertBreadthPoint(universe, body)
+      send(200, { universe, points, store: dbStoreLabel() })
       return true
     }
     send(405, { error: 'Method not allowed' })
@@ -351,16 +352,16 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/live-quotes/refresh') {
-    if (requireSessionOrAdmin(req, send)) return true
+    if (await requireSessionOrAdmin(req, send)) return true
     if (req.method === 'POST') {
-      if (requireAdminOrSend(req, send)) return true
+      if (await requireAdminOrSend(req, send)) return true
       log('info', 'live_quotes.refresh', { started: true })
       void runLiveQuoteRefresh().catch((err) => {
         log('error', 'live_quotes.refresh.error', {
           message: err instanceof Error ? err.message : String(err),
         })
       })
-      send(202, { ok: true, started: true, liveQuotes: getLiveQuotesMeta() })
+      send(202, { ok: true, started: true, liveQuotes: await getLiveQuotesMeta() })
       return true
     }
     send(405, { error: 'Method not allowed' })
@@ -368,7 +369,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/health') {
-    const snap = readMarketSnapshotRow()
+    const snap = await readMarketSnapshotRow()
     const universeTotal = getUniverseCount()
     const snapMeta = snap
       ? {
@@ -389,19 +390,19 @@ export async function handleConnectApi(req, res, send) {
       eodhdOnly: eodhdOnlyMode(),
       productionMode: isProductionMode(),
       browserUniverseFetch: browserUniverseFetchEnabled(),
-      isAdmin: isAdminRequest(req),
+      isAdmin: await isAdminRequest(req),
       rateLimits: {
         seriesPerMinute: seriesRateLimitPerMinute(),
         snapshotPerMinute: snapshotRateLimitPerMinute(),
       },
       readiness,
       authRequired: authEnabled(),
-      seriesCached: seriesCacheFileCount(),
-      store: 'sqlite',
+      seriesCached: await seriesCacheFileCount(),
+      store: dbStoreLabel(),
       database: dbPath(),
       snapshot: snapMeta,
-      job: getSnapshotJobStatus(),
-      liveQuotes: getLiveQuotesMeta(),
+      job: await getSnapshotJobStatus(),
+      liveQuotes: await getLiveQuotesMeta(),
     })
     return true
   }
@@ -409,12 +410,12 @@ export async function handleConnectApi(req, res, send) {
   if (url.pathname === '/api/alerts/rules') {
     if (requireAuthConnect(req, send)) return true
     if (req.method === 'GET') {
-      send(200, { rules: listAlertRules() })
+      send(200, { rules: await listAlertRules() })
       return true
     }
     if (req.method === 'POST') {
       const body = await readJsonBody(req)
-      const rule = createAlertRule(body)
+      const rule = await createAlertRule(body)
       send(201, { rule })
       return true
     }
@@ -430,7 +431,7 @@ export async function handleConnectApi(req, res, send) {
       return true
     }
     if (req.method === 'DELETE') {
-      deleteAlertRule(id)
+      await deleteAlertRule(id)
       send(200, { ok: true })
       return true
     }
@@ -441,7 +442,7 @@ export async function handleConnectApi(req, res, send) {
   if (url.pathname === '/api/pattern-scan/batch' && req.method === 'POST') {
     if (requireAuthConnect(req, send)) return true
     const body = await readJsonBody(req)
-    const upserted = upsertPatternScanBatch(body?.rows)
+    const upserted = await upsertPatternScanBatch(body?.rows)
     const alerts = await evaluateAlerts()
     send(200, { upserted, fired: alerts.fired?.length ?? 0, alerts })
     return true
@@ -449,7 +450,7 @@ export async function handleConnectApi(req, res, send) {
 
   if (url.pathname === '/api/alerts/events' && req.method === 'GET') {
     if (requireAuthConnect(req, send)) return true
-    send(200, { events: listAlertEvents(50) })
+    send(200, { events: await listAlertEvents(50) })
     return true
   }
 
@@ -484,12 +485,21 @@ export async function handleConnectApi(req, res, send) {
  * @param {import('express').Express} app
  */
 export function mountExpressApi(app) {
+  app.use(async (_req, _res, next) => {
+    try {
+      await initDb()
+      next()
+    } catch (err) {
+      next(err)
+    }
+  })
+
   app.get('/api/ping', (_req, res) => {
     res.status(200).json({ ok: true })
   })
 
-  app.get('/api/health', (req, res) => {
-    const snap = readMarketSnapshotRow()
+  app.get('/api/health', async (req, res) => {
+    const snap = await readMarketSnapshotRow()
     const universeTotal = getUniverseCount()
     const snapMeta = snap
       ? {
@@ -507,19 +517,19 @@ export function mountExpressApi(app) {
       eodhdOnly: eodhdOnlyMode(),
       productionMode: isProductionMode(),
       browserUniverseFetch: browserUniverseFetchEnabled(),
-      isAdmin: isAdminRequest(req),
+      isAdmin: await isAdminRequest(req),
       rateLimits: {
         seriesPerMinute: seriesRateLimitPerMinute(),
         snapshotPerMinute: snapshotRateLimitPerMinute(),
       },
       readiness,
       authRequired: authEnabled(),
-      seriesCached: seriesCacheFileCount(),
-      store: 'sqlite',
+      seriesCached: await seriesCacheFileCount(),
+      store: dbStoreLabel(),
       database: dbPath(),
       snapshot: snapMeta,
-      job: getSnapshotJobStatus(),
-      liveQuotes: getLiveQuotesMeta(),
+      job: await getSnapshotJobStatus(),
+      liveQuotes: await getLiveQuotesMeta(),
     })
   })
 
@@ -570,7 +580,7 @@ export function mountExpressApi(app) {
         return res.status(400).json({ error: 'Invalid ticker' })
       }
       const skipForce =
-        isProductionMode() && !isAdminRequest(req) && req.query.refresh === '1'
+        isProductionMode() && !(await isAdminRequest(req)) && req.query.refresh === '1'
       const result = await loadSeriesForTicker(ticker, req.query, { skipForceRefresh: skipForce })
       if (result.status === 404) {
         log('info', 'series.miss', { ticker, ms: Date.now() - started })
@@ -595,7 +605,7 @@ export function mountExpressApi(app) {
     }
   })
 
-  app.get('/api/snapshot/meta', (req, res) => {
+  app.get('/api/snapshot/meta', async (req, res) => {
     if (
       rateLimitOrSend(
         req,
@@ -606,12 +616,12 @@ export function mountExpressApi(app) {
     ) {
       return
     }
-    const meta = readMarketSnapshotMeta()
+    const meta = await readMarketSnapshotMeta()
     if (!meta) {
-      maybeStartBackgroundSnapshot()
+      void maybeStartBackgroundSnapshot()
       return res.status(404).json({
         error: 'No snapshot yet',
-        job: getSnapshotJobStatus(),
+        job: await getSnapshotJobStatus(),
         hint: 'POST /api/snapshot/refresh or wait for background build',
       })
     }
@@ -622,7 +632,7 @@ export function mountExpressApi(app) {
     })
   })
 
-  app.get('/api/snapshot/stocks', (req, res) => {
+  app.get('/api/snapshot/stocks', async (req, res) => {
     if (
       rateLimitOrSend(
         req,
@@ -635,14 +645,14 @@ export function mountExpressApi(app) {
     }
     const offset = Number(req.query.offset || 0)
     const limit = Number(req.query.limit || 500)
-    const chunk = readMarketSnapshotStocksChunk(offset, limit)
+    const chunk = await readMarketSnapshotStocksChunk(offset, limit)
     if (!chunk) {
-      return res.status(404).json({ error: 'No snapshot yet', job: getSnapshotJobStatus() })
+      return res.status(404).json({ error: 'No snapshot yet', job: await getSnapshotJobStatus() })
     }
     return res.json(chunk)
   })
 
-  app.get('/api/snapshot', (req, res) => {
+  app.get('/api/snapshot', async (req, res) => {
     if (
       rateLimitOrSend(
         req,
@@ -653,12 +663,12 @@ export function mountExpressApi(app) {
     ) {
       return
     }
-    const row = readMarketSnapshotRow()
+    const row = await readMarketSnapshotRow()
     if (!row) {
-      maybeStartBackgroundSnapshot()
+      void maybeStartBackgroundSnapshot()
       return res.status(404).json({
         error: 'No snapshot yet',
-        job: getSnapshotJobStatus(),
+        job: await getSnapshotJobStatus(),
         hint: 'POST /api/snapshot/refresh or run npm run snapshot',
       })
     }
@@ -670,16 +680,16 @@ export function mountExpressApi(app) {
       fresh: isSnapshotFresh(row.builtAt),
       indexPerf: row.indexPerf,
       stocks: row.stocks,
-      store: 'sqlite',
+      store: dbStoreLabel(),
       browserUniverseFetch: browserUniverseFetchEnabled(),
       productionMode: isProductionMode(),
     })
   })
 
-  app.get('/api/snapshot/refresh', (req, res) => {
-    const row = readMarketSnapshotRow()
+  app.get('/api/snapshot/refresh', async (req, res) => {
+    const row = await readMarketSnapshotRow()
     return res.json({
-      job: getSnapshotJobStatus(),
+      job: await getSnapshotJobStatus(),
       snapshot: row
         ? {
             builtAt: row.builtAt,
@@ -691,16 +701,16 @@ export function mountExpressApi(app) {
     })
   })
 
-  app.post('/api/snapshot/refresh', (req, res) => {
-    if (requireSessionOrAdmin(req, (status, body) => res.status(status).json(body))) return
-    if (isProductionMode() && !isAdminRequest(req)) {
+  app.post('/api/snapshot/refresh', async (req, res) => {
+    if (await requireSessionOrAdmin(req, (status, body) => res.status(status).json(body))) return
+    if (isProductionMode() && !(await isAdminRequest(req))) {
       return res.status(403).json({
         error: 'Admin only in production mode',
         hint: 'Set ADMIN_USERS or call with x-admin-key header',
       })
     }
     const force = req.query.force === '1'
-    const status = getSnapshotJobStatus()
+    const status = await getSnapshotJobStatus()
     if (status.status === 'running') {
       log('info', 'snapshot.refresh', { alreadyRunning: true, force })
       return res.status(202).json({ ok: true, job: status })
@@ -711,18 +721,18 @@ export function mountExpressApi(app) {
         message: err instanceof Error ? err.message : String(err),
       })
     })
-    return res.status(202).json({ ok: true, started: true, job: getSnapshotJobStatus() })
+    return res.status(202).json({ ok: true, started: true, job: await getSnapshotJobStatus() })
   })
 
-  app.post('/api/snapshot/retry-failed', (req, res) => {
-    if (requireSessionOrAdmin(req, (status, body) => res.status(status).json(body))) return
-    if (isProductionMode() && !isAdminRequest(req)) {
+  app.post('/api/snapshot/retry-failed', async (req, res) => {
+    if (await requireSessionOrAdmin(req, (status, body) => res.status(status).json(body))) return
+    if (isProductionMode() && !(await isAdminRequest(req))) {
       return res.status(403).json({
         error: 'Admin only in production mode',
         hint: 'Set ADMIN_USERS or call with x-admin-key header',
       })
     }
-    const status = getSnapshotJobStatus()
+    const status = await getSnapshotJobStatus()
     if (status.status === 'running') {
       log('info', 'snapshot.retry_failed', { alreadyRunning: true })
       return res.status(202).json({ ok: true, job: status })
@@ -733,18 +743,18 @@ export function mountExpressApi(app) {
         message: err instanceof Error ? err.message : String(err),
       })
     })
-    return res.status(202).json({ ok: true, started: true, job: getSnapshotJobStatus() })
+    return res.status(202).json({ ok: true, started: true, job: await getSnapshotJobStatus() })
   })
 
-  app.post('/api/snapshot/rebuild-cache', (req, res) => {
-    if (requireSessionOrAdmin(req, (status, body) => res.status(status).json(body))) return
-    if (isProductionMode() && !isAdminRequest(req)) {
+  app.post('/api/snapshot/rebuild-cache', async (req, res) => {
+    if (await requireSessionOrAdmin(req, (status, body) => res.status(status).json(body))) return
+    if (isProductionMode() && !(await isAdminRequest(req))) {
       return res.status(403).json({
         error: 'Admin only in production mode',
         hint: 'Set ADMIN_USERS or call with x-admin-key header',
       })
     }
-    const status = getSnapshotJobStatus()
+    const status = await getSnapshotJobStatus()
     if (status.status === 'running') {
       log('info', 'snapshot.rebuild_cache', { alreadyRunning: true })
       return res.status(202).json({ ok: true, job: status })
@@ -755,12 +765,12 @@ export function mountExpressApi(app) {
         message: err instanceof Error ? err.message : String(err),
       })
     })
-    return res.status(202).json({ ok: true, started: true, job: getSnapshotJobStatus() })
+    return res.status(202).json({ ok: true, started: true, job: await getSnapshotJobStatus() })
   })
 
-  app.post('/api/live-quotes/refresh', (req, res) => {
-    if (requireSessionOrAdmin(req, (status, body) => res.status(status).json(body))) return
-    if (isProductionMode() && !isAdminRequest(req)) {
+  app.post('/api/live-quotes/refresh', async (req, res) => {
+    if (await requireSessionOrAdmin(req, (status, body) => res.status(status).json(body))) return
+    if (isProductionMode() && !(await isAdminRequest(req))) {
       return res.status(403).json({
         error: 'Admin only in production mode',
         hint: 'Set ADMIN_USERS or call with x-admin-key header',
@@ -772,10 +782,10 @@ export function mountExpressApi(app) {
         message: err instanceof Error ? err.message : String(err),
       })
     })
-    return res.status(202).json({ ok: true, started: true, liveQuotes: getLiveQuotesMeta() })
+    return res.status(202).json({ ok: true, started: true, liveQuotes: await getLiveQuotesMeta() })
   })
 
-  app.get('/api/breadth/daily', (req, res) => {
+  app.get('/api/breadth/daily', async (req, res) => {
     if (authEnabled() && !getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
@@ -783,22 +793,22 @@ export function mountExpressApi(app) {
     if (!UNIVERSE_IDS.has(universe)) {
       return res.status(400).json({ error: 'Invalid universe' })
     }
-    const points = readBreadthHistory(universe)
+    const points = await readBreadthHistory(universe)
     let chartHistory = []
     let indexBars = []
     try {
-      const snap = readMarketSnapshotRow()
+      const snap = await readMarketSnapshotRow()
       const builtAt = snap?.builtAt ?? 0
-      chartHistory = computeBreadthChartHistory(universe, snap?.stocks ?? {}, builtAt)
-      indexBars = getIndexBarsForChart()
+      chartHistory = await computeBreadthChartHistory(universe, snap?.stocks ?? {}, builtAt)
+      indexBars = await getIndexBarsForChart()
     } catch {
       /* optional */
     }
     res.setHeader('Cache-Control', 'no-store')
-    return res.json({ universe, points, chartHistory, indexBars, store: 'sqlite' })
+    return res.json({ universe, points, chartHistory, indexBars, store: dbStoreLabel() })
   })
 
-  app.post('/api/breadth/daily', (req, res) => {
+  app.post('/api/breadth/daily', async (req, res) => {
     if (authEnabled() && !getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
@@ -807,33 +817,33 @@ export function mountExpressApi(app) {
       if (!UNIVERSE_IDS.has(universe)) {
         return res.status(400).json({ error: 'Invalid universe' })
       }
-      const points = upsertBreadthPoint(universe, req.body || {})
-      return res.json({ universe, points, store: 'sqlite' })
+      const points = await upsertBreadthPoint(universe, req.body || {})
+      return res.json({ universe, points, store: dbStoreLabel() })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return res.status(400).json({ error: message })
     }
   })
 
-  app.get('/api/alerts/rules', (req, res) => {
+  app.get('/api/alerts/rules', async (req, res) => {
     if (authEnabled() && !getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
-    return res.json({ rules: listAlertRules() })
+    return res.json({ rules: await listAlertRules() })
   })
 
-  app.post('/api/alerts/rules', (req, res) => {
+  app.post('/api/alerts/rules', async (req, res) => {
     if (authEnabled() && !getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
-    return res.status(201).json({ rule: createAlertRule(req.body || {}) })
+    return res.status(201).json({ rule: await createAlertRule(req.body || {}) })
   })
 
-  app.delete('/api/alerts/rules/:id', (req, res) => {
+  app.delete('/api/alerts/rules/:id', async (req, res) => {
     if (authEnabled() && !getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
-    deleteAlertRule(Number(req.params.id))
+    await deleteAlertRule(Number(req.params.id))
     return res.json({ ok: true })
   })
 
@@ -841,16 +851,16 @@ export function mountExpressApi(app) {
     if (authEnabled() && !getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
-    const upserted = upsertPatternScanBatch(req.body?.rows)
+    const upserted = await upsertPatternScanBatch(req.body?.rows)
     const alerts = await evaluateAlerts()
     return res.json({ upserted, fired: alerts.fired?.length ?? 0, alerts })
   })
 
-  app.get('/api/alerts/events', (req, res) => {
+  app.get('/api/alerts/events', async (req, res) => {
     if (authEnabled() && !getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
-    return res.json({ events: listAlertEvents(50) })
+    return res.json({ events: await listAlertEvents(50) })
   })
 
   app.post('/api/alerts/evaluate', async (req, res) => {

@@ -9,7 +9,7 @@ import { mountExpressApi } from './apiHandlers.mjs'
 import { loadEnvFile } from './loadEnv.mjs'
 import { maybeStartBackgroundSnapshot } from './snapshotJob.mjs'
 import { maybeStartLiveQuoteScheduler } from './liveQuoteJob.mjs'
-import { dbPath } from './db.mjs'
+import { dbPath, dbStoreLabel, initDb } from './db.mjs'
 
 loadEnvFile()
 
@@ -36,9 +36,11 @@ app.get(/.*/, (_req, res) => {
   res.sendFile(path.join(dist, 'index.html'))
 })
 
+await initDb()
+
 app.listen(port, '0.0.0.0', () => {
   console.log(`ASX Sector Intelligence running on http://localhost:${port}`)
-  console.log(`SQLite: ${dbPath()}`)
+  console.log(`Database: ${dbPath()} (${dbStoreLabel()})`)
   console.log(authEnabled() ? 'Auth: enabled (login required)' : 'Auth: disabled (set AUTH_SECRET)')
   // Defer heavy background work so Azure sees the port open quickly after deploy.
   setTimeout(() => {

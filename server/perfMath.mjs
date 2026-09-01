@@ -121,7 +121,7 @@ export async function mapPool(items, concurrency, fn, onProgress, delayMs = 20) 
       const i = next++
       results[i] = await fn(items[i], i)
       done++
-      onProgress?.(done, items.length)
+      if (onProgress) await onProgress(done, items.length)
       if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs))
     }
   }

@@ -1,5 +1,5 @@
 import { fetchChartCloses, fetchIntradayCloses, isIntradayInterval } from './fetchSeries.mjs'
-import { seriesSymbolCount } from './db.mjs'
+import { seriesSymbolCount, dbStoreLabel } from './db.mjs'
 import {
   readSeriesCache,
   writeSeriesCache,
@@ -21,7 +21,7 @@ export function resolveYahooSymbol(ticker) {
 }
 
 /**
- * Fetch series with SQLite cache + incremental provider refresh (EODHD / Yahoo).
+ * Fetch series with DB cache + incremental provider refresh (EODHD / Yahoo).
  * @param {string} ticker
  * @param {string} from ISO date
  * @param {{ forceRefresh?: boolean, staleOk?: boolean }} [opts]
@@ -31,8 +31,9 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
   const forceRefresh = Boolean(opts.forceRefresh)
   const staleOk = Boolean(opts.staleOk)
   const fromTs = Math.floor(new Date(`${from}T00:00:00Z`).getTime() / 1000)
+  const store = dbStoreLabel()
 
-  const cached = forceRefresh ? null : readSeriesCache(yahooSymbol)
+  const cached = forceRefresh ? null : await readSeriesCache(yahooSymbol)
 
   if (cached && (staleOk || isSeriesFresh(cached.updatedAt))) {
     const closes = cached.closes.filter((b) => b.t >= fromTs)
@@ -45,7 +46,7 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
         meta: {
           ...(cached.meta || {}),
           cache: staleOk && !isSeriesFresh(cached.updatedAt) ? 'stale-ok' : 'hit',
-          store: 'sqlite',
+          store,
         },
       }
     }
@@ -70,7 +71,7 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
         closes,
         last: closes[closes.length - 1].c,
         high52: recomputeHigh52(closes),
-        meta: { ...(cached.meta || {}), cache: 'stale-fallback', store: 'sqlite' },
+        meta: { ...(cached.meta || {}), cache: 'stale-fallback', store },
       }
     }
     return null
@@ -86,7 +87,7 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
     high52: recomputeHigh52(merged),
     meta: fresh.meta || {},
   }
-  writeSeriesCache(payload)
+  await writeSeriesCache(payload)
 
   const closes = merged.filter((b) => b.t >= fromTs)
   return {
@@ -94,20 +95,16 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
     closes,
     last: closes.length ? closes[closes.length - 1].c : payload.last,
     high52: recomputeHigh52(closes.length ? closes : merged),
-    meta: { ...payload.meta, cache: cached ? 'refresh' : 'miss', store: 'sqlite' },
+    meta: { ...payload.meta, cache: cached ? 'refresh' : 'miss', store },
   }
 }
 
-export function seriesCacheFileCount() {
+export async function seriesCacheFileCount() {
   return seriesSymbolCount()
 }
 
 /**
- * Live intraday series for desk charts (not persisted in SQLite).
- * @param {string} ticker
- * @param {string} interval
- * @param {number} fromTs
- * @param {number} toTs
+ * Live intraday series for desk charts (not persisted in DB).
  */
 export async function getIntradaySeries(ticker, interval, fromTs, toTs) {
   if (!isIntradayInterval(interval)) return null

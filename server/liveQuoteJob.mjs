@@ -27,7 +27,7 @@ export async function runLiveQuoteRefresh() {
     const yahooSymbols = tickers.map((t) => resolveYahooSymbol(t))
     const started = Date.now()
     const quotes = await fetchEodhdLiveQuotes(yahooSymbols)
-    const updated = upsertLiveQuotesFromEodhd(quotes)
+    const updated = await upsertLiveQuotesFromEodhd(quotes)
     const ms = Date.now() - started
     console.log(`[live] quotes updated=${updated} fetched=${quotes.length} in ${Math.round(ms / 1000)}s`)
     return { updated, fetched: quotes.length, ms }

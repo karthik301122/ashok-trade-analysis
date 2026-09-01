@@ -1,4 +1,4 @@
-import { getDb } from './db.mjs'
+import { sqlAll, sqlOne, withTransaction } from './db.mjs'
 
 export const SERIES_FRESH_MS = 18 * 60 * 60 * 1000
 
@@ -33,15 +33,14 @@ export function mergeBars(a, b) {
 
 /**
  * @param {string} symbol
- * @returns {{ symbol: string, updatedAt: number, closes: object[], last: number, high52: number, meta?: object } | null}
  */
-export function readSeriesCache(symbol) {
-  const db = getDb()
-  const meta = db.prepare('SELECT * FROM series_meta WHERE symbol = ?').get(symbol)
+export async function readSeriesCache(symbol) {
+  const meta = await sqlOne('SELECT * FROM series_meta WHERE symbol = ?', [symbol])
   if (!meta) return null
-  const rows = db
-    .prepare('SELECT t, o, h, l, c, v FROM bars WHERE symbol = ? ORDER BY t ASC')
-    .all(symbol)
+  const rows = await sqlAll(
+    'SELECT t, o, h, l, c, v FROM bars WHERE symbol = ? ORDER BY t ASC',
+    [symbol],
+  )
   if (!rows.length) return null
   let metaObj = {}
   try {
@@ -69,43 +68,26 @@ export function readSeriesCache(symbol) {
 /**
  * @param {{ symbol: string, updatedAt: number, closes: object[], last: number, high52: number, meta?: object }} data
  */
-export function writeSeriesCache(data) {
-  const db = getDb()
-  const upsertMeta = db.prepare(`
-    INSERT INTO series_meta (symbol, updated_at, last, high52, meta_json)
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(symbol) DO UPDATE SET
-      updated_at = excluded.updated_at,
-      last = excluded.last,
-      high52 = excluded.high52,
-      meta_json = excluded.meta_json
-  `)
-  const upsertBar = db.prepare(`
-    INSERT INTO bars (symbol, t, o, h, l, c, v)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(symbol, t) DO UPDATE SET
-      o = excluded.o, h = excluded.h, l = excluded.l, c = excluded.c, v = excluded.v
-  `)
-
-  db.exec('BEGIN')
-  try {
-    upsertMeta.run(
-      data.symbol,
-      data.updatedAt,
-      data.last,
-      data.high52,
-      JSON.stringify(data.meta || {}),
+export async function writeSeriesCache(data) {
+  await withTransaction(async (tx) => {
+    await tx.sqlRun(
+      `INSERT INTO series_meta (symbol, updated_at, last, high52, meta_json)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(symbol) DO UPDATE SET
+         updated_at = excluded.updated_at,
+         last = excluded.last,
+         high52 = excluded.high52,
+         meta_json = excluded.meta_json`,
+      [data.symbol, data.updatedAt, data.last, data.high52, JSON.stringify(data.meta || {})],
     )
     for (const b of data.closes) {
-      upsertBar.run(data.symbol, b.t, b.o, b.h, b.l, b.c, b.v ?? 0)
+      await tx.sqlRun(
+        `INSERT INTO bars (symbol, t, o, h, l, c, v)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(symbol, t) DO UPDATE SET
+           o = excluded.o, h = excluded.h, l = excluded.l, c = excluded.c, v = excluded.v`,
+        [data.symbol, b.t, b.o, b.h, b.l, b.c, b.v ?? 0],
+      )
     }
-    db.exec('COMMIT')
-  } catch (err) {
-    try {
-      db.exec('ROLLBACK')
-    } catch {
-      // ignore
-    }
-    throw err
-  }
+  })
 }

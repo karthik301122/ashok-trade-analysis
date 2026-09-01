@@ -1,4 +1,4 @@
-import { getDb } from './db.mjs'
+import { sqlAll, sqlOne, sqlRun } from './db.mjs'
 import { eodhdCodeToAppTicker } from './eodhd.mjs'
 
 export const LIVE_QUOTE_FRESH_MS = 25 * 60 * 1000
@@ -24,10 +24,8 @@ export function isAsxMarketSession(now = Date.now()) {
   return mins >= 10 * 60 && mins <= 16 * 60 + 30
 }
 
-export function getLiveQuotesMeta(now = Date.now()) {
-  const row = getDb()
-    .prepare('SELECT COUNT(*) AS n, MAX(updated_at) AS updated_at FROM live_quotes')
-    .get()
+export async function getLiveQuotesMeta(now = Date.now()) {
+  const row = await sqlOne('SELECT COUNT(*) AS n, MAX(updated_at) AS updated_at FROM live_quotes')
   const count = Number(row?.n) || 0
   const updatedAt = Number(row?.updated_at) || 0
   const fresh = count > 0 && updatedAt > 0 && now - updatedAt < LIVE_QUOTE_FRESH_MS
@@ -40,13 +38,11 @@ export function getLiveQuotesMeta(now = Date.now()) {
   }
 }
 
-/** @returns {Map<string, { close: number, change_p: number, volume: number, updated_at: number }>} */
-export function readLiveQuotesMap(now = Date.now()) {
-  const meta = getLiveQuotesMeta(now)
+/** @returns {Promise<Map<string, { close: number, change_p: number, volume: number, updated_at: number }>>} */
+export async function readLiveQuotesMap(now = Date.now()) {
+  const meta = await getLiveQuotesMeta(now)
   if (!meta.fresh) return new Map()
-  const rows = getDb()
-    .prepare('SELECT ticker, close, change_p, volume, updated_at FROM live_quotes')
-    .all()
+  const rows = await sqlAll('SELECT ticker, close, change_p, volume, updated_at FROM live_quotes')
   const map = new Map()
   for (const row of rows) {
     const close = Number(row.close)
@@ -64,18 +60,7 @@ export function readLiveQuotesMap(now = Date.now()) {
 /**
  * @param {Array<{ code: string, close: number, change_p?: number, volume?: number, timestamp?: number }>} quotes
  */
-export function upsertLiveQuotesFromEodhd(quotes) {
-  const db = getDb()
-  const stmt = db.prepare(
-    `INSERT INTO live_quotes (ticker, close, change_p, volume, quote_ts, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(ticker) DO UPDATE SET
-       close = excluded.close,
-       change_p = excluded.change_p,
-       volume = excluded.volume,
-       quote_ts = excluded.quote_ts,
-       updated_at = excluded.updated_at`,
-  )
+export async function upsertLiveQuotesFromEodhd(quotes) {
   const now = Date.now()
   let n = 0
   for (const q of quotes) {
@@ -83,13 +68,23 @@ export function upsertLiveQuotesFromEodhd(quotes) {
     const close = Number(q.close)
     if (!ticker || !Number.isFinite(close) || close <= 0) continue
     const quoteTs = Number(q.timestamp) || 0
-    stmt.run(
-      ticker,
-      close,
-      Number.isFinite(Number(q.change_p)) ? Number(q.change_p) : null,
-      Number.isFinite(Number(q.volume)) ? Math.round(Number(q.volume)) : null,
-      quoteTs > 0 ? quoteTs : null,
-      now,
+    await sqlRun(
+      `INSERT INTO live_quotes (ticker, close, change_p, volume, quote_ts, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(ticker) DO UPDATE SET
+         close = excluded.close,
+         change_p = excluded.change_p,
+         volume = excluded.volume,
+         quote_ts = excluded.quote_ts,
+         updated_at = excluded.updated_at`,
+      [
+        ticker,
+        close,
+        Number.isFinite(Number(q.change_p)) ? Number(q.change_p) : null,
+        Number.isFinite(Number(q.volume)) ? Math.round(Number(q.volume)) : null,
+        quoteTs > 0 ? quoteTs : null,
+        now,
+      ],
     )
     n++
   }
@@ -115,7 +110,7 @@ export function applyLiveToCachedPerf(perf, live) {
   }
 }
 
-/** Remove session overlay fields before persisting EOD snapshot to SQLite. */
+/** Remove session overlay fields before persisting EOD snapshot. */
 export function stripLiveOverlayFromPerf(perf) {
   if (!perf || typeof perf !== 'object') return perf
   const { liveAt: _liveAt, ...rest } = perf
@@ -123,8 +118,8 @@ export function stripLiveOverlayFromPerf(perf) {
 }
 
 /** @param {Record<string, object>} stocks */
-export function applyLiveQuotesToStockMap(stocks, now = Date.now()) {
-  const liveMap = readLiveQuotesMap(now)
+export async function applyLiveQuotesToStockMap(stocks, now = Date.now()) {
+  const liveMap = await readLiveQuotesMap(now)
   if (!liveMap.size) return stocks
   for (const [ticker, perf] of Object.entries(stocks)) {
     const live = liveMap.get(ticker)

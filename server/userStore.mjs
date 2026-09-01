@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs'
-import { getDb } from './db.mjs'
+import { sqlOne, sqlRun } from './db.mjs'
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,31}$/i
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -24,21 +24,21 @@ export function validatePassword(password) {
   return null
 }
 
-export function countDbUsers() {
-  const row = getDb().prepare('SELECT COUNT(*) AS n FROM users').get()
+export async function countDbUsers() {
+  const row = await sqlOne('SELECT COUNT(*) AS n FROM users')
   return Number(row?.n) || 0
 }
 
-export function isDbAdmin(username) {
-  const row = getDb()
-    .prepare('SELECT is_admin FROM users WHERE username = ?')
-    .get(normalizeUsername(username))
+export async function isDbAdmin(username) {
+  const row = await sqlOne('SELECT is_admin FROM users WHERE username = ?', [
+    normalizeUsername(username),
+  ])
   return Boolean(row?.is_admin)
 }
 
 export async function verifyDbCredentials(username, password) {
   const u = normalizeUsername(username)
-  const row = getDb().prepare('SELECT password_hash FROM users WHERE username = ?').get(u)
+  const row = await sqlOne('SELECT password_hash FROM users WHERE username = ?', [u])
   if (!row?.password_hash) return null
   const ok = await bcrypt.compare(String(password), row.password_hash)
   return ok ? u : null
@@ -49,20 +49,21 @@ export async function verifyDbCredentials(username, password) {
  * @param {string} password
  * @param {{ isAdmin?: boolean }} [opts]
  */
-export function createDbUser(username, password, opts = {}) {
+export async function createDbUser(username, password, opts = {}) {
   const u = normalizeUsername(username)
   const userErr = validateUsername(u)
   if (userErr) return { ok: false, error: userErr }
   const passErr = validatePassword(password)
   if (passErr) return { ok: false, error: passErr }
 
-  const exists = getDb().prepare('SELECT username FROM users WHERE username = ?').get(u)
+  const exists = await sqlOne('SELECT username FROM users WHERE username = ?', [u])
   if (exists) return { ok: false, error: 'Username already taken' }
 
   const hash = bcrypt.hashSync(password, 10)
-  getDb()
-    .prepare('INSERT INTO users (username, password_hash, created_at, is_admin) VALUES (?, ?, ?, ?)')
-    .run(u, hash, Date.now(), opts.isAdmin ? 1 : 0)
+  await sqlRun(
+    'INSERT INTO users (username, password_hash, created_at, is_admin) VALUES (?, ?, ?, ?)',
+    [u, hash, Date.now(), opts.isAdmin ? 1 : 0],
+  )
 
   return { ok: true, user: u }
 }

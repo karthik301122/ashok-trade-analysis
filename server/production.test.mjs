@@ -39,16 +39,16 @@ describe('production mode', () => {
     expect(browserUniverseFetchEnabled()).toBe(false)
   })
 
-  it('checks admin users', () => {
+  it('checks admin users', async () => {
     process.env.ADMIN_USERS = 'ops,admin'
-    expect(isAdminUser('Admin')).toBe(true)
-    expect(isAdminUser('guest')).toBe(false)
+    expect(await isAdminUser('Admin')).toBe(true)
+    expect(await isAdminUser('guest')).toBe(false)
   })
 
-  it('accepts x-admin-key for cron', () => {
+  it('accepts x-admin-key for cron', async () => {
     process.env.ADMIN_API_KEY = 'cron-secret'
-    expect(isAdminRequest({ headers: { 'x-admin-key': 'cron-secret' } })).toBe(true)
-    expect(isAdminRequest({ headers: { 'x-admin-key': 'wrong' } })).toBe(false)
+    expect(await isAdminRequest({ headers: { 'x-admin-key': 'cron-secret' } })).toBe(true)
+    expect(await isAdminRequest({ headers: { 'x-admin-key': 'wrong' } })).toBe(false)
   })
 
   it('raises series rate limit in production', () => {

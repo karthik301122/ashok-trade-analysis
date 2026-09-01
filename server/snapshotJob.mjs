@@ -1,7 +1,8 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { getDb } from './db.mjs'
+import { sqlOne, sqlRun } from './db.mjs'
+import { dbStoreLabel } from './db.mjs'
 import { getCachedSeries } from './getSeries.mjs'
 import { eodhdEnabled } from './eodhd.mjs'
 import { seriesToCachedPerf, mapPool } from './perfMath.mjs'
@@ -19,11 +20,11 @@ const RETRY_COOLDOWN_MS = 30_000
 let runningJob = null
 
 /** If the DB says "running" but this process has no job, a restart interrupted the build. */
-export function recoverStaleSnapshotJob() {
+export async function recoverStaleSnapshotJob() {
   if (runningJob) return false
-  const row = getDb().prepare('SELECT * FROM snapshot_job WHERE id = 1').get()
+  const row = await sqlOne('SELECT * FROM snapshot_job WHERE id = 1')
   if (!row || row.status !== 'running') return false
-  setJob('error', {
+  await setJob('error', {
     started_at: row.started_at,
     finished_at: Date.now(),
     message: 'Interrupted (server restart) — tap Refresh to rebuild',
@@ -43,9 +44,8 @@ function loadUniverse() {
   return JSON.parse(fs.readFileSync(universePath, 'utf8'))
 }
 
-function setJob(status, fields = {}) {
-  const db = getDb()
-  db.prepare(
+async function setJob(status, fields = {}) {
+  await sqlRun(
     `INSERT INTO snapshot_job (id, status, started_at, finished_at, message, loaded, failed, total)
      VALUES (1, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
@@ -56,20 +56,21 @@ function setJob(status, fields = {}) {
        loaded = excluded.loaded,
        failed = excluded.failed,
        total = excluded.total`,
-  ).run(
-    status,
-    fields.started_at ?? null,
-    fields.finished_at ?? null,
-    fields.message ?? null,
-    fields.loaded ?? 0,
-    fields.failed ?? 0,
-    fields.total ?? 0,
+    [
+      status,
+      fields.started_at ?? null,
+      fields.finished_at ?? null,
+      fields.message ?? null,
+      fields.loaded ?? 0,
+      fields.failed ?? 0,
+      fields.total ?? 0,
+    ],
   )
 }
 
-export function getSnapshotJobStatus() {
-  recoverStaleSnapshotJob()
-  const row = getDb().prepare('SELECT * FROM snapshot_job WHERE id = 1').get()
+export async function getSnapshotJobStatus() {
+  await recoverStaleSnapshotJob()
+  const row = await sqlOne('SELECT * FROM snapshot_job WHERE id = 1')
   if (!row) return { status: 'idle' }
   return {
     status: row.status,
@@ -82,8 +83,8 @@ export function getSnapshotJobStatus() {
   }
 }
 
-export function readMarketSnapshotDbRow() {
-  const row = getDb().prepare('SELECT * FROM market_snapshot WHERE id = 1').get()
+export async function readMarketSnapshotDbRow() {
+  const row = await sqlOne('SELECT * FROM market_snapshot WHERE id = 1')
   if (!row) return null
   return {
     builtAt: Number(row.built_at),
@@ -95,12 +96,12 @@ export function readMarketSnapshotDbRow() {
   }
 }
 
-export function readMarketSnapshotRow() {
-  const row = readMarketSnapshotDbRow()
+export async function readMarketSnapshotRow() {
+  const row = await readMarketSnapshotDbRow()
   if (!row) return null
   return {
     ...row,
-    stocks: applyLiveQuotesToStockMap(row.stocks),
+    stocks: await applyLiveQuotesToStockMap(row.stocks),
   }
 }
 
@@ -121,12 +122,10 @@ export function clearStocksPerfCache() {
 }
 
 /** Fast metadata without parsing the large stocks JSON column. */
-export function readMarketSnapshotMeta() {
-  const row = getDb()
-    .prepare(
-      'SELECT built_at, as_of, loaded, failed, index_perf_json FROM market_snapshot WHERE id = 1',
-    )
-    .get()
+export async function readMarketSnapshotMeta() {
+  const row = await sqlOne(
+    'SELECT built_at, as_of, loaded, failed, index_perf_json FROM market_snapshot WHERE id = 1',
+  )
   if (!row) return null
   const builtAt = Number(row.built_at)
   return {
@@ -136,16 +135,14 @@ export function readMarketSnapshotMeta() {
     failed: Number(row.failed),
     fresh: isSnapshotFresh(builtAt),
     indexPerf: JSON.parse(row.index_perf_json),
-    store: 'sqlite',
-    liveQuotes: getLiveQuotesMeta(),
+    store: dbStoreLabel(),
+    liveQuotes: await getLiveQuotesMeta(),
   }
 }
 
 /** Paginated stock perfs for browsers that cannot download one giant /api/snapshot payload. */
-export function readMarketSnapshotStocksChunk(offset, limit) {
-  const row = getDb()
-    .prepare('SELECT built_at, stocks_perf_json FROM market_snapshot WHERE id = 1')
-    .get()
+export async function readMarketSnapshotStocksChunk(offset, limit) {
+  const row = await sqlOne('SELECT built_at, stocks_perf_json FROM market_snapshot WHERE id = 1')
   if (!row) return null
   const builtAt = Number(row.built_at)
   const map = loadStocksPerfMap(builtAt, row.stocks_perf_json)
@@ -155,7 +152,7 @@ export function readMarketSnapshotStocksChunk(offset, limit) {
   const slice = keys.slice(safeOffset, safeOffset + safeLimit)
   const stocks = {}
   for (const k of slice) stocks[k] = map[k]
-  applyLiveQuotesToStockMap(stocks)
+  await applyLiveQuotesToStockMap(stocks)
   return {
     offset: safeOffset,
     limit: safeLimit,
@@ -199,7 +196,7 @@ async function loadIndexPerf(from5y, opts = {}) {
   return seriesToCachedPerf(indexSeries, indexM3)
 }
 
-function persistSnapshot(stocks, indexPerf, loaded, failed) {
+async function persistSnapshot(stocks, indexPerf, loaded, failed) {
   const builtAt = Date.now()
   const asOf = new Date().toLocaleString('en-AU', {
     timeZone: 'Australia/Sydney',
@@ -212,26 +209,25 @@ function persistSnapshot(stocks, indexPerf, loaded, failed) {
     cleanStocks[ticker] = stripLiveOverlayFromPerf(perf)
   }
 
-  getDb()
-    .prepare(
-      `INSERT INTO market_snapshot (id, built_at, as_of, loaded, failed, index_perf_json, stocks_perf_json)
-       VALUES (1, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         built_at = excluded.built_at,
-         as_of = excluded.as_of,
-         loaded = excluded.loaded,
-         failed = excluded.failed,
-         index_perf_json = excluded.index_perf_json,
-         stocks_perf_json = excluded.stocks_perf_json`,
-    )
-    .run(
+  await sqlRun(
+    `INSERT INTO market_snapshot (id, built_at, as_of, loaded, failed, index_perf_json, stocks_perf_json)
+     VALUES (1, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       built_at = excluded.built_at,
+       as_of = excluded.as_of,
+       loaded = excluded.loaded,
+       failed = excluded.failed,
+       index_perf_json = excluded.index_perf_json,
+       stocks_perf_json = excluded.stocks_perf_json`,
+    [
       builtAt,
       asOf,
       loaded,
       failed,
       JSON.stringify(indexPerf),
       JSON.stringify(cleanStocks),
-    )
+    ],
+  )
 
   clearStocksPerfCache()
   clearBreadthChartCache()
@@ -260,7 +256,7 @@ async function retryFailedTickers(
   if (!tickers.length) return tickers
 
   console.log(`[snapshot] retry pass for ${tickers.length} tickers (cooldown ${RETRY_COOLDOWN_MS / 1000}s)…`)
-  setJob('running', {
+  await setJob('running', {
     started_at: started,
     message: `Cooldown before retry (${tickers.length} tickers)`,
     loaded: Object.keys(stocks).length,
@@ -283,10 +279,10 @@ async function retryFailedTickers(
       }
       return ticker
     },
-    (done) => {
+    async (done) => {
       const loaded = Object.keys(stocks).length
       if (done % 25 === 0 || done === tickers.length) {
-        setJob('running', {
+        await setJob('running', {
           started_at: started,
           message: `Retrying ${done}/${tickers.length}`,
           loaded,
@@ -318,7 +314,7 @@ function snapshotFetchPacing() {
  * @param {{ force?: boolean, concurrency?: number, retryFailed?: boolean, skipRetryPass?: boolean }} [opts]
  */
 export async function runUniverseSnapshot(opts = {}) {
-  recoverStaleSnapshotJob()
+  await recoverStaleSnapshotJob()
   if (runningJob) return runningJob
 
   const force = Boolean(opts.force)
@@ -327,7 +323,7 @@ export async function runUniverseSnapshot(opts = {}) {
   const pacing = snapshotFetchPacing()
   const concurrency = Number(opts.concurrency) || pacing.concurrency
   const poolDelayMs = pacing.delayMs
-  const existing = readMarketSnapshotDbRow()
+  const existing = await readMarketSnapshotDbRow()
 
   if (!force && !retryFailedOnly && existing && isSnapshotFresh(existing.builtAt)) {
     return {
@@ -346,7 +342,7 @@ export async function runUniverseSnapshot(opts = {}) {
     const from2y = from2yIso()
     const from5y = from5yIso()
 
-    setJob('running', {
+    await setJob('running', {
       started_at: started,
       finished_at: null,
       message: retryFailedOnly ? 'Retrying failed tickers' : 'Fetching market data via SQLite cache',
@@ -366,16 +362,16 @@ export async function runUniverseSnapshot(opts = {}) {
 
       const maybePersistPartial = (() => {
         let lastPersist = Object.keys(stocks).length
-        return () => {
+        return async () => {
           const loaded = Object.keys(stocks).length
           if (loaded === 0 || loaded - lastPersist < 75) return
           lastPersist = loaded
-          persistSnapshot(stocks, indexPerf, loaded, total - loaded)
+          await persistSnapshot(stocks, indexPerf, loaded, total - loaded)
         }
       })()
 
       if (indexPerf && Object.keys(stocks).length === 0 && !retryFailedOnly) {
-        persistSnapshot(stocks, indexPerf, 0, total)
+        await persistSnapshot(stocks, indexPerf, 0, total)
       }
 
       const tickersToFetch = retryFailedOnly
@@ -383,7 +379,7 @@ export async function runUniverseSnapshot(opts = {}) {
         : allTickers
 
       if (retryFailedOnly && tickersToFetch.length === 0) {
-        setJob('done', {
+        await setJob('done', {
           started_at: started,
           finished_at: Date.now(),
           message: 'nothing to retry',
@@ -413,16 +409,16 @@ export async function runUniverseSnapshot(opts = {}) {
             }
             return ticker
           },
-          (done) => {
+          async (done) => {
             if (done % 50 === 0 || done === tickersToFetch.length) {
-              setJob('running', {
+              await setJob('running', {
                 started_at: started,
                 message: `Fetching ${done}/${tickersToFetch.length}`,
                 loaded: Object.keys(stocks).length,
                 failed: total - Object.keys(stocks).length,
                 total,
               })
-              maybePersistPartial()
+              await maybePersistPartial()
             }
           },
           poolDelayMs,
@@ -452,9 +448,9 @@ export async function runUniverseSnapshot(opts = {}) {
 
       const loaded = Object.keys(stocks).length
       const failed = total - loaded
-      const { builtAt, asOf } = persistSnapshot(stocks, indexPerf, loaded, failed)
+      const { builtAt, asOf } = await persistSnapshot(stocks, indexPerf, loaded, failed)
 
-      setJob('done', {
+      await setJob('done', {
         started_at: started,
         finished_at: builtAt,
         message: stillFailed.length
@@ -471,7 +467,7 @@ export async function runUniverseSnapshot(opts = {}) {
       return { loaded, failed, builtAt, asOf, skipped: false }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      setJob('error', {
+      await setJob('error', {
         started_at: started,
         finished_at: Date.now(),
         message,
@@ -489,24 +485,24 @@ export async function runUniverseSnapshot(opts = {}) {
   return runningJob
 }
 
-/** Fast rebuild: populate snapshot from SQLite bars only (no EODHD). */
+/** Fast rebuild: populate snapshot from OHLC cache only (no EODHD). */
 export function runRebuildSnapshotFromCache() {
-  recoverStaleSnapshotJob()
   if (runningJob) return runningJob
 
   runningJob = (async () => {
+    await recoverStaleSnapshotJob()
     const universe = loadUniverse()
     const allTickers = universe.map((u) => u.ticker)
     const total = allTickers.length
     const started = Date.now()
     const from2y = from2yIso()
     const from5y = from5yIso()
-    const existing = readMarketSnapshotDbRow()
+    const existing = await readMarketSnapshotDbRow()
 
-    setJob('running', {
+    await setJob('running', {
       started_at: started,
       finished_at: null,
-      message: 'Scanning SQLite cache',
+      message: 'Scanning OHLC cache',
       loaded: 0,
       failed: 0,
       total,
@@ -524,7 +520,7 @@ export function runRebuildSnapshotFromCache() {
         }
         if (i % 200 === 0 || i === allTickers.length - 1) {
           const loaded = Object.keys(stocks).length
-          setJob('running', {
+          await setJob('running', {
             started_at: started,
             message: `Cache scan ${i + 1}/${total}`,
             loaded,
@@ -536,8 +532,8 @@ export function runRebuildSnapshotFromCache() {
 
       const loaded = Object.keys(stocks).length
       const failed = total - loaded
-      const { builtAt } = persistSnapshot(stocks, indexPerf, loaded, failed)
-      setJob('done', {
+      const { builtAt } = await persistSnapshot(stocks, indexPerf, loaded, failed)
+      await setJob('done', {
         started_at: started,
         finished_at: builtAt,
         message: failed ? `ok · ${failed} not in cache` : 'ok · from cache',
@@ -549,7 +545,7 @@ export function runRebuildSnapshotFromCache() {
       return { loaded, failed, builtAt, skipped: false }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      setJob('error', {
+      await setJob('error', {
         started_at: started,
         finished_at: Date.now(),
         message,
@@ -572,9 +568,9 @@ export function runRetryFailedSnapshot() {
 }
 
 /** Kick a background refresh if snapshot is missing/stale. */
-export function maybeStartBackgroundSnapshot() {
-  recoverStaleSnapshotJob()
-  const existing = readMarketSnapshotDbRow()
+export async function maybeStartBackgroundSnapshot() {
+  await recoverStaleSnapshotJob()
+  const existing = await readMarketSnapshotDbRow()
   if (existing && isSnapshotFresh(existing.builtAt)) return
   if (runningJob) return
   console.log('[snapshot] starting background universe build…')

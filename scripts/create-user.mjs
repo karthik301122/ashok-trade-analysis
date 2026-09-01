@@ -1,16 +1,14 @@
 /**
- * Create a SQLite login user (for mandatory auth setups).
+ * Create a login user in the database.
  *
  * Usage:
  *   node scripts/create-user.mjs <username> <password>
  *   node scripts/create-user.mjs <username> <password> --admin
- *
- * Requires AUTH_SECRET in .env (or environment).
  */
 import { loadEnvFile } from '../server/loadEnv.mjs'
 import { authEnabled } from '../server/auth.mjs'
 import { createDbUser } from '../server/userStore.mjs'
-import { dbPath } from '../server/db.mjs'
+import { dbPath, initDb } from '../server/db.mjs'
 
 loadEnvFile()
 
@@ -30,7 +28,8 @@ if (!username || !password) {
   process.exit(1)
 }
 
-const result = createDbUser(username, password, { isAdmin: admin })
+await initDb()
+const result = await createDbUser(username, password, { isAdmin: admin })
 if (!result.ok) {
   console.error(result.error)
   process.exit(1)

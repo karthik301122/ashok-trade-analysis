@@ -33,9 +33,9 @@ function adminUserSet() {
   )
 }
 
-export function isAdminUser(username) {
+export async function isAdminUser(username) {
   if (!username) return false
-  if (isDbAdmin(username)) return true
+  if (await isDbAdmin(username)) return true
   const admins = adminUserSet()
   if (!admins.size) return false
   return admins.has(String(username).trim().toLowerCase())
@@ -45,17 +45,17 @@ export function isAdminUser(username) {
  * Admin via session user list or `x-admin-key` header (cron / ops).
  * @param {import('http').IncomingMessage} req
  */
-export function isAdminRequest(req) {
+export async function isAdminRequest(req) {
   const key = process.env.ADMIN_API_KEY?.trim()
   if (key && req.headers?.['x-admin-key'] === key) return true
   const user = getUserFromRequest(req)
-  return isAdminUser(user)
+  return await isAdminUser(user)
 }
 
 /** Cron / ops: signed-in user or valid `x-admin-key` when auth is enabled. */
-export function requireSessionOrAdmin(req, send) {
+export async function requireSessionOrAdmin(req, send) {
   if (!authEnabled()) return false
-  if (getUserFromRequest(req) || isAdminRequest(req)) return false
+  if (getUserFromRequest(req) || (await isAdminRequest(req))) return false
   send(401, { error: 'Unauthorized', authRequired: true })
   return true
 }
@@ -64,9 +64,9 @@ export function requireSessionOrAdmin(req, send) {
  * @param {import('http').IncomingMessage} req
  * @param {(status: number, body: unknown) => void} send
  */
-export function requireAdminOrSend(req, send) {
+export async function requireAdminOrSend(req, send) {
   if (!isProductionMode()) return false
-  if (isAdminRequest(req)) return false
+  if (await isAdminRequest(req)) return false
   send(403, {
     error: 'Admin only in production mode',
     hint: 'Set ADMIN_USERS or call with x-admin-key header',

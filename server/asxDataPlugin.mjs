@@ -4,6 +4,7 @@
 import { handleConnectApi } from './apiHandlers.mjs'
 import { assertAuthConfigured } from './auth.mjs'
 import { loadEnvFile } from './loadEnv.mjs'
+import { initDb } from './db.mjs'
 import { maybeStartBackgroundSnapshot } from './snapshotJob.mjs'
 
 loadEnvFile()
@@ -22,7 +23,7 @@ export function asxDataPlugin() {
     name: 'asx-data-api',
     configureServer(server) {
       assertAuthConfigured()
-      maybeStartBackgroundSnapshot()
+      void initDb().then(() => maybeStartBackgroundSnapshot())
       server.middlewares.use(async (req, res, next) => {
         try {
           const send = (status, body, headers) => sendJson(res, status, body, headers)

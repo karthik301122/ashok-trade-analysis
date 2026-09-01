@@ -1,4 +1,4 @@
-import { getDb } from './db.mjs'
+import { sqlAll } from './db.mjs'
 import { UNIVERSE_IDS } from './breadthStore.mjs'
 import fs from 'fs'
 import path from 'path'
@@ -102,8 +102,7 @@ function barsUpTo(sorted, t) {
   return sorted.slice(0, lo + 1)
 }
 
-function loadBarsMap(tickers) {
-  const db = getDb()
+async function loadBarsMap(tickers) {
   const map = new Map()
   const symbolToTicker = new Map()
   for (const t of tickers) {
@@ -121,11 +120,10 @@ function loadBarsMap(tickers) {
     const chunk = symbols.slice(i, i + CHUNK)
     if (!chunk.length) continue
     const ph = chunk.map(() => '?').join(',')
-    const rows = db
-      .prepare(
-        `SELECT symbol, t, o, h, l, c, v FROM bars WHERE symbol IN (${ph}) ORDER BY symbol, t`,
-      )
-      .all(...chunk)
+    const rows = await sqlAll(
+      `SELECT symbol, t, o, h, l, c, v FROM bars WHERE symbol IN (${ph}) ORDER BY symbol, t`,
+      chunk,
+    )
     for (const r of rows) {
       const key = symbolToTicker.get(r.symbol) ?? r.symbol
       const list = map.get(key)
@@ -145,7 +143,7 @@ const chartCache = new Map()
  * @param {number} builtAt snapshot built_at ms
  * @param {number} [days]
  */
-export function computeBreadthChartHistory(universeId, stocks, builtAt, days = DEFAULT_DAYS) {
+export async function computeBreadthChartHistory(universeId, stocks, builtAt, days = DEFAULT_DAYS) {
   if (!UNIVERSE_IDS.has(universeId)) return []
   const cached = chartCache.get(universeId)
   if (cached && cached.builtAt === builtAt && cached.points.length) {
@@ -155,7 +153,7 @@ export function computeBreadthChartHistory(universeId, stocks, builtAt, days = D
   const tickers = universeTickers(universeId)
   if (!tickers.length) return []
 
-  const barsMap = loadBarsMap(tickers)
+  const barsMap = await loadBarsMap(tickers)
   const indexBars = barsMap.get(INDEX_SYMBOL) ?? []
   const refBars = indexBars.length >= 25 ? indexBars : barsMap.get(tickers[0]) ?? []
   if (refBars.length < 25) return []
@@ -257,8 +255,8 @@ export function clearBreadthChartCache() {
  * ASX 200 index OHLC for the diffusion chart upper pane (from SQLite bars).
  * @param {number} [days]
  */
-export function getIndexBarsForChart(days = DEFAULT_DAYS) {
-  const barsMap = loadBarsMap([INDEX_SYMBOL])
+export async function getIndexBarsForChart(days = DEFAULT_DAYS) {
+  const barsMap = await loadBarsMap([INDEX_SYMBOL])
   const indexBars = barsMap.get(INDEX_SYMBOL) ?? []
   return indexBars.slice(-days).map((b) => ({
     t: b.t,

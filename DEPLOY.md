@@ -79,8 +79,54 @@ See `.env.example`.
 | `SERIES_RATE_LIMIT` | `/api/series` per IP per minute (default `600` in production) |
 | `SNAPSHOT_RATE_LIMIT` | `/api/snapshot` GET per IP per minute (default `60` in production) |
 | `AUTH_SECRET` + `AUTH_USERS` | **Required** when `PRODUCTION_MODE=true` — login is mandatory |
-| `DATABASE_PATH` | SQLite file path (default `./data/asx.sqlite`) |
+| `DATABASE_URL` | **Production (Azure):** PostgreSQL connection string — when set, the app uses Postgres instead of SQLite |
+| `DATABASE_PATH` | Local dev SQLite file (default `./data/asx.sqlite`) — ignored when `DATABASE_URL` is set |
+| `PGSSLMODE` | Set to `disable` only for local Postgres without SSL |
 | `PORT` | Prod listen port (default `4173`) |
+
+### Azure PostgreSQL (production)
+
+Production on **tradersscope-app** should use **Azure Database for PostgreSQL — Flexible Server** instead of SQLite.
+
+**1. Create the database (Portal)**
+
+1. **Create a resource** → **Azure Database for PostgreSQL flexible server**
+2. Region: **Australia East**, tier: **Burstable B1ms** (or higher for heavy snapshot rebuilds)
+3. Admin user + password, database name: `tradersscope`
+4. Networking: allow Azure services; add your App Service outbound IPs if using public access
+5. Copy the connection string (Node.js format), e.g.  
+   `postgresql://user:password@hostname.postgres.database.azure.com:5432/tradersscope?sslmode=require`
+
+**2. Configure App Service**
+
+Azure Portal → **tradersscope-app** → **Configuration** → Application settings:
+
+| Name | Value |
+|------|--------|
+| `DATABASE_URL` | Full PostgreSQL connection string |
+| (remove or ignore) | `DATABASE_PATH` — not used when `DATABASE_URL` is set |
+
+Save and restart the app. On startup the server creates tables automatically (`server/db/schema.postgres.sql`).
+
+**3. Migrate existing SQLite data (one-time)**
+
+From a machine that can reach both the old SQLite file and Azure Postgres:
+
+```powershell
+$env:DATABASE_URL = "postgresql://..."
+$env:SQLITE_PATH = "C:\path\to\asx.sqlite"   # or /mounts/appdata/asx.sqlite from Kudu
+node scripts/migrate-sqlite-to-postgres.mjs
+```
+
+Then trigger **Rebuild cache** in the UI (or `POST /api/snapshot/rebuild-cache`) to refresh the desk snapshot.
+
+**4. Verify**
+
+```bash
+curl -s https://tradersscope.com/api/health | jq '.store, .database, .readiness'
+```
+
+`store` should be `"postgres"`.
 
 ### Multi-user production (200 users)
 

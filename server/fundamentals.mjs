@@ -1,5 +1,5 @@
 import YahooFinance from 'yahoo-finance2'
-import { getDb } from './db.mjs'
+import { sqlOne, sqlRun } from './db.mjs'
 import { eodhdOnlyMode } from './eodhd.mjs'
 
 const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] })
@@ -11,8 +11,7 @@ const FRESH_MS = 24 * 60 * 60 * 1000
 export async function getFundamentals(ticker, opts = {}) {
   const t = String(ticker).toUpperCase().replace(/\.AX$/i, '')
   const force = Boolean(opts.forceRefresh)
-  const db = getDb()
-  const cached = db.prepare('SELECT * FROM fundamentals WHERE ticker = ?').get(t)
+  const cached = await sqlOne('SELECT * FROM fundamentals WHERE ticker = ?', [t])
   if (!force && cached && Date.now() - Number(cached.updated_at) < FRESH_MS) {
     return {
       ticker: t,
@@ -56,7 +55,7 @@ export async function getFundamentals(ticker, opts = {}) {
     const eps = num(ks.trailingEps)
     const updatedAt = Date.now()
 
-    db.prepare(
+    await sqlRun(
       `INSERT INTO fundamentals (ticker, updated_at, pe, forward_pe, dividend_yield, market_cap, eps, raw_json)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(ticker) DO UPDATE SET
@@ -67,15 +66,16 @@ export async function getFundamentals(ticker, opts = {}) {
          market_cap = excluded.market_cap,
          eps = excluded.eps,
          raw_json = excluded.raw_json`,
-    ).run(
-      t,
-      updatedAt,
-      pe,
-      forwardPe,
-      dividendYield,
-      marketCap,
-      eps,
-      JSON.stringify({ pe, forwardPe, dividendYield, marketCap, eps }),
+      [
+        t,
+        updatedAt,
+        pe,
+        forwardPe,
+        dividendYield,
+        marketCap,
+        eps,
+        JSON.stringify({ pe, forwardPe, dividendYield, marketCap, eps }),
+      ],
     )
 
     return {
