@@ -3,6 +3,11 @@ import { Copy, Search, Sparkles, Star } from 'lucide-react'
 import type { MarketSnapshot } from '../data/types'
 import { formatPct, formatPrice, perfCellClass, resolveStockPrice } from '../lib/format'
 import {
+  matchesPriceValue,
+  parsePriceInput,
+  PRICE_PRESETS,
+} from '../lib/priceFilter'
+import {
   SPECIAL_PATTERN_CATALOG,
   SPECIAL_PATTERN_CATEGORIES,
   type SpecialPatternDef,
@@ -60,6 +65,8 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
   const [query, setQuery] = useState('')
   const [sectorFilters, setSectorFilters] = useState<string[]>([])
   const [industryFilter, setIndustryFilter] = useState<string | null>(null)
+  const [priceMin, setPriceMin] = useState('')
+  const [priceMax, setPriceMax] = useState('')
   const [copied, setCopied] = useState(false)
   const [chartStock, setChartStock] = useState<{
     ticker: string
@@ -96,7 +103,18 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
     return stock ? resolveStockPrice(stock) : null
   }
 
+  const priceMinNum = parsePriceInput(priceMin)
+  const priceMaxNum = parsePriceInput(priceMax)
+  const priceFilterActive = priceMinNum != null || priceMaxNum != null
+  const activePricePreset = PRICE_PRESETS.find(
+    (p) => p.min === priceMinNum && p.max === priceMaxNum,
+  )?.label
+
+  const matchesHitPrice = (ticker: string) =>
+    !priceFilterActive || matchesPriceValue(priceForTicker(ticker), priceMinNum, priceMaxNum)
+
   const hasSectorFilter = Boolean(sectorFilters.length || industryFilter)
+  const hasFilters = hasSectorFilter || priceFilterActive
 
   const {
     scanning: specialScanning,
@@ -134,8 +152,12 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
 
   const weeklyHits = useMemo(
     () =>
-      weeklyHitsAll.filter((h) => matchSectorIndustry(h.sector, h.industry, sectorFilters, industryFilter)),
-    [weeklyHitsAll, sectorFilters, industryFilter],
+      weeklyHitsAll.filter(
+        (h) =>
+          matchSectorIndustry(h.sector, h.industry, sectorFilters, industryFilter) &&
+          matchesHitPrice(h.ticker),
+      ),
+    [weeklyHitsAll, sectorFilters, industryFilter, priceFilterActive, priceMinNum, priceMaxNum, stockByTicker],
   )
 
   const snapshotHitsAll = useMemo(() => {
@@ -145,10 +167,12 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
 
   const snapshotHits = useMemo(
     () =>
-      snapshotHitsAll.filter((h) =>
-        matchSectorIndustry(h.sector, h.industry, sectorFilters, industryFilter),
+      snapshotHitsAll.filter(
+        (h) =>
+          matchSectorIndustry(h.sector, h.industry, sectorFilters, industryFilter) &&
+          matchesHitPrice(h.ticker),
       ),
-    [snapshotHitsAll, sectorFilters, industryFilter],
+    [snapshotHitsAll, sectorFilters, industryFilter, priceFilterActive, priceMinNum, priceMaxNum, stockByTicker],
   )
 
   const livermoreHitsAll = useMemo(() => {
@@ -159,10 +183,12 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
 
   const livermoreHits = useMemo(
     () =>
-      livermoreHitsAll.filter((h) =>
-        matchSectorIndustry(h.sector, h.industry, sectorFilters, industryFilter),
+      livermoreHitsAll.filter(
+        (h) =>
+          matchSectorIndustry(h.sector, h.industry, sectorFilters, industryFilter) &&
+          matchesHitPrice(h.ticker),
       ),
-    [livermoreHitsAll, sectorFilters, industryFilter],
+    [livermoreHitsAll, sectorFilters, industryFilter, priceFilterActive, priceMinNum, priceMaxNum, stockByTicker],
   )
 
   const scriptHitsAll = useMemo(() => {
@@ -173,10 +199,12 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
 
   const scriptHits = useMemo(
     () =>
-      scriptHitsAll.filter((h) =>
-        matchSectorIndustry(h.sector, h.industry, sectorFilters, industryFilter),
+      scriptHitsAll.filter(
+        (h) =>
+          matchSectorIndustry(h.sector, h.industry, sectorFilters, industryFilter) &&
+          matchesHitPrice(h.ticker),
       ),
-    [scriptHitsAll, sectorFilters, industryFilter],
+    [scriptHitsAll, sectorFilters, industryFilter, priceFilterActive, priceMinNum, priceMaxNum, stockByTicker],
   )
 
   const hitCountTotal =
@@ -422,19 +450,83 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
                 <option key={ind} value={ind}>{ind}</option>
               ))}
             </select>
-            {hasSectorFilter && (
+            <div
+              className={`flex flex-wrap items-center gap-1.5 rounded-lg border px-2 py-1 ${
+                priceFilterActive
+                  ? 'border-violet-500 bg-violet-50/80 dark:bg-violet-950/30'
+                  : 'border-[var(--color-border)] bg-[var(--color-bg)]'
+              }`}
+              title="Filter hits by last price (AUD)"
+            >
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">
+                Price
+              </span>
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={priceMin}
+                onChange={(e) => setPriceMin(e.target.value)}
+                placeholder="Min"
+                className="w-16 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-1 text-xs outline-none focus:border-violet-500"
+                aria-label="Minimum price"
+              />
+              <span className="text-[var(--color-ink-soft)]">–</span>
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={priceMax}
+                onChange={(e) => setPriceMax(e.target.value)}
+                placeholder="Max"
+                className="w-16 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-1 text-xs outline-none focus:border-violet-500"
+                aria-label="Maximum price"
+              />
+              {PRICE_PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => {
+                    setPriceMin(p.min != null ? String(p.min) : '')
+                    setPriceMax(p.max != null ? String(p.max) : '')
+                  }}
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                    activePricePreset === p.label
+                      ? 'bg-violet-700 text-white'
+                      : 'text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+              {priceFilterActive && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPriceMin('')
+                    setPriceMax('')
+                  }}
+                  className="text-[10px] font-semibold text-violet-700 hover:underline dark:text-violet-300"
+                >
+                  Clear price
+                </button>
+              )}
+            </div>
+            {hasFilters && (
               <button
                 type="button"
                 onClick={() => {
                   setSectorFilters([])
                   setIndustryFilter(null)
+                  setPriceMin('')
+                  setPriceMax('')
                 }}
                 className="text-[10px] font-semibold text-violet-700 hover:underline dark:text-violet-300"
               >
                 Clear filters
               </button>
             )}
-            {hasSectorFilter && hitCountTotal > 0 && (
+            {hasFilters && hitCountTotal > 0 && (
               <span className="text-[10px] text-[var(--color-ink-soft)]">
                 Showing {displayedHitCount} of {hitCountTotal}
               </span>
@@ -449,6 +541,7 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
                 patternBias={selected.bias}
                 showTightness={selected.id === 'three-weeks-tight'}
                 scanning={specialScanning}
+                priceFilterActive={priceFilterActive}
                 onOpenChart={(ticker, name, focus) => setChartStock({ ticker, name, focus })}
                 priceForTicker={priceForTicker}
               />
@@ -459,6 +552,7 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
                 patternBias={selected.bias}
                 scanning={specialScanning}
                 showDashboard={selected.id === 'livermore-dashboard'}
+                priceFilterActive={priceFilterActive}
                 onOpenChart={(ticker, name, focus) => setChartStock({ ticker, name, focus })}
                 priceForTicker={priceForTicker}
               />
@@ -468,6 +562,7 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
                 patternName={selected.name}
                 patternBias={selected.bias}
                 scanning={specialScanning}
+                priceFilterActive={priceFilterActive}
                 onOpenChart={(ticker, name, focus) => setChartStock({ ticker, name, focus })}
                 priceForTicker={priceForTicker}
               />
@@ -476,6 +571,7 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
                 hits={snapshotHits}
                 patternName={selected?.name ?? 'Special pattern'}
                 patternBias={selected?.bias ?? 'neutral'}
+                priceFilterActive={priceFilterActive}
                 onOpenChart={(ticker, name, focus) => setChartStock({ ticker, name, focus })}
                 priceForTicker={priceForTicker}
               />
@@ -502,6 +598,7 @@ function WeeklyHitsTable({
   patternBias,
   showTightness,
   scanning,
+  priceFilterActive,
   onOpenChart,
   priceForTicker,
 }: {
@@ -510,6 +607,7 @@ function WeeklyHitsTable({
   patternBias: SpecialPatternDef['bias']
   showTightness: boolean
   scanning: boolean
+  priceFilterActive: boolean
   onOpenChart: (ticker: string, name: string, focus: ChartPatternFocus) => void
   priceForTicker: (ticker: string) => number | null
 }) {
@@ -545,7 +643,9 @@ function WeeklyHitsTable({
             <td colSpan={headers.length} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
               {scanning
                 ? 'Scanning weekly OHLC across the universe…'
-                : 'No stocks match this weekly pattern right now.'}
+                : priceFilterActive
+                  ? 'No pattern hits in this price range.'
+                  : 'No stocks match this weekly pattern right now.'}
             </td>
           </tr>
         ) : (
@@ -608,6 +708,7 @@ function LivermoreHitsTable({
   patternBias,
   scanning,
   showDashboard,
+  priceFilterActive,
   onOpenChart,
   priceForTicker,
 }: {
@@ -616,6 +717,7 @@ function LivermoreHitsTable({
   patternBias: SpecialPatternDef['bias']
   scanning: boolean
   showDashboard: boolean
+  priceFilterActive: boolean
   onOpenChart: (ticker: string, name: string, focus: ChartPatternFocus) => void
   priceForTicker: (ticker: string) => number | null
 }) {
@@ -664,7 +766,9 @@ function LivermoreHitsTable({
             <td colSpan={headers.length} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
               {scanning
                 ? 'Scanning Livermore scores across the universe…'
-                : 'No stocks match this Livermore pattern right now.'}
+                : priceFilterActive
+                  ? 'No pattern hits in this price range.'
+                  : 'No stocks match this Livermore pattern right now.'}
             </td>
           </tr>
         ) : (
@@ -721,6 +825,7 @@ function ScriptHitsTable({
   patternName,
   patternBias,
   scanning,
+  priceFilterActive,
   onOpenChart,
   priceForTicker,
 }: {
@@ -728,6 +833,7 @@ function ScriptHitsTable({
   patternName: string
   patternBias: SpecialPatternDef['bias']
   scanning: boolean
+  priceFilterActive: boolean
   onOpenChart: (ticker: string, name: string, focus: ChartPatternFocus) => void
   priceForTicker: (ticker: string) => number | null
 }) {
@@ -757,7 +863,9 @@ function ScriptHitsTable({
             <td colSpan={9} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
               {scanning
                 ? 'Scanning daily OHLC across the universe…'
-                : 'No stocks match this ScanScript pattern right now.'}
+                : priceFilterActive
+                  ? 'No pattern hits in this price range.'
+                  : 'No stocks match this ScanScript pattern right now.'}
             </td>
           </tr>
         ) : (
@@ -809,12 +917,14 @@ function SnapshotHitsTable({
   hits,
   patternName,
   patternBias,
+  priceFilterActive,
   onOpenChart,
   priceForTicker,
 }: {
   hits: SpecialPatternHit[]
   patternName: string
   patternBias: SpecialPatternDef['bias']
+  priceFilterActive: boolean
   onOpenChart: (ticker: string, name: string, focus: ChartPatternFocus) => void
   priceForTicker: (ticker: string) => number | null
 }) {
@@ -844,7 +954,9 @@ function SnapshotHitsTable({
         {!hits.length ? (
           <tr>
             <td colSpan={8} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
-              No stocks match this pattern in the loaded universe right now.
+              {priceFilterActive
+                ? 'No pattern hits in this price range.'
+                : 'No stocks match this pattern in the loaded universe right now.'}
             </td>
           </tr>
         ) : (

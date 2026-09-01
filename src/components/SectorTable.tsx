@@ -6,6 +6,11 @@ import type { PatternPrefs } from '../lib/patternPrefs'
 import { CYCLE_LABEL, MOOD_LABEL } from '../lib/market'
 import { formatPct, formatPrice, formatVsIndex, perfCellClass, resolveStockPrice } from '../lib/format'
 import { matchesSectorFilters } from '../lib/sectorFilter'
+import {
+  matchesPriceRange,
+  parsePriceInput,
+  PRICE_PRESETS,
+} from '../lib/priceFilter'
 import { copyTickersToTradingView } from '../lib/tradingview'
 import { Sparkline } from './Sparkline'
 import { StockChartModal } from './StockChartModal'
@@ -78,32 +83,6 @@ function PatternHitChips({ hits, prefs }: { hits: CachedPatternHit[]; prefs: Pat
     </div>
   )
 }
-
-function parsePriceInput(raw: string): number | null {
-  const t = raw.trim().replace(/^\$/, '')
-  if (!t) return null
-  const n = Number(t)
-  return Number.isFinite(n) && n >= 0 ? n : null
-}
-
-function matchesPriceRange(
-  s: StockMetrics,
-  min: number | null,
-  max: number | null,
-): boolean {
-  const p = resolveStockPrice(s)
-  if (p == null || p <= 0) return false
-  if (min != null && p < min) return false
-  if (max != null && p > max) return false
-  return true
-}
-
-const PRICE_PRESETS: { label: string; min: number | null; max: number | null }[] = [
-  { label: '< $1', min: null, max: 1 },
-  { label: '$1–10', min: 1, max: 10 },
-  { label: '$10–50', min: 10, max: 50 },
-  { label: '> $50', min: 50, max: null },
-]
 
 export function SectorTable({ snapshot, livePricesActive = false }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
