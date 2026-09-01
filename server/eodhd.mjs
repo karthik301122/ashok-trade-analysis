@@ -1,6 +1,5 @@
 import { loadEnvFile } from './loadEnv.mjs'
 import {
-  EodhdDailyLimitError,
   isEodhdDailyLimitExceeded,
   maybeMarkEodhdDailyLimit,
 } from './eodhdLimit.mjs'
