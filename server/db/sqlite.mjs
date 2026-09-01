@@ -117,6 +117,12 @@ function openSqlite() {
       created_at INTEGER NOT NULL,
       is_admin INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS user_prefs (
+      username TEXT PRIMARY KEY,
+      alert_email_opt_in INTEGER NOT NULL DEFAULT 0,
+      pattern_alert_ids_json TEXT,
+      updated_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS live_quotes (
       ticker TEXT PRIMARY KEY,
       close REAL NOT NULL,
@@ -135,8 +141,18 @@ function openSqlite() {
     );
   `)
   migrateBreadthDailyColumns(db)
+  migrateUserPrefsColumns(db)
   dbSingleton = db
   return db
+}
+
+function migrateUserPrefsColumns(db) {
+  const existing = new Set(
+    db.prepare('PRAGMA table_info(user_prefs)').all().map((r) => r.name),
+  )
+  if (!existing.has('pattern_alert_ids_json')) {
+    db.exec('ALTER TABLE user_prefs ADD COLUMN pattern_alert_ids_json TEXT')
+  }
 }
 
 function migrateBreadthDailyColumns(db) {

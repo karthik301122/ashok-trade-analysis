@@ -13,6 +13,13 @@ import {
   normalizeUsername,
   verifyDbCredentials,
 } from './userStore.mjs'
+import {
+  getAlertEmailOptIn,
+  getPatternAlertIds,
+  isEmailLogin,
+  setAlertEmailOptIn,
+  setPatternAlertIds,
+} from './userPrefs.mjs'
 
 export const COOKIE_NAME = 'asx_sid'
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
@@ -203,7 +210,66 @@ export async function handleAuthApi(req, res, send) {
     }
     const user = getUserFromRequest(req)
     if (!user) return send(401, { user: null, authRequired: true })
-    return send(200, { user, authRequired: true })
+    const canReceiveAlertEmail = isEmailLogin(user)
+    const alertEmailOptIn = canReceiveAlertEmail ? await getAlertEmailOptIn(user) : false
+    const patternAlertIds = await getPatternAlertIds(user)
+    return send(200, {
+      user,
+      authRequired: true,
+      canReceiveAlertEmail,
+      alertEmailOptIn,
+      patternAlertIds,
+    })
+  }
+
+  if (path === '/api/auth/pattern-alert-prefs' && method === 'GET') {
+    if (!authEnabled()) {
+      return send(400, { error: 'Auth is not configured on this server' })
+    }
+    const user = getUserFromRequest(req)
+    if (!user) return send(401, { error: 'Unauthorized', authRequired: true })
+    const patternAlertIds = await getPatternAlertIds(user)
+    return send(200, { patternAlertIds })
+  }
+
+  if (path === '/api/auth/pattern-alert-prefs' && method === 'POST') {
+    if (!authEnabled()) {
+      return send(400, { error: 'Auth is not configured on this server' })
+    }
+    const user = getUserFromRequest(req)
+    if (!user) return send(401, { error: 'Unauthorized', authRequired: true })
+    let body
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return send(400, { error: 'Invalid JSON' })
+    }
+    const raw = body?.patternIds ?? body?.patternAlertIds
+    const patternIds = Array.isArray(raw) ? raw : []
+    const saved = await setPatternAlertIds(user, patternIds)
+    return send(200, { ok: true, patternAlertIds: saved })
+  }
+
+  if (path === '/api/auth/alert-email-opt-in' && method === 'POST') {
+    if (!authEnabled()) {
+      return send(400, { error: 'Auth is not configured on this server' })
+    }
+    const user = getUserFromRequest(req)
+    if (!user) return send(401, { error: 'Unauthorized', authRequired: true })
+    if (!isEmailLogin(user)) {
+      return send(400, {
+        error: 'Alert email requires logging in with an email address (not a username only).',
+      })
+    }
+    let body
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return send(400, { error: 'Invalid JSON' })
+    }
+    const optIn = Boolean(body?.optIn)
+    await setAlertEmailOptIn(user, optIn)
+    return send(200, { ok: true, alertEmailOptIn: optIn, canReceiveAlertEmail: true })
   }
 
   if (path === '/api/auth/config' && method === 'GET') {

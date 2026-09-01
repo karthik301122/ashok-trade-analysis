@@ -94,6 +94,13 @@ CREATE TABLE IF NOT EXISTS users (
   is_admin INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS user_prefs (
+  username TEXT PRIMARY KEY,
+  alert_email_opt_in INTEGER NOT NULL DEFAULT 0,
+  pattern_alert_ids_json TEXT,
+  updated_at BIGINT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS live_quotes (
   ticker TEXT PRIMARY KEY,
   close DOUBLE PRECISION NOT NULL,

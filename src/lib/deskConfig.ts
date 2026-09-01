@@ -16,6 +16,7 @@ export type DeskServerConfig = {
     count: number
     delayedMinutes: number
   }
+  alertEmailEnabled?: boolean
 }
 
 const DEFAULT_CONFIG: DeskServerConfig = {
@@ -41,6 +42,7 @@ export async function fetchDeskServerConfig(
         maintenance?: boolean
         maintenanceMessage?: string
         liveQuotes?: DeskServerConfig['liveQuotes']
+        alertEmailEnabled?: boolean
       }
       return {
         productionMode: Boolean(j.productionMode),
@@ -52,6 +54,7 @@ export async function fetchDeskServerConfig(
         maintenanceMessage:
           typeof j.maintenanceMessage === 'string' ? j.maintenanceMessage : undefined,
         liveQuotes: j.liveQuotes,
+        alertEmailEnabled: Boolean(j.alertEmailEnabled),
       }
     } catch {
       clearTimeout(timer)

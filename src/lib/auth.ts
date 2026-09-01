@@ -1,6 +1,9 @@
 export type AuthMe = {
   user: string | null
   authRequired: boolean
+  canReceiveAlertEmail?: boolean
+  alertEmailOptIn?: boolean
+  patternAlertIds?: string[]
 }
 
 export type AuthConfig = {
@@ -36,10 +39,57 @@ export async function fetchAuthMe(): Promise<AuthMe> {
     return {
       user: json.user ?? null,
       authRequired: Boolean(json.authRequired),
+      canReceiveAlertEmail: Boolean(json.canReceiveAlertEmail),
+      alertEmailOptIn: Boolean(json.alertEmailOptIn),
+      patternAlertIds: Array.isArray(json.patternAlertIds) ? json.patternAlertIds : [],
     }
   } catch {
     const cfg = await fetchAuthConfig()
     return { user: null, authRequired: cfg.authRequired }
+  }
+}
+
+export async function setPatternAlertIds(
+  patternIds: string[],
+): Promise<{ ok: true; patternAlertIds: string[] } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/auth/pattern-alert-prefs', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ patternIds }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: (json as { error?: string }).error || 'Could not update pattern alerts',
+      }
+    }
+    const saved = (json as { patternAlertIds?: string[] }).patternAlertIds
+    return { ok: true, patternAlertIds: Array.isArray(saved) ? saved : patternIds }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function setAlertEmailOptIn(
+  optIn: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/auth/alert-email-opt-in', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ optIn }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return { ok: false, error: (json as { error?: string }).error || 'Could not update email preference' }
+    }
+    return { ok: true }
+  } catch {
+    return { ok: false, error: 'Network error' }
   }
 }
 

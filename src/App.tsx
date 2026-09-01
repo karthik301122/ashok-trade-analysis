@@ -12,6 +12,7 @@ import { applyStocksOnlyFilter, STOCKS_ONLY_LS_KEY } from './lib/instrumentFilte
 import { RefreshCw } from 'lucide-react'
 import { MaintenancePage } from './components/MaintenancePage'
 import { PatternPrefsProvider } from './components/patterns/PatternPrefsContext'
+import { WatchPatternAlertScan } from './components/patterns/WatchPatternAlertScan'
 import { PanelErrorBoundary } from './components/PanelErrorBoundary'
 
 export default function App() {
@@ -451,6 +452,7 @@ export default function App() {
             </div>
 
             <PanelErrorBoundary title="This tab failed to load">
+              <WatchPatternAlertScan snapshot={displaySnapshot!} />
               <MainPagePanels
                 page={page}
                 snapshot={displaySnapshot!}

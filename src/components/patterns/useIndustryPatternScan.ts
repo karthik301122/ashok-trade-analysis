@@ -1,26 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchYahooOhlcForPatternScan } from '../../lib/yahoo'
+import { postPatternScanBatch, type PatternScanUploadRow } from '../../lib/patternScanApi'
 import { detectAllCustomRules, filterHitsByWindow, scanPatterns } from '../../lib/patterns'
+import { collectWatchPatternUploadRows } from '../../lib/patterns/watchPatternAlertUpload'
 import { cacheMissingStartT, getTickerPatternHits } from '../../lib/patternHitsCache'
 import { hasOverviewChartWatch } from '../../lib/overviewPatternHits'
 import { usePatternPrefs } from './usePatternPrefs'
 
-const CONCURRENCY = import.meta.env.PROD ? 1 : 2
 const SCAN_CAP = import.meta.env.PROD ? 60 : 500
+const UPLOAD_BATCH = 50
 /** Re-scan if older than 12h or scan window changed */
 const STALE_MS = 12 * 60 * 60 * 1000
 
 /**
- * When industries expand, quietly scan visible tickers for chart patterns
- * so starred + My Pattern hits show on the Sector Table overview.
+ * When industries expand (or full universe for alerts), scan tickers for chart patterns
+ * so starred + My Pattern hits show on the Sector Table and upload alert scores.
  */
-export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
+export function useIndustryPatternScan(
+  tickers: string[],
+  enabled: boolean,
+  fullUniverse = false,
+) {
   const { rememberHits, prefs, hitsScanEpoch } = usePatternPrefs()
   const [scanning, setScanning] = useState(false)
   const [done, setDone] = useState(0)
   const [total, setTotal] = useState(0)
   const queueGen = useRef(0)
   const tickerKey = useMemo(() => [...new Set(tickers)].sort().join(','), [tickers])
+  const concurrency = fullUniverse
+    ? import.meta.env.PROD
+      ? 4
+      : 6
+    : import.meta.env.PROD
+      ? 1
+      : 2
 
   useEffect(() => {
     const list = tickerKey ? tickerKey.split(',') : []
@@ -44,7 +57,7 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
       )
     })
 
-    const scanList = need.slice(0, SCAN_CAP)
+    const scanList = fullUniverse ? need : need.slice(0, SCAN_CAP)
 
     if (!scanList.length) {
       setScanning(false)
@@ -56,6 +69,14 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
     let cancelled = false
     let idx = 0
     let finished = 0
+    const pendingUpload: PatternScanUploadRow[] = []
+
+    const flushUpload = () => {
+      if (!pendingUpload.length) return
+      const chunk = pendingUpload.splice(0, pendingUpload.length)
+      void postPatternScanBatch(chunk)
+    }
+
     setScanning(true)
     setDone(0)
     setTotal(scanList.length)
@@ -88,6 +109,15 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
               })),
               { scanWindow: prefs.scanWindow, asOf: result.asOf },
             )
+            pendingUpload.push(
+              ...collectWatchPatternUploadRows(
+                ticker,
+                prefs,
+                result.hits,
+                customHits,
+              ),
+            )
+            if (pendingUpload.length >= UPLOAD_BATCH) flushUpload()
           }
         } catch {
           /* skip failed ticker */
@@ -98,14 +128,17 @@ export function useIndustryPatternScan(tickers: string[], enabled: boolean) {
     }
 
     void (async () => {
-      await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()))
-      if (!cancelled && gen === queueGen.current) setScanning(false)
+      await Promise.all(Array.from({ length: concurrency }, () => worker()))
+      if (!cancelled && gen === queueGen.current) {
+        flushUpload()
+        setScanning(false)
+      }
     })()
 
     return () => {
       cancelled = true
     }
-  }, [tickerKey, enabled, prefs, rememberHits, hitsScanEpoch])
+  }, [tickerKey, enabled, fullUniverse, prefs, rememberHits, hitsScanEpoch, concurrency])
 
   return { scanning, done, total }
 }

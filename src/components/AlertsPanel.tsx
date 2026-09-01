@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Bell, Play, Plus, Trash2 } from 'lucide-react'
-import { SPECIAL_PATTERN_CATALOG } from '../lib/patterns/specialCatalog'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Bell, Mail, Play, Plus, Trash2 } from 'lucide-react'
+import { buildPatternAlertOptions } from '../lib/patterns/watchPatternAlertUpload'
+import { fetchAuthMe, setAlertEmailOptIn, setPatternAlertIds } from '../lib/auth'
+import { fetchDeskServerConfig } from '../lib/deskConfig'
+import { usePatternPrefs } from './patterns/usePatternPrefs'
 
 type Rule = {
   id: number
@@ -20,11 +23,6 @@ type EventRow = {
   delivered: boolean
 }
 
-const PATTERN_ALERT_OPTIONS = SPECIAL_PATTERN_CATALOG.map((p) => ({
-  id: p.id,
-  label: `${p.name} (${p.kind})`,
-}))
-
 const TYPES: {
   id: string
   label: string
@@ -43,13 +41,15 @@ const TYPES: {
   },
   {
     id: 'pattern_confirmed',
-    label: 'Pattern confirmed (100%)',
+    label: 'Pattern confirmed (85%+)',
     defaults: { patternId: 'landscape' },
     pattern: true,
   },
 ]
 
 export function AlertsPanel() {
+  const { prefs } = usePatternPrefs()
+  const patternAlertOptions = useMemo(() => buildPatternAlertOptions(prefs), [prefs])
   const [rules, setRules] = useState<Rule[]>([])
   const [events, setEvents] = useState<EventRow[]>([])
   const [name, setName] = useState('High RS leaders')
@@ -60,15 +60,63 @@ export function AlertsPanel() {
   const [webhook, setWebhook] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [emailEnabled, setEmailEnabled] = useState(false)
+  const [canReceiveAlertEmail, setCanReceiveAlertEmail] = useState(false)
+  const [alertEmailOptIn, setAlertEmailOptInState] = useState(false)
+  const [optInBusy, setOptInBusy] = useState(false)
+  const [selectedPatternIds, setSelectedPatternIds] = useState<string[]>([])
+  const [patternPrefsBusy, setPatternPrefsBusy] = useState(false)
 
   const refresh = useCallback(async () => {
-    const [r, e] = await Promise.all([
+    const [r, e, cfg, me] = await Promise.all([
       fetch('/api/alerts/rules', { credentials: 'include' }).then((x) => x.json()),
       fetch('/api/alerts/events', { credentials: 'include' }).then((x) => x.json()),
+      fetchDeskServerConfig(),
+      fetchAuthMe(),
     ])
     setRules(r.rules || [])
     setEvents(e.events || [])
+    setEmailEnabled(Boolean(cfg.alertEmailEnabled))
+    setCanReceiveAlertEmail(Boolean(me.canReceiveAlertEmail))
+    setAlertEmailOptInState(Boolean(me.alertEmailOptIn))
+    setSelectedPatternIds(Array.isArray(me.patternAlertIds) ? me.patternAlertIds : [])
   }, [])
+
+  const visibleRules = useMemo(
+    () => rules.filter((r) => !r.params?.auto),
+    [rules],
+  )
+
+  const allPatternIds = useMemo(() => patternAlertOptions.map((p) => p.id), [patternAlertOptions])
+  const allPatternsSelected =
+    allPatternIds.length > 0 && allPatternIds.every((id) => selectedPatternIds.includes(id))
+
+  const togglePatternId = (id: string) => {
+    setSelectedPatternIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+  }
+
+  const selectAllPatterns = () => setSelectedPatternIds([...allPatternIds])
+  const clearAllPatterns = () => setSelectedPatternIds([])
+
+  const savePatternAlerts = async () => {
+    setPatternPrefsBusy(true)
+    setMsg(null)
+    const res = await setPatternAlertIds(selectedPatternIds)
+    if (res.ok) {
+      setSelectedPatternIds(res.patternAlertIds)
+      await refresh()
+      setMsg(
+        res.patternAlertIds.length
+          ? `Watching ${res.patternAlertIds.length} pattern${res.patternAlertIds.length === 1 ? '' : 's'} for alerts (forming 60%+ and confirmed 85%+).`
+          : 'Pattern alerts cleared — select patterns below to watch.',
+      )
+    } else {
+      setMsg(res.error)
+    }
+    setPatternPrefsBusy(false)
+  }
 
   useEffect(() => {
     void refresh()
@@ -87,6 +135,14 @@ export function AlertsPanel() {
     }
   }, [type])
 
+  useEffect(() => {
+    if (!patternAlertOptions.some((o) => o.id === patternId) && patternAlertOptions.length) {
+      setPatternId(patternAlertOptions[0].id)
+    }
+  }, [patternAlertOptions, patternId])
+
+  const selectedPattern = patternAlertOptions.find((o) => o.id === patternId)
+
   const addRule = async () => {
     setBusy(true)
     setMsg(null)
@@ -94,8 +150,15 @@ export function AlertsPanel() {
       const t = TYPES.find((x) => x.id === type)
       const params: Record<string, number | string> = t?.pattern
         ? type === 'pattern_confirmed'
-          ? { patternId }
-          : { minScore: paramVal, patternId }
+          ? {
+              patternId,
+              patternLabel: selectedPattern?.patternLabel ?? patternId,
+            }
+          : {
+              minScore: paramVal,
+              patternId,
+              patternLabel: selectedPattern?.patternLabel ?? patternId,
+            }
         : { [paramKey]: paramVal }
       await fetch('/api/alerts/rules', {
         method: 'POST',
@@ -143,6 +206,19 @@ export function AlertsPanel() {
 
   const selectedType = TYPES.find((x) => x.id === type)
 
+  const toggleEmailOptIn = async (optIn: boolean) => {
+    setOptInBusy(true)
+    setMsg(null)
+    const res = await setAlertEmailOptIn(optIn)
+    if (res.ok) {
+      setAlertEmailOptInState(optIn)
+      setMsg(optIn ? 'You will receive pattern alert emails at your login address.' : 'Pattern alert emails turned off.')
+    } else {
+      setMsg(res.error)
+    }
+    setOptInBusy(false)
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -151,11 +227,13 @@ export function AlertsPanel() {
             <Bell size={22} /> Alerts
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-[var(--color-ink-soft)]">
-            Snapshot rules (RS, RVOL, breadth) need <code className="text-xs">npm run snapshot</code>.
-            Pattern forming alerts use scores uploaded when Markets or Patterns runs OHLC scans
-            (VCP, Launchpad, Landscape, Livermore, weekly Karthik, and snapshot desk rules). Open
-            those views so scans run, then alerts fire at your threshold (e.g. 60% before a full
-            hit).
+            Choose which patterns you want alerts for below (forming 60%+ and confirmed 85%+).
+            Special Patterns (✦), starred chart patterns (★), and My Patterns are all available.
+            Scores upload when Markets runs OHLC scans. RS / RVOL / breadth rules are separate
+            custom rules at the bottom.
+            {emailEnabled
+              ? ' Opted-in users receive email for their selected patterns only.'
+              : ' Email delivery is not configured on the server yet — alerts appear here only until SMTP env vars are set.'}
           </p>
         </div>
         <button
@@ -168,6 +246,107 @@ export function AlertsPanel() {
           Run now
         </button>
       </div>
+
+      <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold">Patterns to watch</h2>
+            <p className="mt-1 max-w-2xl text-xs text-[var(--color-ink-soft)]">
+              {selectedPatternIds.length} of {patternAlertOptions.length} selected — alerts fire when
+              a ticker matches forming or confirmed thresholds for these patterns.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={patternPrefsBusy || !patternAlertOptions.length}
+              onClick={() => selectAllPatterns()}
+              className="rounded-md border border-[var(--color-border)] px-2.5 py-1.5 text-xs font-semibold hover:bg-[var(--color-bg)] disabled:opacity-50"
+            >
+              Alert all patterns
+            </button>
+            <button
+              type="button"
+              disabled={patternPrefsBusy || !selectedPatternIds.length}
+              onClick={() => clearAllPatterns()}
+              className="rounded-md border border-[var(--color-border)] px-2.5 py-1.5 text-xs font-semibold hover:bg-[var(--color-bg)] disabled:opacity-50"
+            >
+              Clear all
+            </button>
+            <button
+              type="button"
+              disabled={patternPrefsBusy}
+              onClick={() => void savePatternAlerts()}
+              className="rounded-md bg-teal-700 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+            >
+              Save pattern alerts
+            </button>
+          </div>
+        </div>
+        {!patternAlertOptions.length ? (
+          <p className="mt-3 text-xs text-[var(--color-ink-soft)]">
+            No patterns available yet — star chart patterns or add My Patterns on Markets, or use
+            desk Special Patterns.
+          </p>
+        ) : (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {patternAlertOptions.map((p) => {
+              const checked = selectedPatternIds.includes(p.id)
+              return (
+                <label
+                  key={p.id}
+                  className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
+                    checked
+                      ? 'border-teal-600 bg-teal-50/60 dark:bg-teal-950/30'
+                      : 'border-[var(--color-border)]'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 shrink-0"
+                    checked={checked}
+                    disabled={patternPrefsBusy}
+                    onChange={() => togglePatternId(p.id)}
+                  />
+                  <span className="font-medium leading-snug">{p.label}</span>
+                </label>
+              )
+            })}
+          </div>
+        )}
+        {allPatternsSelected && patternAlertOptions.length > 0 && (
+          <p className="mt-2 text-[10px] text-[var(--color-ink-soft)]">
+            All patterns selected — you will receive alerts for every available pattern type.
+          </p>
+        )}
+      </div>
+
+      {canReceiveAlertEmail && (
+        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-bold">
+                <Mail size={16} /> Pattern alert emails
+              </h2>
+              <p className="mt-1 max-w-2xl text-xs text-[var(--color-ink-soft)]">
+                Get an email when pattern alerts fire (forming or confirmed). We use your login
+                email — no extra address needed.
+                {!emailEnabled && ' Server SMTP is not set up yet; your preference is saved for when it is.'}
+              </p>
+            </div>
+            <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-[var(--color-border)]"
+                checked={alertEmailOptIn}
+                disabled={optInBusy}
+                onChange={(e) => void toggleEmailOptIn(e.target.checked)}
+              />
+              Email me when alerts fire
+            </label>
+          </div>
+        </div>
+      )}
 
       {msg && (
         <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm">
@@ -201,7 +380,7 @@ export function AlertsPanel() {
               onChange={(e) => setPatternId(e.target.value)}
               className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-sm"
             >
-              {PATTERN_ALERT_OPTIONS.map((p) => (
+              {patternAlertOptions.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.label}
                 </option>
@@ -246,9 +425,9 @@ export function AlertsPanel() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-          <h2 className="mb-2 text-sm font-bold">Rules ({rules.length})</h2>
+          <h2 className="mb-2 text-sm font-bold">Rules ({visibleRules.length})</h2>
           <ul className="space-y-2">
-            {rules.map((r) => (
+            {visibleRules.map((r) => (
               <li
                 key={r.id}
                 className="flex items-start justify-between gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm"
@@ -269,8 +448,10 @@ export function AlertsPanel() {
                 </button>
               </li>
             ))}
-            {!rules.length && (
-              <li className="text-xs text-[var(--color-ink-soft)]">No rules yet.</li>
+            {!visibleRules.length && (
+              <li className="text-xs text-[var(--color-ink-soft)]">
+                No custom rules — pattern watches are managed above.
+              </li>
             )}
           </ul>
         </div>

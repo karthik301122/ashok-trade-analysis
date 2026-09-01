@@ -27,6 +27,9 @@ export async function createPostgresBackend(connectionString) {
 
   async function ensureSchema() {
     await pool.query(schemaSql)
+    await pool.query(
+      'ALTER TABLE user_prefs ADD COLUMN IF NOT EXISTS pattern_alert_ids_json TEXT',
+    )
   }
 
   async function sqlOne(sql, params = []) {

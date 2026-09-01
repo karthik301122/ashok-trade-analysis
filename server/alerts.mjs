@@ -2,6 +2,8 @@ import { sqlAll, sqlOne, sqlRun } from './db.mjs'
 import { readMarketSnapshotRow } from './snapshotJob.mjs'
 import { matchAlertRule } from './alertMatch.mjs'
 import { queryPatternScanState } from './patternScanStore.mjs'
+import { alertEmailConfigured, sendAlertEmailDigest } from './alertEmail.mjs'
+import { listAlertEmailOptInUsers, getPatternAlertIds } from './userPrefs.mjs'
 import { log } from './log.mjs'
 
 /**
@@ -44,14 +46,43 @@ export async function deleteAlertRule(id) {
   return true
 }
 
-export async function listAlertEvents(limit = 50) {
+/** Remove auto-managed pattern rules and recreate for subscribed pattern ids. */
+export async function syncPatternAlertRules(patternIds) {
+  const ids = [...new Set(patternIds.map((id) => String(id).trim()).filter(Boolean))].sort()
+
+  await sqlRun(
+    `DELETE FROM alert_rules
+     WHERE type IN ('pattern_forming', 'pattern_confirmed')
+       AND params_json LIKE '%"auto":true%'`,
+  )
+
+  for (const patternId of ids) {
+    const label = patternAlertLabel(patternId)
+    await createAlertRule({
+      name: `${label} forming`,
+      type: 'pattern_forming',
+      params: { minScore: 60, patternId, patternLabel: label, auto: true },
+      enabled: true,
+    })
+    await createAlertRule({
+      name: `${label} confirmed`,
+      type: 'pattern_confirmed',
+      params: { patternId, patternLabel: label, auto: true },
+      enabled: true,
+    })
+  }
+
+  return ids.length
+}
+
+export async function listAlertEvents(limit = 50, username = null) {
   const rows = await sqlAll(
     `SELECT e.*, r.name AS rule_name FROM alert_events e
      LEFT JOIN alert_rules r ON r.id = e.rule_id
      ORDER BY e.id DESC LIMIT ?`,
     [limit],
   )
-  return rows.map((r) => ({
+  let events = rows.map((r) => ({
     id: r.id,
     ruleId: r.rule_id,
     ruleName: r.rule_name,
@@ -61,6 +92,17 @@ export async function listAlertEvents(limit = 50) {
     delivered: Boolean(r.delivered),
     payload: safeJson(r.payload_json),
   }))
+
+  if (username) {
+    const subscribed = await getPatternAlertIds(username)
+    events = events.filter((e) => {
+      const pid = e.payload?.patternId
+      if (!pid) return true
+      return subscribed.includes(String(pid))
+    })
+  }
+
+  return events
 }
 
 function rowToRule(row) {
@@ -93,6 +135,7 @@ export async function evaluateAlerts() {
     : []
   const rules = (await listAlertRules()).filter((r) => r.enabled)
   const fired = []
+  const emailQueue = []
 
   for (const rule of rules) {
     let matches = []
@@ -103,7 +146,7 @@ export async function evaluateAlerts() {
       matches = matchAlertRule(rule, stocks, snap)
     }
     for (const m of matches) {
-      const eventId = await recordEvent(rule.id, m.ticker, m.message, m.payload)
+      const recorded = await recordEvent(rule.id, m.ticker, m.message, m.payload)
       let delivered = false
       if (rule.webhookUrl) {
         delivered = await postWebhook(rule.webhookUrl, {
@@ -115,13 +158,66 @@ export async function evaluateAlerts() {
           ...m.payload,
         })
         if (delivered) {
-          await sqlRun('UPDATE alert_events SET delivered = 1 WHERE id = ?', [eventId])
+          await sqlRun('UPDATE alert_events SET delivered = 1 WHERE id = ?', [recorded.id])
         }
       }
-      fired.push({ ruleId: rule.id, ruleName: rule.name, ticker: m.ticker, message: m.message, delivered })
+      if (recorded.isNew) {
+        emailQueue.push({
+          eventId: recorded.id,
+          ruleName: rule.name,
+          ticker: m.ticker,
+          message: m.message,
+          patternId: m.payload?.patternId ? String(m.payload.patternId) : null,
+          delivered,
+        })
+      }
+      fired.push({
+        ruleId: rule.id,
+        ruleName: rule.name,
+        ticker: m.ticker,
+        message: m.message,
+        delivered,
+      })
     }
   }
-  log('info', 'alerts.evaluate', { rules: rules.length, fired: fired.length, stocks: stocks.length })
+
+  if (emailQueue.length && alertEmailConfigured()) {
+    const optInUsers = await listAlertEmailOptInUsers()
+    let sentCount = 0
+    for (const username of optInUsers) {
+      const subscribed = await getPatternAlertIds(username)
+      const items = emailQueue.filter(
+        (item) => !item.patternId || subscribed.includes(item.patternId),
+      )
+      if (!items.length) continue
+      const emailOk = await sendAlertEmailDigest(items, [username])
+      if (emailOk) {
+        sentCount++
+        for (const item of items) {
+          if (!item.delivered) {
+            await sqlRun('UPDATE alert_events SET delivered = 1 WHERE id = ?', [item.eventId])
+          }
+          const row = fired.find(
+            (f) =>
+              f.ruleName === item.ruleName &&
+              f.ticker === item.ticker &&
+              f.message === item.message,
+          )
+          if (row) row.delivered = true
+        }
+      }
+    }
+    log('info', 'alerts.email', { optInUsers: optInUsers.length, sentCount })
+  }
+
+  log('info', 'alerts.evaluate', {
+    rules: rules.length,
+    fired: fired.length,
+    stocks: stocks.length,
+    emailConfigured: alertEmailConfigured(),
+    emailQueued: emailQueue.length,
+    emailRecipients: alertEmailConfigured() ? (await listAlertEmailOptInUsers()).length : 0,
+  })
   if (
     !stocks.length &&
     fired.length === 0 &&
@@ -139,7 +235,7 @@ async function recordEvent(ruleId, ticker, message, payload) {
       `SELECT id FROM alert_events WHERE rule_id = ? AND ticker = ? AND created_at > ? LIMIT 1`,
       [ruleId, ticker, dayStart],
     )
-    if (dup) return Number(dup.id)
+    if (dup) return { id: Number(dup.id), isNew: false }
   }
   const info = await sqlRun(
     `INSERT INTO alert_events (rule_id, ticker, message, payload_json, created_at, delivered)
@@ -147,33 +243,48 @@ async function recordEvent(ruleId, ticker, message, payload) {
      RETURNING id`,
     [ruleId, ticker, message, JSON.stringify(payload || {}), Date.now()],
   )
-  return Number(info.lastInsertRowid)
+  return { id: Number(info.lastInsertRowid), isNew: true }
 }
 
 async function matchPatternAlertRule(rule) {
   const p = rule.params || {}
   const minScore = Number(p.minScore ?? 60)
   const patternId = p.patternId ? String(p.patternId) : null
+  const label = p.patternLabel ? String(p.patternLabel) : patternAlertLabel(patternId)
   const confirmed = rule.type === 'pattern_confirmed'
+  const confirmedMin = 85
   const rows = await queryPatternScanState({
-    minScore: confirmed ? 100 : minScore,
+    minScore: confirmed ? confirmedMin : minScore,
     patternId,
     confirmed: confirmed ? true : false,
   })
   const out = []
   for (const r of rows) {
-    if (confirmed && r.score < 100) continue
+    if (confirmed && r.score < confirmedMin) continue
     if (!confirmed && r.confirmed) continue
-    const label = patternId || r.patternId
+    const rowLabel = patternId && r.patternId === patternId ? label : patternAlertLabel(r.patternId)
     out.push({
       ticker: r.ticker,
       message: confirmed
-        ? `${r.ticker} ${label} confirmed (100%)`
-        : `${r.ticker} ${label} forming ${r.score}%`,
+        ? `${r.ticker} ${rowLabel} confirmed (${r.score}%)`
+        : `${r.ticker} ${rowLabel} forming ${r.score}%`,
       payload: { patternId: r.patternId, score: r.score, confirmed: r.confirmed },
     })
   }
   return out.slice(0, 25)
+}
+
+function patternAlertLabel(patternId) {
+  if (!patternId) return 'pattern'
+  if (patternId.startsWith('chart:')) {
+    try {
+      return decodeURIComponent(patternId.slice(6))
+    } catch {
+      return patternId.slice(6)
+    }
+  }
+  if (patternId.startsWith('custom:')) return 'My pattern'
+  return patternId
 }
 
 async function postWebhook(url, body) {

@@ -195,6 +195,10 @@ export function SectorTable({ snapshot, livePricesActive = false }: Props) {
   const searching =
     query.trim().length > 0 || Boolean(industryFilter) || priceFilterActive
 
+  const chartWatch = hasOverviewChartWatch(prefs)
+  const heavyChartScans =
+    chartWatch && snapshot.stocks.length >= Math.floor(ASX_UNIVERSE_COUNT * 0.85)
+
   const visibleTickers = useMemo(() => {
     const set = new Set<string>()
     for (const ind of industries) {
@@ -206,7 +210,7 @@ export function SectorTable({ snapshot, livePricesActive = false }: Props) {
   }, [industries, expanded, starOnly, searching])
 
   const { scanning: patternScanning, done: patternDone, total: patternTotal } =
-    useIndustryPatternScan(visibleTickers, hasOverviewChartWatch(prefs))
+    useIndustryPatternScan(visibleTickers, chartWatch && !heavyChartScans, false)
 
   const toggleSectorFilter = (name: string) => {
     setSectorFilters((prev) => {

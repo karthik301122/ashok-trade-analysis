@@ -25,6 +25,8 @@ import {
   listAlertRules,
 } from './alerts.mjs'
 import { upsertPatternScanBatch } from './patternScanStore.mjs'
+import { alertEmailConfigured } from './alertEmail.mjs'
+import { getAlertEmailOptIn, getPatternAlertIds, isEmailLogin, setAlertEmailOptIn, setPatternAlertIds } from './userPrefs.mjs'
 import { getFundamentals } from './fundamentals.mjs'
 import { checkRateLimit, clientKey, log, pruneRateLimitBuckets } from './log.mjs'
 import { seriesProviderName, isIntradayInterval } from './fetchSeries.mjs'
@@ -408,6 +410,7 @@ export async function handleConnectApi(req, res, send) {
       snapshot: snapMeta,
       job: await getSnapshotJobStatus(),
       liveQuotes: await getLiveQuotesMeta(),
+      alertEmailEnabled: alertEmailConfigured(),
     })
     return true
   }
@@ -455,7 +458,8 @@ export async function handleConnectApi(req, res, send) {
 
   if (url.pathname === '/api/alerts/events' && req.method === 'GET') {
     if (requireAuthConnect(req, send)) return true
-    send(200, { events: await listAlertEvents(50) })
+    const user = getUserFromRequest(req)
+    send(200, { events: await listAlertEvents(50, user) })
     return true
   }
 
@@ -538,16 +542,63 @@ export function mountExpressApi(app) {
       snapshot: snapMeta,
       job: await getSnapshotJobStatus(),
       liveQuotes: await getLiveQuotesMeta(),
+      alertEmailEnabled: alertEmailConfigured(),
     })
   })
 
-  app.get('/api/auth/me', (req, res) => {
+  app.get('/api/auth/me', async (req, res) => {
     if (!authEnabled()) {
       return res.json({ user: null, authRequired: false })
     }
     const user = getUserFromRequest(req)
     if (!user) return res.status(401).json({ user: null, authRequired: true })
-    return res.json({ user, authRequired: true })
+    const canReceiveAlertEmail = isEmailLogin(user)
+    const alertEmailOptIn = canReceiveAlertEmail ? await getAlertEmailOptIn(user) : false
+    const patternAlertIds = await getPatternAlertIds(user)
+    return res.json({
+      user,
+      authRequired: true,
+      canReceiveAlertEmail,
+      alertEmailOptIn,
+      patternAlertIds,
+    })
+  })
+
+  app.post('/api/auth/alert-email-opt-in', async (req, res) => {
+    if (!authEnabled()) {
+      return res.status(400).json({ error: 'Auth is not configured on this server' })
+    }
+    const user = getUserFromRequest(req)
+    if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    if (!isEmailLogin(user)) {
+      return res.status(400).json({
+        error: 'Alert email requires logging in with an email address (not a username only).',
+      })
+    }
+    const optIn = Boolean(req.body?.optIn)
+    await setAlertEmailOptIn(user, optIn)
+    return res.json({ ok: true, alertEmailOptIn: optIn, canReceiveAlertEmail: true })
+  })
+
+  app.get('/api/auth/pattern-alert-prefs', async (req, res) => {
+    if (!authEnabled()) {
+      return res.status(400).json({ error: 'Auth is not configured on this server' })
+    }
+    const user = getUserFromRequest(req)
+    if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    return res.json({ patternAlertIds: await getPatternAlertIds(user) })
+  })
+
+  app.post('/api/auth/pattern-alert-prefs', async (req, res) => {
+    if (!authEnabled()) {
+      return res.status(400).json({ error: 'Auth is not configured on this server' })
+    }
+    const user = getUserFromRequest(req)
+    if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    const raw = req.body?.patternIds ?? req.body?.patternAlertIds
+    const patternIds = Array.isArray(raw) ? raw : []
+    const saved = await setPatternAlertIds(user, patternIds)
+    return res.json({ ok: true, patternAlertIds: saved })
   })
 
   app.get('/api/auth/config', (_req, res) => {
@@ -868,7 +919,8 @@ export function mountExpressApi(app) {
     if (authEnabled() && !getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
-    return res.json({ events: await listAlertEvents(50) })
+    const user = getUserFromRequest(req)
+    return res.json({ events: await listAlertEvents(50, user) })
   })
 
   app.post('/api/alerts/evaluate', async (req, res) => {
