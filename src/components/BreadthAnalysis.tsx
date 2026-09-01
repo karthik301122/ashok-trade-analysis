@@ -18,7 +18,7 @@ import { DiffusionIndicatorsView } from './breadth/DiffusionIndicatorsView'
 import { HowToReadTab } from './breadth/HowToReadTab'
 import { SeasonalityTab } from './breadth/SeasonalityTab'
 import { copyTickersToTradingView } from '../lib/tradingview'
-import { fetchBreadthDaily, postBreadthDaily, type BreadthDailyPoint } from '../lib/breadthApi'
+import { fetchBreadthDaily, postBreadthDaily, type BreadthDailyPoint, type BreadthIndexBar } from '../lib/breadthApi'
 import { membershipSourceLabel } from '../data/indexMembership'
 
 type Props = { snapshot: MarketSnapshot; active?: boolean }
@@ -49,6 +49,7 @@ function BreadthAnalysisBody({
   const [listOpen, setListOpen] = useState(false)
   const [serverPoints, setServerPoints] = useState<BreadthDailyPoint[]>([])
   const [chartHistory, setChartHistory] = useState<BreadthDailyPoint[]>([])
+  const [indexBars, setIndexBars] = useState<BreadthIndexBar[]>([])
   const [historyLoading, setHistoryLoading] = useState(true)
 
   useEffect(() => {
@@ -57,11 +58,13 @@ function BreadthAnalysisBody({
     setHistoryLoading(true)
     setChartHistory([])
     setServerPoints([])
+    setIndexBars([])
     void (async () => {
-      const { points, chartHistory: history } = await fetchBreadthDaily(universeId)
+      const { points, chartHistory: history, indexBars: index } = await fetchBreadthDaily(universeId)
       if (!cancelled) {
         setServerPoints(points)
         setChartHistory(history)
+        setIndexBars(index)
         setHistoryLoading(false)
       }
     })()
@@ -159,6 +162,7 @@ function BreadthAnalysisBody({
           <DiffusionIndicatorsView
             bundle={bundle}
             chartHistory={chartHistory}
+            indexBars={indexBars}
             historyLoading={historyLoading}
             universeId={universeId}
             onUniverseChange={setUniverseId}

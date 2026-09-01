@@ -14,24 +14,36 @@ export type BreadthDailyPoint = {
   rvol15?: number | null
 }
 
+export type BreadthIndexBar = {
+  t: number
+  o: number
+  h: number
+  l: number
+  c: number
+  v: number
+}
+
 export type BreadthDailyResponse = {
   points: BreadthDailyPoint[]
   chartHistory: BreadthDailyPoint[]
+  indexBars: BreadthIndexBar[]
 }
 
 export async function fetchBreadthDaily(universe: string): Promise<BreadthDailyResponse> {
   try {
     const res = await fetch(`/api/breadth/daily?universe=${encodeURIComponent(universe)}`, {
       credentials: 'include',
+      cache: 'no-store',
     })
-    if (!res.ok) return { points: [], chartHistory: [] }
+    if (!res.ok) return { points: [], chartHistory: [], indexBars: [] }
     const json = await res.json()
     return {
       points: Array.isArray(json?.points) ? json.points : [],
       chartHistory: Array.isArray(json?.chartHistory) ? json.chartHistory : [],
+      indexBars: Array.isArray(json?.indexBars) ? json.indexBars : [],
     }
   } catch {
-    return { points: [], chartHistory: [] }
+    return { points: [], chartHistory: [], indexBars: [] }
   }
 }
 

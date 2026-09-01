@@ -252,3 +252,20 @@ export function computeBreadthChartHistory(universeId, stocks, builtAt, days = D
 export function clearBreadthChartCache() {
   chartCache.clear()
 }
+
+/**
+ * ASX 200 index OHLC for the diffusion chart upper pane (from SQLite bars).
+ * @param {number} [days]
+ */
+export function getIndexBarsForChart(days = DEFAULT_DAYS) {
+  const barsMap = loadBarsMap([INDEX_SYMBOL])
+  const indexBars = barsMap.get(INDEX_SYMBOL) ?? []
+  return indexBars.slice(-days).map((b) => ({
+    t: b.t,
+    o: b.o,
+    h: b.h,
+    l: b.l,
+    c: b.c,
+    v: b.v ?? 0,
+  }))
+}

@@ -4,7 +4,7 @@
 import { authEnabled, handleAuthApi, requireAuthOrSend, getUserFromRequest, authPublicConfig, createSessionToken, sessionSetCookieHeader, verifyCredentials, sessionClearCookieHeader } from './auth.mjs'
 import { getCachedSeries, getIntradaySeries, seriesCacheFileCount } from './getSeries.mjs'
 import { readBreadthHistory, upsertBreadthPoint, UNIVERSE_IDS } from './breadthStore.mjs'
-import { computeBreadthChartHistory } from './breadthHistory.mjs'
+import { computeBreadthChartHistory, getIndexBarsForChart } from './breadthHistory.mjs'
 import { dbPath } from './db.mjs'
 import {
   getSnapshotJobStatus,
@@ -319,16 +319,20 @@ export async function handleConnectApi(req, res, send) {
         return true
       }
       const snap = readMarketSnapshotRow()
-      const chartHistory =
-        snap && snapshotStockCount(snap.stocks) > 0
-          ? computeBreadthChartHistory(universe, snap.stocks, snap.builtAt)
-          : []
+      const builtAt = snap?.builtAt ?? 0
+      const chartHistory = computeBreadthChartHistory(
+        universe,
+        snap?.stocks ?? {},
+        builtAt,
+      )
+      const indexBars = getIndexBarsForChart()
       send(200, {
         universe,
         points: readBreadthHistory(universe),
         chartHistory,
+        indexBars,
         store: 'sqlite',
-      })
+      }, { 'Cache-Control': 'no-store' })
       return true
     }
     if (req.method === 'POST') {
@@ -781,15 +785,17 @@ export function mountExpressApi(app) {
     }
     const points = readBreadthHistory(universe)
     let chartHistory = []
+    let indexBars = []
     try {
       const snap = readMarketSnapshotRow()
-      if (snap && snapshotStockCount(snap.stocks) > 0) {
-        chartHistory = computeBreadthChartHistory(universe, snap.stocks, snap.builtAt)
-      }
+      const builtAt = snap?.builtAt ?? 0
+      chartHistory = computeBreadthChartHistory(universe, snap?.stocks ?? {}, builtAt)
+      indexBars = getIndexBarsForChart()
     } catch {
       /* optional */
     }
-    return res.json({ universe, points, chartHistory, store: 'sqlite' })
+    res.setHeader('Cache-Control', 'no-store')
+    return res.json({ universe, points, chartHistory, indexBars, store: 'sqlite' })
   })
 
   app.post('/api/breadth/daily', (req, res) => {

@@ -13,11 +13,12 @@ import {
   findDiffusionIndicator,
 } from './diffusionIndicators'
 import { fetchYahooOhlc, type OhlcBar } from '../../lib/yahoo'
-import type { BreadthDailyPoint } from '../../lib/breadthApi'
+import type { BreadthDailyPoint, BreadthIndexBar } from '../../lib/breadthApi'
 
 type Props = {
   bundle: BreadthBundle
   chartHistory: BreadthDailyPoint[]
+  indexBars: BreadthIndexBar[]
   historyLoading: boolean
   universeId: UniverseId
   onUniverseChange: (id: UniverseId) => void
@@ -37,6 +38,7 @@ function filterIndexToSeries(indexBars: OhlcBar[], seriesTimes: number[]): OhlcB
 export function DiffusionIndicatorsView({
   bundle,
   chartHistory,
+  indexBars: serverIndexBars,
   historyLoading,
   universeId,
   onUniverseChange,
@@ -44,8 +46,8 @@ export function DiffusionIndicatorsView({
 }: Props) {
   const [indicatorId, setIndicatorId] = useState<DiffusionIndicatorId>('sma-20')
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set(['sma']))
-  const [indexBars, setIndexBars] = useState<OhlcBar[]>([])
-  const [indexLoading, setIndexLoading] = useState(true)
+  const [fallbackIndexBars, setFallbackIndexBars] = useState<OhlcBar[]>([])
+  const [indexLoading, setIndexLoading] = useState(false)
 
   const def = findDiffusionIndicator(indicatorId)
   const indicatorSeries = useMemo(
@@ -57,26 +59,36 @@ export function DiffusionIndicatorsView({
     [indicatorSeries],
   )
 
+  const indexBars = useMemo<OhlcBar[]>(
+    () => (serverIndexBars.length ? serverIndexBars : fallbackIndexBars),
+    [serverIndexBars, fallbackIndexBars],
+  )
+
   useEffect(() => {
+    setFallbackIndexBars([])
+  }, [universeId])
+
+  useEffect(() => {
+    if (serverIndexBars.length || historyLoading) return
     let cancelled = false
     setIndexLoading(true)
-    const earliest = bundle.dailyHistory[0]?.day
+    const earliest = chartHistory[0]?.day ?? bundle.dailyHistory[0]?.day
     const from =
       earliest && earliest.length === 10
         ? new Date(`${earliest}T00:00:00Z`)
         : new Date(Date.now() - 120 * 86400 * 1000)
-    from.setDate(from.getDate() - 10)
+    from.setUTCDate(from.getUTCDate() - 10)
     const fromIso = from.toISOString().slice(0, 10)
     void fetchYahooOhlc(INDEX_SYMBOL, fromIso).then((bars) => {
       if (!cancelled) {
-        setIndexBars(bars ?? [])
+        setFallbackIndexBars(bars ?? [])
         setIndexLoading(false)
       }
     })
     return () => {
       cancelled = true
     }
-  }, [bundle.dailyHistory, bundle.historyKind])
+  }, [serverIndexBars.length, historyLoading, chartHistory, bundle.dailyHistory])
 
   const alignedIndex = useMemo(
     () => filterIndexToSeries(indexBars, seriesTimes),

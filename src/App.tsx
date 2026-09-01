@@ -124,10 +124,19 @@ export default function App() {
 
   const waitForSnapshotJob = useCallback(async () => {
     for (let i = 0; i < 600; i++) {
-      const res = await fetch('/api/snapshot/refresh', { credentials: 'include' })
-      if (!res.ok) return null
-      const json = (await res.json()) as { job?: { status?: string; message?: string } }
-      if (json.job?.status !== 'running') return json.job
+      try {
+        const res = await fetch('/api/snapshot/refresh', { credentials: 'include' })
+        if (res.status === 502 || res.status === 503 || res.status === 504) {
+          await new Promise((r) => setTimeout(r, 3000))
+          continue
+        }
+        if (!res.ok) return null
+        const json = (await res.json()) as { job?: { status?: string; message?: string } }
+        if (json.job?.status !== 'running') return json.job
+      } catch {
+        await new Promise((r) => setTimeout(r, 3000))
+        continue
+      }
       await new Promise((r) => setTimeout(r, 2000))
     }
     return null
