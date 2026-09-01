@@ -124,7 +124,11 @@ export type DeskSeriesMeta = {
 }
 
 /** Daily OHLC for pattern detection / annotated charts */
-export async function fetchYahooOhlc(symbol: string, from = '2023-01-01'): Promise<OhlcBar[] | null> {
+export async function fetchYahooOhlc(
+  symbol: string,
+  from = '2023-01-01',
+  opts?: { staleOk?: boolean },
+): Promise<OhlcBar[] | null> {
   const ticker = /\.AX$/i.test(symbol) ? symbol.replace(/\.AX$/i, '') : symbol
   const fromTs = Math.floor(new Date(`${from}T00:00:00Z`).getTime() / 1000)
 
@@ -134,7 +138,9 @@ export async function fetchYahooOhlc(symbol: string, from = '2023-01-01'): Promi
     if (sliced.length >= 30) return sliced
   }
 
-  const url = `/api/series/${encodeURIComponent(ticker)}?from=${from}`
+  const params = new URLSearchParams({ from })
+  if (opts?.staleOk) params.set('stale_ok', '1')
+  const url = `/api/series/${encodeURIComponent(ticker)}?${params}`
   try {
     const res = await fetchSeriesQueued(url)
     if (!res.ok) return null
@@ -156,7 +162,7 @@ export function patternScanFromIso(): string {
 }
 
 export async function fetchYahooOhlcForPatternScan(symbol: string): Promise<OhlcBar[] | null> {
-  return fetchYahooOhlc(symbol, patternScanFromIso())
+  return fetchYahooOhlc(symbol, patternScanFromIso(), { staleOk: true })
 }
 
 const OHLC_SESSION_MS = 45 * 60 * 1000

@@ -20,7 +20,8 @@ import { postPatternScanBatch, type PatternScanUploadRow } from '../../lib/patte
 const CONCURRENCY = 6
 const STALE_MS = 12 * 60 * 60 * 1000
 const BATCH_WRITE = 25
-const UI_TICK = 10
+const UI_TICK = 1
+const FLUSH_DEBOUNCE_MS = 400
 const INDEX_SYMBOL = '^AXJO'
 
 const PATTERN_IDS = KARTHIK_WEEKLY_PATTERNS.map((p) => p.id as KarthikPatternId)
@@ -58,6 +59,9 @@ export function useUnifiedSpecialScans(
     return m
   }, [stocks])
 
+  const stockByTickerRef = useRef(stockByTicker)
+  stockByTickerRef.current = stockByTicker
+
   useEffect(() => {
     const list = tickerKey ? tickerKey.split(',') : []
     if (!enabled || list.length === 0) {
@@ -70,6 +74,7 @@ export function useUnifiedSpecialScans(
     const g = ++gen.current
     const now = Date.now()
     let cancelled = false
+    let flushTimer: ReturnType<typeof setTimeout> | null = null
 
     const need = list.filter((t) => {
       const key = t.toUpperCase()
@@ -123,6 +128,10 @@ export function useUnifiedSpecialScans(
       const pendingPatternUpload: PatternScanUploadRow[] = []
 
       const flushWrites = () => {
+        if (flushTimer) {
+          clearTimeout(flushTimer)
+          flushTimer = null
+        }
         let bumpedWeekly = false
         let bumpedLivermore = false
         let bumpedScript = false
@@ -150,6 +159,14 @@ export function useUnifiedSpecialScans(
         }
       }
 
+      const scheduleFlush = () => {
+        if (flushTimer) return
+        flushTimer = setTimeout(() => {
+          flushTimer = null
+          if (!cancelled && g === gen.current) flushWrites()
+        }, FLUSH_DEBOUNCE_MS)
+      }
+
       setScanning(true)
       setDone(0)
       setTotal(need.length)
@@ -160,7 +177,7 @@ export function useUnifiedSpecialScans(
           if (i >= need.length) break
           const ticker = need[i]
           const key = ticker.toUpperCase()
-          const meta = stockByTicker.get(key)
+          const meta = stockByTickerRef.current.get(key)
           const needWeekly = isStale(getTickerWeeklySpecial(key)?.updatedAt, now)
           const needLivermore = isStale(getTickerLivermore(key)?.updatedAt, now)
           const needScript = isStale(getTickerScriptScan(key)?.updatedAt, now)
@@ -247,7 +264,9 @@ export function useUnifiedSpecialScans(
             Object.keys(pendingWeekly).length +
             Object.keys(pendingLivermore).length +
             Object.keys(pendingScript).length
-          if (pendingCount >= BATCH_WRITE || pendingPatternUpload.length >= 200) flushWrites()
+          if (pendingCount >= BATCH_WRITE || pendingPatternUpload.length >= 200) {
+            scheduleFlush()
+          }
 
           finished++
           if (!cancelled && g === gen.current && (finished % UI_TICK === 0 || finished === need.length)) {
@@ -259,7 +278,10 @@ export function useUnifiedSpecialScans(
       await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()))
       if (!cancelled && g === gen.current) {
         flushWrites()
-        const snapshotRows = collectSnapshotPatternUploadRows(stocks, indexM3)
+        const snapshotRows = collectSnapshotPatternUploadRows(
+          Array.from(stockByTickerRef.current.values()),
+          indexM3,
+        )
         if (snapshotRows.length) {
           void postPatternScanBatch(snapshotRows)
         }
@@ -270,8 +292,9 @@ export function useUnifiedSpecialScans(
 
     return () => {
       cancelled = true
+      if (flushTimer) clearTimeout(flushTimer)
     }
-  }, [tickerKey, enabled, stockByTicker, indexM3, stocks])
+  }, [tickerKey, enabled, indexM3])
 
   return {
     scanning,

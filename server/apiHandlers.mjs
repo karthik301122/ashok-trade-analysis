@@ -926,7 +926,8 @@ export async function loadSeriesForTicker(ticker, params, opts = {}) {
   const from = get('from') || defaultFromIso()
   let forceRefresh = get('refresh') === '1'
   if (forceRefresh && opts.skipForceRefresh) forceRefresh = false
-  const data = await getCachedSeries(ticker, from, { forceRefresh })
+  const staleOk = get('stale_ok') === '1' || get('staleOk') === '1'
+  const data = await getCachedSeries(ticker, from, { forceRefresh, staleOk })
   if (!data) return { status: 404, body: { error: 'No series', ticker } }
   return { status: 200, body: data }
 }
