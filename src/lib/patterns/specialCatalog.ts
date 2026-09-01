@@ -19,7 +19,7 @@ export type SpecialPatternDef = {
   category: SpecialPatternCategory
   kind: SpecialPatternKind
   bias: PatternBias
-  /** Human-readable formula shown in the Special Patterns tab */
+  /** Internal rule definition — not shown in the Special Patterns UI */
   formula: string
   description: string
   /** ScanScript source for kind=scan patterns (daily OHLC) */

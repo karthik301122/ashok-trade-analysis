@@ -13,11 +13,16 @@ export type IndexMembersFile = {
 
 export const INDEX_MEMBERS = raw as IndexMembersFile
 
+function memberList(key: keyof Pick<IndexMembersFile, 'asx200' | 'asx500' | 'mid' | 'small'>): string[] {
+  const list = INDEX_MEMBERS[key]
+  return Array.isArray(list) ? list : []
+}
+
 const SETS: Record<UniverseId, Set<string>> = {
-  asx200: new Set(INDEX_MEMBERS.asx200),
-  asx500: new Set(INDEX_MEMBERS.asx500),
-  mid: new Set(INDEX_MEMBERS.mid),
-  small: new Set(INDEX_MEMBERS.small),
+  asx200: new Set(memberList('asx200')),
+  asx500: new Set(memberList('asx500')),
+  mid: new Set(memberList('mid')),
+  small: new Set(memberList('small')),
 }
 
 export function membershipSet(id: UniverseId): Set<string> {

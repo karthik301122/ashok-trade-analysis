@@ -12,6 +12,7 @@ import { applyStocksOnlyFilter, STOCKS_ONLY_LS_KEY } from './lib/instrumentFilte
 import { RefreshCw } from 'lucide-react'
 import { MaintenancePage } from './components/MaintenancePage'
 import { PatternPrefsProvider } from './components/patterns/PatternPrefsContext'
+import { PanelErrorBoundary } from './components/PanelErrorBoundary'
 
 export default function App() {
   const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark')
@@ -449,16 +450,18 @@ export default function App() {
               </button>
             </div>
 
-            <MainPagePanels
-              page={page}
-              snapshot={displaySnapshot!}
-              view={view}
-              onViewChange={setView}
-              livePricesActive={Boolean(
-                deskConfig?.liveQuotes?.fresh && deskConfig.liveQuotes.marketOpen,
-              )}
-              backfilling={backfilling}
-            />
+            <PanelErrorBoundary title="This tab failed to load">
+              <MainPagePanels
+                page={page}
+                snapshot={displaySnapshot!}
+                view={view}
+                onViewChange={setView}
+                livePricesActive={Boolean(
+                  deskConfig?.liveQuotes?.fresh && deskConfig.liveQuotes.marketOpen,
+                )}
+                backfilling={backfilling}
+              />
+            </PanelErrorBoundary>
           </>
         ) : null}
       </main>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   createChart,
   LineSeries,
@@ -30,10 +30,14 @@ type Props = {
 }
 
 function barsToIndexLine(bars: OhlcBar[]): LineData<Time>[] {
-  return bars.map((b) => ({
-    time: b.t as UTCTimestamp,
-    value: b.c,
-  }))
+  const out: LineData<Time>[] = []
+  for (const b of bars) {
+    const t = b.t
+    const c = b.c
+    if (!Number.isFinite(t) || !Number.isFinite(c)) continue
+    out.push({ time: t as UTCTimestamp, value: c })
+  }
+  return out.sort((a, b) => (a.time as number) - (b.time as number))
 }
 
 export function DiffusionChart({
@@ -47,6 +51,7 @@ export function DiffusionChart({
   referenceLevels,
 }: Props) {
   const dark = useIsDark()
+  const [chartError, setChartError] = useState<string | null>(null)
   const indexWrapRef = useRef<HTMLDivElement>(null)
   const breadthWrapRef = useRef<HTMLDivElement>(null)
   const indexChartRef = useRef<IChartApi | null>(null)
@@ -58,98 +63,111 @@ export function DiffusionChart({
   const fittedRef = useRef(false)
 
   useEffect(() => {
+    setChartError(null)
     const indexEl = indexWrapRef.current
     const breadthEl = breadthWrapRef.current
     if (!indexEl || !breadthEl) return
 
-    const chartLayout = {
-      background: { color: dark ? '#0f1419' : '#ffffff' },
-      textColor: dark ? '#c8d0d8' : '#334155',
-      attributionLogo: false,
-    }
-    const grid = {
-      vertLines: { color: dark ? '#1e293b' : '#e2e8f0' },
-      horzLines: { color: dark ? '#1e293b' : '#e2e8f0' },
-    }
+    let indexChart: IChartApi | null = null
+    let breadthChart: IChartApi | null = null
+    let ro: ResizeObserver | null = null
 
-    const indexChart = createChart(indexEl, {
-      width: indexEl.clientWidth,
-      height: INDEX_PANE_PX,
-      layout: chartLayout,
-      grid,
-      rightPriceScale: { borderVisible: false },
-      timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false },
-    })
-    const breadthChart = createChart(breadthEl, {
-      width: breadthEl.clientWidth,
-      height: BREADTH_PANE_PX,
-      layout: chartLayout,
-      grid,
-      rightPriceScale: { borderVisible: false },
-      timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false },
-    })
-
-    const indexSeries = indexChart.addSeries(LineSeries, {
-      color: '#f97316',
-      lineWidth: 2,
-      priceLineVisible: true,
-      lastValueVisible: true,
-      title: indexLabel,
-    })
-    const breadthSeries = breadthChart.addSeries(LineSeries, {
-      color: indicatorColor,
-      lineWidth: 2,
-      priceLineVisible: true,
-      lastValueVisible: true,
-      title: indicatorLabel,
-    })
-
-    indexChart.priceScale('right').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.1 } })
-    breadthChart.priceScale('right').applyOptions({ scaleMargins: { top: 0.08, bottom: 0.08 } })
-
-    const removeLogos = () => {
-      indexEl.querySelector('#tv-attr-logo')?.remove()
-      breadthEl.querySelector('#tv-attr-logo')?.remove()
-    }
-    removeLogos()
-    requestAnimationFrame(removeLogos)
-
-    const syncRange = (source: IChartApi, target: IChartApi) => {
-      source.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-        if (syncing.current || !range) return
-        syncing.current = true
-        try {
-          target.timeScale().setVisibleLogicalRange(range)
-        } catch {
-          /* ignore */
-        }
-        syncing.current = false
-      })
-    }
-    syncRange(indexChart, breadthChart)
-    syncRange(breadthChart, indexChart)
-
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const w = Math.floor(entry.contentRect.width)
-        if (w < 1) continue
-        if (entry.target === indexEl) indexChart.applyOptions({ width: w })
-        if (entry.target === breadthEl) breadthChart.applyOptions({ width: w })
+    try {
+      const chartLayout = {
+        background: { color: dark ? '#0f1419' : '#ffffff' },
+        textColor: dark ? '#c8d0d8' : '#334155',
+        attributionLogo: false,
       }
-    })
-    ro.observe(indexEl)
-    ro.observe(breadthEl)
+      const grid = {
+        vertLines: { color: dark ? '#1e293b' : '#e2e8f0' },
+        horzLines: { color: dark ? '#1e293b' : '#e2e8f0' },
+      }
 
-    indexChartRef.current = indexChart
-    breadthChartRef.current = breadthChart
-    indexSeriesRef.current = indexSeries
-    breadthSeriesRef.current = breadthSeries
-    fittedRef.current = false
+      indexChart = createChart(indexEl, {
+        width: Math.max(1, indexEl.clientWidth),
+        height: INDEX_PANE_PX,
+        layout: chartLayout,
+        grid,
+        rightPriceScale: { borderVisible: false },
+        timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false },
+      })
+      breadthChart = createChart(breadthEl, {
+        width: Math.max(1, breadthEl.clientWidth),
+        height: BREADTH_PANE_PX,
+        layout: chartLayout,
+        grid,
+        rightPriceScale: { borderVisible: false },
+        timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false },
+      })
+
+      const indexSeries = indexChart.addSeries(LineSeries, {
+        color: '#f97316',
+        lineWidth: 2,
+        priceLineVisible: true,
+        lastValueVisible: true,
+        title: indexLabel,
+      })
+      const breadthSeries = breadthChart.addSeries(LineSeries, {
+        color: indicatorColor,
+        lineWidth: 2,
+        priceLineVisible: true,
+        lastValueVisible: true,
+        title: indicatorLabel,
+      })
+
+      indexChart.priceScale('right').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.1 } })
+      breadthChart.priceScale('right').applyOptions({ scaleMargins: { top: 0.08, bottom: 0.08 } })
+
+      const removeLogos = () => {
+        indexEl.querySelector('#tv-attr-logo')?.remove()
+        breadthEl.querySelector('#tv-attr-logo')?.remove()
+      }
+      removeLogos()
+      requestAnimationFrame(removeLogos)
+
+      const syncRange = (source: IChartApi, target: IChartApi) => {
+        source.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+          if (syncing.current || !range) return
+          syncing.current = true
+          try {
+            target.timeScale().setVisibleLogicalRange(range)
+          } catch {
+            /* ignore */
+          }
+          syncing.current = false
+        })
+      }
+      syncRange(indexChart, breadthChart)
+      syncRange(breadthChart, indexChart)
+
+      ro = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const w = Math.floor(entry.contentRect.width)
+          if (w < 1) continue
+          if (entry.target === indexEl) indexChart?.applyOptions({ width: w })
+          if (entry.target === breadthEl) breadthChart?.applyOptions({ width: w })
+        }
+      })
+      ro.observe(indexEl)
+      ro.observe(breadthEl)
+
+      indexChartRef.current = indexChart
+      breadthChartRef.current = breadthChart
+      indexSeriesRef.current = indexSeries
+      breadthSeriesRef.current = breadthSeries
+      fittedRef.current = false
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setChartError(message)
+      indexChart?.remove()
+      breadthChart?.remove()
+      return undefined
+    }
 
     return () => {
-      ro.disconnect()
-      indexChart.remove()
-      breadthChart.remove()
+      ro?.disconnect()
+      indexChart?.remove()
+      breadthChart?.remove()
       indexChartRef.current = null
       breadthChartRef.current = null
       indexSeriesRef.current = null
@@ -162,10 +180,15 @@ export function DiffusionChart({
     const indexSeries = indexSeriesRef.current
     const indexChart = indexChartRef.current
     if (!indexSeries || !indexChart || !indexBars.length) return
-    indexSeries.setData(barsToIndexLine(indexBars))
-    if (!fittedRef.current) {
-      indexChart.timeScale().fitContent()
-      fittedRef.current = true
+    try {
+      indexSeries.setData(barsToIndexLine(indexBars))
+      if (!fittedRef.current) {
+        indexChart.timeScale().fitContent()
+        fittedRef.current = true
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setChartError(message)
     }
   }, [indexBars])
 
@@ -174,40 +197,45 @@ export function DiffusionChart({
     const breadthChart = breadthChartRef.current
     if (!breadthSeries || !breadthChart) return
 
-    for (const pl of priceLinesRef.current) {
-      try {
-        breadthSeries.removePriceLine(pl)
-      } catch {
-        /* ignore */
+    try {
+      for (const pl of priceLinesRef.current) {
+        try {
+          breadthSeries.removePriceLine(pl)
+        } catch {
+          /* ignore */
+        }
       }
-    }
-    priceLinesRef.current = []
+      priceLinesRef.current = []
 
-    breadthSeries.applyOptions({
-      color: indicatorColor,
-      title: indicatorLabel,
-      autoscaleInfoProvider:
-        scale === 'percent'
-          ? () => ({
-              priceRange: { minValue: 0, maxValue: 100 },
-            })
-          : undefined,
-    })
-    breadthSeries.setData(indicatorSeries)
-
-    for (const level of referenceLevels) {
-      const pl = breadthSeries.createPriceLine({
-        price: level,
-        color: dark ? '#64748b' : '#94a3b8',
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: String(level),
+      breadthSeries.applyOptions({
+        color: indicatorColor,
+        title: indicatorLabel,
+        autoscaleInfoProvider:
+          scale === 'percent'
+            ? () => ({
+                priceRange: { minValue: 0, maxValue: 100 },
+              })
+            : undefined,
       })
-      priceLinesRef.current.push(pl)
-    }
+      breadthSeries.setData(indicatorSeries)
 
-    breadthChart.timeScale().fitContent()
+      for (const level of referenceLevels) {
+        const pl = breadthSeries.createPriceLine({
+          price: level,
+          color: dark ? '#64748b' : '#94a3b8',
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: String(level),
+        })
+        priceLinesRef.current.push(pl)
+      }
+
+      breadthChart.timeScale().fitContent()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setChartError(message)
+    }
   }, [indicatorSeries, indicatorLabel, indicatorColor, referenceLevels, scale, dark])
 
   const valueLabel =
@@ -230,16 +258,25 @@ export function DiffusionChart({
           </span>
         </div>
       </div>
-      <div
-        ref={indexWrapRef}
-        className="w-full overflow-hidden border-b border-[var(--color-border)]"
-        style={{ height: INDEX_PANE_PX }}
-      />
-      <div
-        ref={breadthWrapRef}
-        className="w-full overflow-hidden"
-        style={{ height: BREADTH_PANE_PX }}
-      />
+      {chartError ? (
+        <div className="flex h-[calc(100%-2.5rem)] flex-col items-center justify-center gap-2 px-6 text-center text-sm text-rose-700 dark:text-rose-300">
+          <p className="font-semibold">Chart could not be drawn</p>
+          <p className="font-mono text-xs text-[var(--color-ink-soft)]">{chartError}</p>
+        </div>
+      ) : (
+        <>
+          <div
+            ref={indexWrapRef}
+            className="w-full overflow-hidden border-b border-[var(--color-border)]"
+            style={{ height: INDEX_PANE_PX }}
+          />
+          <div
+            ref={breadthWrapRef}
+            className="w-full overflow-hidden"
+            style={{ height: BREADTH_PANE_PX }}
+          />
+        </>
+      )}
     </div>
   )
 }

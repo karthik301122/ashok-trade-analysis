@@ -111,13 +111,14 @@ function rankedByWeight(stocks: StockMetrics[]): StockMetrics[] {
 }
 
 export function filterUniverse(stocks: StockMetrics[], id: UniverseId): StockMetrics[] {
+  const list = stocks ?? []
   const members = membershipSet(id)
-  const filtered = stocks.filter((s) => members.has(s.ticker))
+  const filtered = list.filter((s) => members.has(s.ticker))
   // Prefer explicit membership file; fall back to weight ranks if file empty/mismatched
   if (filtered.length >= Math.min(50, members.size * 0.5 || 50)) {
     return rankedByWeight(filtered)
   }
-  const ranked = rankedByWeight(stocks)
+  const ranked = rankedByWeight(list)
   if (id === 'asx200') return ranked.slice(0, 200)
   if (id === 'asx500') return ranked.slice(0, 500)
   if (id === 'mid') return ranked.slice(200, 500)

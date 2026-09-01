@@ -204,9 +204,7 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
       const q = query.toLowerCase()
       list = list.filter(
         (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.formula.toLowerCase().includes(q) ||
-          p.description.toLowerCase().includes(q),
+          p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q),
       )
     }
     return list
@@ -292,7 +290,7 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search patterns or formulas…"
+                placeholder="Search patterns…"
                 className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] py-2 pl-8 pr-2 text-xs outline-none focus:border-violet-500"
               />
             </div>
@@ -365,8 +363,8 @@ export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
                               : count}
                           </span>
                         </div>
-                        <p className="mt-0.5 line-clamp-2 font-mono text-[9px] text-[var(--color-ink-soft)]">
-                          {p.formula}
+                        <p className="mt-0.5 line-clamp-2 text-[9px] text-[var(--color-ink-soft)]">
+                          {p.description}
                         </p>
                       </button>
                       <button
@@ -547,7 +545,7 @@ function WeeklyHitsTable({
             <td colSpan={headers.length} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
               {scanning
                 ? 'Scanning weekly OHLC across the universe…'
-                : 'No stocks match this weekly formula right now.'}
+                : 'No stocks match this weekly pattern right now.'}
             </td>
           </tr>
         ) : (
@@ -666,7 +664,7 @@ function LivermoreHitsTable({
             <td colSpan={headers.length} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
               {scanning
                 ? 'Scanning Livermore scores across the universe…'
-                : 'No stocks match this Livermore formula right now.'}
+                : 'No stocks match this Livermore pattern right now.'}
             </td>
           </tr>
         ) : (
@@ -759,7 +757,7 @@ function ScriptHitsTable({
             <td colSpan={9} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
               {scanning
                 ? 'Scanning daily OHLC across the universe…'
-                : 'No stocks match this ScanScript formula right now.'}
+                : 'No stocks match this ScanScript pattern right now.'}
             </td>
           </tr>
         ) : (
@@ -846,7 +844,7 @@ function SnapshotHitsTable({
         {!hits.length ? (
           <tr>
             <td colSpan={8} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
-              No stocks match this formula in the loaded universe right now.
+              No stocks match this pattern in the loaded universe right now.
             </td>
           </tr>
         ) : (
@@ -965,36 +963,28 @@ function PatternDetail({
           {copied ? 'Copied!' : `Copy ${hitCount} to TradingView`}
         </button>
       </div>
-      <div className="mt-3 rounded-lg border border-violet-300/60 bg-violet-50/50 p-3 dark:border-violet-800 dark:bg-violet-950/20">
-        <p className="text-[10px] font-bold uppercase tracking-wide text-violet-800 dark:text-violet-200">
-          Formula
+      {pattern.kind === 'snapshot' ? (
+        <p className="mt-3 text-[10px] text-[var(--color-ink-soft)]">
+          Benchmark 3M ({indexM3 >= 0 ? '+' : ''}
+          {indexM3.toFixed(1)}%) used where the scan references index performance.
         </p>
-        <p className="mt-1 whitespace-pre-wrap font-mono text-sm leading-relaxed text-violet-950 dark:text-violet-100">
-          {pattern.formula}
+      ) : pattern.kind === 'weekly' ? (
+        <p className="mt-3 text-[10px] text-[var(--color-ink-soft)]">
+          Daily bars → ISO weeks (completed weeks only). Date shown = pattern{' '}
+          <em>start</em> (oldest week in the setup). All weekly patterns require Stage 2 or ≥30% rally
+          over ~13 weeks.
         </p>
-        {pattern.kind === 'snapshot' ? (
-          <p className="mt-2 text-[10px] text-[var(--color-ink-soft)]">
-            Benchmark 3M ({indexM3 >= 0 ? '+' : ''}
-            {indexM3.toFixed(1)}%) used where the formula references index 3M.
-          </p>
-        ) : pattern.kind === 'weekly' ? (
-          <p className="mt-2 text-[10px] text-[var(--color-ink-soft)]">
-            Daily bars → ISO weeks (completed weeks only). Date shown = pattern{' '}
-            <em>start</em> (oldest week in the setup). All weekly patterns require Stage 2 or ≥30%
-            rally over ~13 weeks.
-          </p>
-        ) : pattern.kind === 'scan' ? (
-          <p className="mt-2 text-[10px] text-[var(--color-ink-soft)]">
-            Daily OHLC ScanScript scan. Breakout uses prior 4-day tightness + dry RVOL before the
-            signal bar (pct_chg(5) and rvol cannot be both low and high on the same bar).
-          </p>
-        ) : (
-          <p className="mt-2 text-[10px] text-[var(--color-ink-soft)]">
-            Daily OHLC vs index 20d return. RVOL, RS rating, 52W distance, ADX included. Institutional
-            ownership / earnings growth not available from Yahoo.
-          </p>
-        )}
-      </div>
+      ) : pattern.kind === 'scan' ? (
+        <p className="mt-3 text-[10px] text-[var(--color-ink-soft)]">
+          Daily OHLC ScanScript scan. Breakout uses prior 4-day tightness + dry RVOL before the signal
+          bar (pct_chg(5) and rvol cannot be both low and high on the same bar).
+        </p>
+      ) : (
+        <p className="mt-3 text-[10px] text-[var(--color-ink-soft)]">
+          Daily OHLC vs index 20d return. RVOL, RS rating, 52W distance, ADX included. Institutional
+          ownership / earnings growth not available from Yahoo.
+        </p>
+      )}
     </div>
   )
 }

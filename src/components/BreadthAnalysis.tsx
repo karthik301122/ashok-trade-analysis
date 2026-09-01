@@ -20,6 +20,7 @@ import { SeasonalityTab } from './breadth/SeasonalityTab'
 import { copyTickersToTradingView } from '../lib/tradingview'
 import { fetchBreadthDaily, postBreadthDaily, type BreadthDailyPoint, type BreadthIndexBar } from '../lib/breadthApi'
 import { membershipSourceLabel } from '../data/indexMembership'
+import { PanelErrorBoundary } from './PanelErrorBoundary'
 
 type Props = { snapshot: MarketSnapshot; active?: boolean }
 type TabId = 'sma' | 'rsi' | 'rsvol' | 'charts' | 'howto' | 'monthpulse'
@@ -141,7 +142,8 @@ function BreadthAnalysisBody({
   }
 
   return (
-    <div className={paused ? 'hidden' : 'space-y-5'} aria-hidden={paused}>
+    <PanelErrorBoundary title="Breadth analysis failed to load">
+      <div className={paused ? 'hidden' : 'space-y-5'} aria-hidden={paused}>
       {viewMode === 'diffusion' ? (
         <>
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -301,7 +303,8 @@ function BreadthAnalysisBody({
       )}
         </>
       )}
-    </div>
+      </div>
+    </PanelErrorBoundary>
   )
 }
 

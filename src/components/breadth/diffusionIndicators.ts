@@ -88,6 +88,20 @@ export function dayToChartTime(day: string): UTCTimestamp {
   return Math.floor(Date.now() / 1000) as UTCTimestamp
 }
 
+function dedupeLineSeries(data: LineData<Time>[]): LineData<Time>[] {
+  const byTime = new Map<number, LineData<Time>>()
+  for (const point of data) {
+    const t = point.time as number
+    if (!Number.isFinite(t)) continue
+    const v = point.value
+    if (typeof v !== 'number' || Number.isNaN(v)) continue
+    byTime.set(t, { time: point.time, value: v })
+  }
+  return [...byTime.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, point]) => point)
+}
+
 function seriesFromDailyHistory(
   points: BreadthDailyPoint[],
   field: keyof BreadthDailyPoint,
@@ -98,7 +112,7 @@ function seriesFromDailyHistory(
     if (typeof v !== 'number' || Number.isNaN(v)) continue
     out.push({ time: dayToChartTime(p.day), value: v })
   }
-  return out.sort((a, b) => (a.time as number) - (b.time as number))
+  return dedupeLineSeries(out)
 }
 
 function seriesFromBundleHistory(
@@ -117,7 +131,7 @@ function seriesFromBundleHistory(
     const time = day?.length === 10 ? dayToChartTime(day) : (base + i * 86400)
     out.push({ time: time as UTCTimestamp, value: v })
   }
-  return out
+  return dedupeLineSeries(out)
 }
 
 export function buildDiffusionSeries(
@@ -139,15 +153,17 @@ export function buildDiffusionSeries(
     return seriesFromDailyHistory(daily, def.field)
   }
   if (indicatorId === 'thrust' && daily.length) {
-    return daily.map((p) => {
-      const adv = p.advancing ?? 0
-      const dec = p.declining ?? 0
-      const tot = adv + dec
-      return {
-        time: dayToChartTime(p.day),
-        value: tot > 0 ? Math.round((adv / tot) * 1000) / 1000 : 0.5,
-      }
-    })
+    return dedupeLineSeries(
+      daily.map((p) => {
+        const adv = p.advancing ?? 0
+        const dec = p.declining ?? 0
+        const tot = adv + dec
+        return {
+          time: dayToChartTime(p.day),
+          value: tot > 0 ? Math.round((adv / tot) * 1000) / 1000 : 0.5,
+        }
+      }),
+    )
   }
   if (def.historyKey) {
     return seriesFromBundleHistory(bundle, def.historyKey)
