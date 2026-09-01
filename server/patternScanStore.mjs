@@ -13,8 +13,9 @@ export function upsertPatternScanBatch(entries) {
   )
   const now = Date.now()
   let n = 0
-  const tx = db.transaction((rows) => {
-    for (const row of rows) {
+  db.exec('BEGIN')
+  try {
+    for (const row of entries) {
       const ticker = String(row.ticker || '').toUpperCase()
       const patternId = String(row.patternId || '')
       const score = Number(row.score)
@@ -22,8 +23,15 @@ export function upsertPatternScanBatch(entries) {
       stmt.run(ticker, patternId, score, row.confirmed ? 1 : 0, now)
       n++
     }
-  })
-  tx(entries)
+    db.exec('COMMIT')
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK')
+    } catch {
+      /* ignore */
+    }
+    throw err
+  }
   return n
 }
 
