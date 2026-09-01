@@ -9,6 +9,7 @@ import { mountExpressApi } from './apiHandlers.mjs'
 import { loadEnvFile } from './loadEnv.mjs'
 import { maybeStartBackgroundSnapshot } from './snapshotJob.mjs'
 import { maybeStartLiveQuoteScheduler } from './liveQuoteJob.mjs'
+import { maybeStartIndexMembersScheduler } from './indexMembersJob.mjs'
 import { dbPath, dbStoreLabel, initDb } from './db.mjs'
 import { maintenanceMiddleware } from './maintenance.mjs'
 
@@ -48,5 +49,6 @@ app.listen(port, '0.0.0.0', () => {
   setTimeout(() => {
     maybeStartBackgroundSnapshot()
     maybeStartLiveQuoteScheduler()
+    maybeStartIndexMembersScheduler()
   }, 5000)
 })

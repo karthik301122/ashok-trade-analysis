@@ -1,5 +1,6 @@
 import { sqlAll } from './db.mjs'
 import { UNIVERSE_IDS } from './breadthStore.mjs'
+import { tickersForUniverseId } from './eodhdIndexMembers.mjs'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -27,10 +28,13 @@ function toBarSymbol(ticker) {
 }
 
 /**
- * Full ASX universe by weight rank — OHLC bars come from SQLite, not the live snapshot row set.
+ * Index membership from indexMembers.json (EODHD); fallback to weight ranks if missing.
  * @param {string} universeId
  */
 function universeTickers(universeId) {
+  const fromFile = tickersForUniverseId(universeId)
+  if (fromFile.length >= 50) return fromFile
+
   const ranked = loadUniverseRows().sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
   if (universeId === 'asx200') return ranked.slice(0, 200).map((s) => s.ticker)
   if (universeId === 'asx500') return ranked.slice(0, 500).map((s) => s.ticker)

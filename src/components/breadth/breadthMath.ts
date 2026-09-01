@@ -7,22 +7,22 @@ export const UNIVERSES: { id: UniverseId; label: string; hint: string }[] = [
   {
     id: 'asx200',
     label: 'Top 200',
-    hint: 'Membership set from indexMembers.json (weight-rank proxy unless rebuilt from official CSV)',
+    hint: 'S&P/ASX 200 (EODHD AXJO.INDX constituents)',
   },
   {
     id: 'asx500',
     label: 'Top 500',
-    hint: 'Weight ranks 1–500 in our universe — not an official ASX 500 list',
+    hint: 'All Ordinaries — ~500 largest ASX listings (EODHD AORD.INDX)',
   },
   {
     id: 'mid',
     label: 'Mid (201–500)',
-    hint: 'Weight ranks 201–500 — not the official MidCap index',
+    hint: 'In All Ordinaries but not in ASX 200',
   },
   {
     id: 'small',
-    label: 'Small (501+)',
-    hint: 'Weight ranks 501+ — thinner names in our universe',
+    label: 'Small',
+    hint: 'S&P/ASX Small Ordinaries (EODHD AXSO.INDX)',
   },
 ]
 

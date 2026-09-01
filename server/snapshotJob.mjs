@@ -38,16 +38,18 @@ export async function recoverStaleSnapshotJob() {
   return true
 }
 
-function snapshotNeedsMoreWork(existing, jobStatus) {
+function snapshotNeedsMoreWork(existing) {
   if (!existing) return true
   const universe = loadUniverse()
   const readiness = readinessFromSnapshot(
     { ...existing, fresh: isSnapshotFresh(existing.builtAt) },
     universe.length,
   )
-  if (!readiness.snapshotAcceptable) return true
-  if (jobStatus === 'error') return true
-  return false
+  return !readiness.snapshotAcceptable
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms))
 }
 
 function loadUniverse() {
@@ -78,8 +80,29 @@ async function setJob(status, fields = {}) {
   )
 }
 
+export async function reconcileAcceptableSnapshotJob() {
+  const row = await sqlOne('SELECT * FROM snapshot_job WHERE id = 1')
+  if (!row || row.status !== 'error') return false
+  const existing = await readMarketSnapshotDbRow()
+  if (!existing || snapshotNeedsMoreWork(existing)) return false
+  await setJob('done', {
+    started_at: row.started_at,
+    finished_at: existing.builtAt,
+    message:
+      existing.failed > 0
+        ? `ok · ${existing.failed} still missing after retry`
+        : 'ok',
+    loaded: existing.loaded,
+    failed: existing.failed,
+    total: row.total,
+  })
+  console.log('[snapshot] reconciled error job — snapshot already acceptable')
+  return true
+}
+
 export async function getSnapshotJobStatus() {
   await recoverStaleSnapshotJob()
+  await reconcileAcceptableSnapshotJob()
   const row = await sqlOne('SELECT * FROM snapshot_job WHERE id = 1')
   if (!row) return { status: 'idle' }
   return {
@@ -341,7 +364,7 @@ export async function runUniverseSnapshot(opts = {}) {
     !retryFailedOnly &&
     existing &&
     isSnapshotFresh(existing.builtAt) &&
-    !snapshotNeedsMoreWork(existing, job.status)
+    !snapshotNeedsMoreWork(existing)
   ) {
     return {
       loaded: existing.loaded,
@@ -355,7 +378,7 @@ export async function runUniverseSnapshot(opts = {}) {
     !force &&
     !retryFailedOnly &&
     existing &&
-    snapshotNeedsMoreWork(existing, job.status)
+    snapshotNeedsMoreWork(existing)
 
   runningJob = (async () => {
     const universe = loadUniverse()
@@ -521,12 +544,21 @@ export async function runUniverseSnapshot(opts = {}) {
       return { loaded, failed, builtAt, asOf, skipped: false }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      const loaded = Object.keys(stocks).length
+      const failed = total - loaded
+      if (loaded > 0) {
+        try {
+          await persistSnapshot(stocks, indexPerf, loaded, failed)
+        } catch {
+          /* best-effort */
+        }
+      }
       await setJob('error', {
         started_at: started,
         finished_at: Date.now(),
         message,
-        loaded: 0,
-        failed: 0,
+        loaded,
+        failed,
         total,
       })
       console.error('[snapshot] failed:', message)

@@ -25,11 +25,14 @@ export function membershipSet(id: UniverseId): Set<string> {
 }
 
 export function membershipSourceLabel(): string {
+  if (INDEX_MEMBERS.source === 'eodhd-fundamentals') {
+    return `EODHD index constituents · as of ${INDEX_MEMBERS.asOf}`
+  }
   if (INDEX_MEMBERS.source === 'official-csv') {
     return `ASX200 from official CSV · as of ${INDEX_MEMBERS.asOf}`
   }
   if (INDEX_MEMBERS.source === 'ioz-etf-holdings') {
     return `ASX200 via free iShares IOZ holdings · as of ${INDEX_MEMBERS.asOf}`
   }
-  return `Weight-rank proxy sets · as of ${INDEX_MEMBERS.asOf} (run npm run refresh:asx200 for free IOZ list)`
+  return `Weight-rank proxy sets · as of ${INDEX_MEMBERS.asOf} (run npm run refresh:index-members)`
 }
