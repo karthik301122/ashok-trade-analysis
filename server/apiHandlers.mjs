@@ -44,6 +44,7 @@ import {
 } from './production.mjs'
 import { getLiveQuotesMeta } from './liveQuotes.mjs'
 import { runLiveQuoteRefresh } from './liveQuoteJob.mjs'
+import { maintenanceEnabled, maintenanceMessage } from './maintenance.mjs'
 
 const __apiDir = path.dirname(fileURLToPath(import.meta.url))
 let universeCountCache = null
@@ -397,6 +398,8 @@ export async function handleConnectApi(req, res, send) {
       },
       readiness,
       authRequired: authEnabled(),
+      maintenance: maintenanceEnabled(),
+      maintenanceMessage: maintenanceEnabled() ? maintenanceMessage() : undefined,
       seriesCached: await seriesCacheFileCount(),
       store: dbStoreLabel(),
       database: dbPath(),
@@ -524,6 +527,8 @@ export function mountExpressApi(app) {
       },
       readiness,
       authRequired: authEnabled(),
+      maintenance: maintenanceEnabled(),
+      maintenanceMessage: maintenanceEnabled() ? maintenanceMessage() : undefined,
       seriesCached: await seriesCacheFileCount(),
       store: dbStoreLabel(),
       database: dbPath(),

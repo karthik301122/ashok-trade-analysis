@@ -7,6 +7,8 @@ export type DeskServerConfig = {
   isAdmin: boolean
   provider?: string
   eodhdOnly?: boolean
+  maintenance?: boolean
+  maintenanceMessage?: string
   liveQuotes?: {
     fresh: boolean
     marketOpen: boolean
@@ -36,6 +38,8 @@ export async function fetchDeskServerConfig(
       const j = (await res.json()) as Partial<DeskServerConfig> & {
         provider?: string
         eodhdOnly?: boolean
+        maintenance?: boolean
+        maintenanceMessage?: string
         liveQuotes?: DeskServerConfig['liveQuotes']
       }
       return {
@@ -44,6 +48,9 @@ export async function fetchDeskServerConfig(
         isAdmin: Boolean(j.isAdmin),
         provider: typeof j.provider === 'string' ? j.provider : undefined,
         eodhdOnly: Boolean(j.eodhdOnly),
+        maintenance: Boolean(j.maintenance),
+        maintenanceMessage:
+          typeof j.maintenanceMessage === 'string' ? j.maintenanceMessage : undefined,
         liveQuotes: j.liveQuotes,
       }
     } catch {

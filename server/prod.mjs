@@ -10,6 +10,7 @@ import { loadEnvFile } from './loadEnv.mjs'
 import { maybeStartBackgroundSnapshot } from './snapshotJob.mjs'
 import { maybeStartLiveQuoteScheduler } from './liveQuoteJob.mjs'
 import { dbPath, dbStoreLabel, initDb } from './db.mjs'
+import { maintenanceMiddleware } from './maintenance.mjs'
 
 loadEnvFile()
 
@@ -27,6 +28,7 @@ const port = Number(process.env.PORT) || 4173
 
 const app = express()
 app.use(express.json({ limit: '8mb' }))
+app.use(maintenanceMiddleware)
 
 mountExpressApi(app)
 

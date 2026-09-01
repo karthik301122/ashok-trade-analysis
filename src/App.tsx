@@ -10,6 +10,7 @@ import type { MarketSnapshot } from './data/types'
 import { ASX_UNIVERSE_COUNT } from './data/universe'
 import { applyStocksOnlyFilter, STOCKS_ONLY_LS_KEY } from './lib/instrumentFilter'
 import { RefreshCw } from 'lucide-react'
+import { MaintenancePage } from './components/MaintenancePage'
 import { PatternPrefsProvider } from './components/patterns/PatternPrefsContext'
 
 export default function App() {
@@ -32,6 +33,11 @@ export default function App() {
   } | null>(null)
   const [retryingFailed, setRetryingFailed] = useState(false)
   const [deskConfig, setDeskConfig] = useState<DeskServerConfig | null>(null)
+  const [siteMaintenance, setSiteMaintenance] = useState<{
+    checking: boolean
+    active: boolean
+    message?: string
+  }>({ checking: true, active: false })
   const [stocksOnly, setStocksOnly] = useState(
     () => localStorage.getItem(STOCKS_ONLY_LS_KEY) === '1',
   )
@@ -46,6 +52,23 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STOCKS_ONLY_LS_KEY, stocksOnly ? '1' : '0')
   }, [stocksOnly])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const cfg = await fetchDeskServerConfig()
+      if (cancelled) return
+      setDeskConfig(cfg)
+      setSiteMaintenance({
+        checking: false,
+        active: Boolean(cfg.maintenance),
+        message: cfg.maintenanceMessage,
+      })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const displaySnapshot = useMemo(
     () => (snapshot ? applyStocksOnlyFilter(snapshot, stocksOnly) : null),
@@ -264,6 +287,18 @@ export default function App() {
     if (deskConfig?.eodhdOnly || deskConfig?.provider === 'eodhd') return ' · EODHD'
     return ' · yahoo-finance2'
   })()
+
+  if (siteMaintenance.checking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-900">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-teal-200 border-t-teal-600" />
+      </div>
+    )
+  }
+
+  if (siteMaintenance.active) {
+    return <MaintenancePage message={siteMaintenance.message} />
+  }
 
   return (
     <PatternPrefsProvider user={user}>

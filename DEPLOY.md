@@ -128,6 +128,17 @@ curl -s https://tradersscope.com/api/health | jq '.store, .database, .readiness'
 
 `store` should be `"postgres"`.
 
+**5. Maintenance mode**
+
+While rebuilding a fresh Postgres snapshot (or other upgrades), block public use without stopping background jobs:
+
+| Name | Value |
+|------|--------|
+| `MAINTENANCE_MODE` | `true` |
+| `MAINTENANCE_MESSAGE` | Optional custom text for the maintenance screen |
+
+Save and restart. Visitors see a maintenance page; `/api/health` and `/api/ping` still work for monitoring. Remove `MAINTENANCE_MODE` or set `false` when `readiness.snapshotAcceptable` is true.
+
 ### Multi-user production (200 users)
 
 ```powershell
