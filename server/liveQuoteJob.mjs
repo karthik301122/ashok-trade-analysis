@@ -5,6 +5,8 @@ import { fetchEodhdLiveQuotes, eodhdEnabled } from './eodhd.mjs'
 import { isEodhdDailyLimitExceeded } from './eodhdLimit.mjs'
 import { resolveYahooSymbol } from './getSeries.mjs'
 import { isAsxMarketSession, upsertLiveQuotesFromEodhd } from './liveQuotes.mjs'
+import { maintenanceEnabled } from './maintenance.mjs'
+import { getSnapshotJobStatus } from './snapshotJob.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -21,6 +23,9 @@ function loadTickers() {
 export async function runLiveQuoteRefresh() {
   if (!eodhdEnabled()) return { skipped: true, reason: 'eodhd_disabled' }
   if (isEodhdDailyLimitExceeded()) return { skipped: true, reason: 'eodhd_daily_limit' }
+  if (maintenanceEnabled()) return { skipped: true, reason: 'maintenance' }
+  const snapJob = await getSnapshotJobStatus()
+  if (snapJob.status === 'running') return { skipped: true, reason: 'snapshot_build' }
   if (!isAsxMarketSession()) return { skipped: true, reason: 'market_closed' }
   if (runningJob) return runningJob
 
