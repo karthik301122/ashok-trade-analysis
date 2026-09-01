@@ -12,6 +12,90 @@ import {
 import type { ReactNode } from 'react'
 import type { BreadthBundle } from './breadthMath'
 
+type TooltipCoord = { x?: number; y?: number }
+type TooltipRect = { x?: number; y?: number; width?: number; height?: number }
+
+/** Place tooltip above or below the cursor so it does not cover chart lines. */
+function offsetChartTooltipPosition(
+  coord?: TooltipCoord,
+  rect?: TooltipRect,
+): { x: number; y: number } {
+  const x0 = coord?.x ?? 0
+  const y0 = coord?.y ?? 0
+  const width = rect?.width ?? 280
+  const height = rect?.height ?? 200
+  const boxW = 132
+  const boxH = 76
+  const pad = 8
+  let x = x0 - boxW / 2
+  x = Math.max(pad, Math.min(x, width - boxW - pad))
+  const yAbove = y0 - boxH - 14
+  const maxY = height - boxH - pad
+  const y = yAbove >= pad ? yAbove : Math.min(y0 + 14, maxY)
+  return { x, y }
+}
+
+const chartTooltipCursor = { stroke: '#94a3b8', strokeDasharray: '4 4', strokeWidth: 1 }
+
+type ChartTooltipPayload = {
+  active?: boolean
+  payload?: Array<{ name?: string; value?: number; color?: string }>
+  label?: string | number
+  coordinate?: TooltipCoord
+  viewBox?: TooltipRect
+}
+
+function ChartTooltipContent({
+  active,
+  payload,
+  label,
+  coordinate,
+  viewBox,
+}: ChartTooltipPayload) {
+  if (!active || !payload?.length) return null
+  const rect: TooltipRect = {
+    width: viewBox?.width,
+    height: viewBox?.height,
+  }
+  const { x, y } = offsetChartTooltipPosition(coordinate as TooltipCoord, rect)
+  return (
+    <div
+      className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-xs shadow-md"
+      style={{
+        position: 'absolute',
+        left: x,
+        top: y,
+        pointerEvents: 'none',
+        minWidth: '7rem',
+      }}
+    >
+      {label != null && label !== '' && (
+        <p className="mb-1 font-semibold text-[var(--color-ink)]">{label}</p>
+      )}
+      {payload.map((entry) => (
+        <p
+          key={String(entry.name)}
+          className="tabular-nums"
+          style={{ color: entry.color ?? 'var(--color-ink-soft)' }}
+        >
+          {entry.name} : {entry.value}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+function ChartTooltip() {
+  return (
+    <Tooltip
+      content={<ChartTooltipContent />}
+      wrapperStyle={{ pointerEvents: 'none', zIndex: 20, outline: 'none' }}
+      cursor={chartTooltipCursor}
+      isAnimationActive={false}
+    />
+  )
+}
+
 function ChartCard({
   title,
   subtitle,
@@ -111,7 +195,7 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} />
-            <Tooltip />
+            <ChartTooltip />
             <Legend />
             <Line
               type="monotone"
@@ -143,7 +227,7 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <Tooltip />
+            <ChartTooltip />
             <Line type="monotone" dataKey="v" name="20 SMA" stroke="#e11d48" dot={false} strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
@@ -161,7 +245,7 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <Tooltip />
+            <ChartTooltip />
             <Line type="monotone" dataKey="v" name="50 SMA" stroke="#db2777" dot={false} strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
@@ -179,7 +263,7 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <Tooltip />
+            <ChartTooltip />
             <Line type="monotone" dataKey="v" name="200 SMA" stroke="#f43f5e" dot={false} strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
@@ -197,7 +281,7 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 1]} tick={{ fontSize: 10 }} />
-            <Tooltip />
+            <ChartTooltip />
             <Legend />
             <Line type="monotone" dataKey="Thrust" stroke="#7c3aed" dot={false} strokeWidth={2} />
             <Line type="monotone" dataKey="Ma" name="10-MA" stroke="#d97706" dot={false} strokeWidth={2} />
@@ -221,7 +305,7 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} />
-            <Tooltip />
+            <ChartTooltip />
             <Line type="monotone" dataKey="v" name="Near 52W High" stroke="#2563eb" dot={false} strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
@@ -239,7 +323,7 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <Tooltip />
+            <ChartTooltip />
             <Legend />
             <Line type="monotone" dataKey="Overbought" stroke="#7c3aed" dot={false} strokeWidth={2} />
             <Line type="monotone" dataKey="Oversold" stroke="#ef4444" dot={false} strokeWidth={2} />
@@ -264,7 +348,7 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <Tooltip />
+            <ChartTooltip />
             <Line type="monotone" dataKey="v" name="RS ≥ 50" stroke="#0d9488" dot={false} strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
@@ -286,7 +370,7 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <Tooltip />
+            <ChartTooltip />
             <Line type="monotone" dataKey="v" name="RVOL ≥ 1.5×" stroke="#ca8a04" dot={false} strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
