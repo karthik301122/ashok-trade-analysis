@@ -13,6 +13,11 @@ import {
 import type { OhlcBar } from '../../lib/yahoo'
 import { useIsDark } from '../../lib/useIsDark'
 
+/** Fixed chart stack height — avoids autoSize + flex feedback loops. */
+const CHART_HEIGHT_PX = 560
+const INDEX_PANE_PX = Math.round(CHART_HEIGHT_PX * 0.42)
+const BREADTH_PANE_PX = CHART_HEIGHT_PX - INDEX_PANE_PX
+
 type Props = {
   indexBars: OhlcBar[]
   indexLabel: string
@@ -50,37 +55,36 @@ export function DiffusionChart({
   const breadthSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const priceLinesRef = useRef<IPriceLine[]>([])
   const syncing = useRef(false)
+  const fittedRef = useRef(false)
 
   useEffect(() => {
     const indexEl = indexWrapRef.current
     const breadthEl = breadthWrapRef.current
     if (!indexEl || !breadthEl) return
 
+    const chartLayout = {
+      background: { color: dark ? '#0f1419' : '#ffffff' },
+      textColor: dark ? '#c8d0d8' : '#334155',
+      attributionLogo: false,
+    }
+    const grid = {
+      vertLines: { color: dark ? '#1e293b' : '#e2e8f0' },
+      horzLines: { color: dark ? '#1e293b' : '#e2e8f0' },
+    }
+
     const indexChart = createChart(indexEl, {
-      autoSize: true,
-      layout: {
-        background: { color: dark ? '#0f1419' : '#ffffff' },
-        textColor: dark ? '#c8d0d8' : '#334155',
-        attributionLogo: false,
-      },
-      grid: {
-        vertLines: { color: dark ? '#1e293b' : '#e2e8f0' },
-        horzLines: { color: dark ? '#1e293b' : '#e2e8f0' },
-      },
+      width: indexEl.clientWidth,
+      height: INDEX_PANE_PX,
+      layout: chartLayout,
+      grid,
       rightPriceScale: { borderVisible: false },
       timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false },
     })
     const breadthChart = createChart(breadthEl, {
-      autoSize: true,
-      layout: {
-        background: { color: dark ? '#0f1419' : '#ffffff' },
-        textColor: dark ? '#c8d0d8' : '#334155',
-        attributionLogo: false,
-      },
-      grid: {
-        vertLines: { color: dark ? '#1e293b' : '#e2e8f0' },
-        horzLines: { color: dark ? '#1e293b' : '#e2e8f0' },
-      },
+      width: breadthEl.clientWidth,
+      height: BREADTH_PANE_PX,
+      layout: chartLayout,
+      grid,
       rightPriceScale: { borderVisible: false },
       timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false },
     })
@@ -125,12 +129,25 @@ export function DiffusionChart({
     syncRange(indexChart, breadthChart)
     syncRange(breadthChart, indexChart)
 
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = Math.floor(entry.contentRect.width)
+        if (w < 1) continue
+        if (entry.target === indexEl) indexChart.applyOptions({ width: w })
+        if (entry.target === breadthEl) breadthChart.applyOptions({ width: w })
+      }
+    })
+    ro.observe(indexEl)
+    ro.observe(breadthEl)
+
     indexChartRef.current = indexChart
     breadthChartRef.current = breadthChart
     indexSeriesRef.current = indexSeries
     breadthSeriesRef.current = breadthSeries
+    fittedRef.current = false
 
     return () => {
+      ro.disconnect()
       indexChart.remove()
       breadthChart.remove()
       indexChartRef.current = null
@@ -146,7 +163,10 @@ export function DiffusionChart({
     const indexChart = indexChartRef.current
     if (!indexSeries || !indexChart || !indexBars.length) return
     indexSeries.setData(barsToIndexLine(indexBars))
-    indexChart.timeScale().fitContent()
+    if (!fittedRef.current) {
+      indexChart.timeScale().fitContent()
+      fittedRef.current = true
+    }
   }, [indexBars])
 
   useEffect(() => {
@@ -194,7 +214,10 @@ export function DiffusionChart({
     scale === 'percent' ? `${currentValue.toFixed(1)}%` : currentValue.toFixed(3)
 
   return (
-    <div className="flex h-full min-h-[520px] flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] lg:rounded-none lg:border-0">
+    <div
+      className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] lg:rounded-none lg:border-0"
+      style={{ height: CHART_HEIGHT_PX }}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] px-3 py-2 text-xs">
         <div className="font-semibold text-[var(--color-ink-soft)]">
           {indexLabel}
@@ -207,8 +230,16 @@ export function DiffusionChart({
           </span>
         </div>
       </div>
-      <div ref={indexWrapRef} className="h-[42%] min-h-[180px] w-full border-b border-[var(--color-border)]" />
-      <div ref={breadthWrapRef} className="h-[58%] min-h-[240px] w-full flex-1" />
+      <div
+        ref={indexWrapRef}
+        className="w-full overflow-hidden border-b border-[var(--color-border)]"
+        style={{ height: INDEX_PANE_PX }}
+      />
+      <div
+        ref={breadthWrapRef}
+        className="w-full overflow-hidden"
+        style={{ height: BREADTH_PANE_PX }}
+      />
     </div>
   )
 }
