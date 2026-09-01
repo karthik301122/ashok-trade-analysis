@@ -76,11 +76,16 @@ function maintenanceHtml() {
 }
 
 /** Paths that stay available while maintenance mode is on. */
-function maintenanceBypass(pathname) {
+function maintenanceBypass(pathname, req) {
   if (pathname === '/api/ping' || pathname === '/api/health') return true
   // Let cached SPAs load assets so the client can show the maintenance screen.
   if (pathname.startsWith('/assets/')) return true
   if (pathname === '/favicon.ico' || pathname === '/vite.svg') return true
+  const adminKey = process.env.ADMIN_API_KEY?.trim()
+  if (adminKey && req.headers?.['x-admin-key'] === adminKey) {
+    if (pathname.startsWith('/api/snapshot/')) return true
+    if (pathname === '/api/live-quotes/refresh') return true
+  }
   return false
 }
 
@@ -90,7 +95,7 @@ function maintenanceBypass(pathname) {
 export function maintenanceMiddleware(req, res, next) {
   if (!maintenanceEnabled()) return next()
   const pathname = req.path || req.url?.split('?')[0] || ''
-  if (maintenanceBypass(pathname)) return next()
+  if (maintenanceBypass(pathname, req)) return next()
   if (pathname.startsWith('/api/')) {
     return res.status(503).json({
       maintenance: true,

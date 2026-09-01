@@ -8,6 +8,7 @@ import { eodhdEnabled } from './eodhd.mjs'
 import { seriesToCachedPerf, mapPool } from './perfMath.mjs'
 import { applyLiveQuotesToStockMap, getLiveQuotesMeta, stripLiveOverlayFromPerf } from './liveQuotes.mjs'
 import { clearBreadthChartCache } from './breadthHistory.mjs'
+import { readinessFromSnapshot } from './production.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -36,8 +37,16 @@ export async function recoverStaleSnapshotJob() {
   return true
 }
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms))
+function snapshotNeedsMoreWork(existing, jobStatus) {
+  if (!existing) return true
+  const universe = loadUniverse()
+  const readiness = readinessFromSnapshot(
+    { ...existing, fresh: isSnapshotFresh(existing.builtAt) },
+    universe.length,
+  )
+  if (!readiness.snapshotAcceptable) return true
+  if (jobStatus === 'error') return true
+  return false
 }
 
 function loadUniverse() {
@@ -324,8 +333,15 @@ export async function runUniverseSnapshot(opts = {}) {
   const concurrency = Number(opts.concurrency) || pacing.concurrency
   const poolDelayMs = pacing.delayMs
   const existing = await readMarketSnapshotDbRow()
+  const job = await getSnapshotJobStatus()
 
-  if (!force && !retryFailedOnly && existing && isSnapshotFresh(existing.builtAt)) {
+  if (
+    !force &&
+    !retryFailedOnly &&
+    existing &&
+    isSnapshotFresh(existing.builtAt) &&
+    !snapshotNeedsMoreWork(existing, job.status)
+  ) {
     return {
       loaded: existing.loaded,
       failed: existing.failed,
@@ -333,6 +349,12 @@ export async function runUniverseSnapshot(opts = {}) {
       builtAt: existing.builtAt,
     }
   }
+
+  const resumingIncomplete =
+    !force &&
+    !retryFailedOnly &&
+    existing &&
+    snapshotNeedsMoreWork(existing, job.status)
 
   runningJob = (async () => {
     const universe = loadUniverse()
@@ -345,7 +367,11 @@ export async function runUniverseSnapshot(opts = {}) {
     await setJob('running', {
       started_at: started,
       finished_at: null,
-      message: retryFailedOnly ? 'Retrying failed tickers' : 'Fetching market data via SQLite cache',
+      message: resumingIncomplete
+        ? 'Resuming interrupted universe build'
+        : retryFailedOnly
+          ? 'Retrying failed tickers'
+          : 'Fetching market data via SQLite cache',
       loaded: existing?.loaded ?? 0,
       failed: existing?.failed ?? 0,
       total,
@@ -357,7 +383,10 @@ export async function runUniverseSnapshot(opts = {}) {
         staleOk: !force,
       })
 
-      const stocks = retryFailedOnly && existing?.stocks ? { ...existing.stocks } : {}
+      const stocks =
+        (retryFailedOnly || resumingIncomplete) && existing?.stocks
+          ? { ...existing.stocks }
+          : {}
       const failedTickers = []
 
       const maybePersistPartial = (() => {
@@ -374,9 +403,10 @@ export async function runUniverseSnapshot(opts = {}) {
         await persistSnapshot(stocks, indexPerf, 0, total)
       }
 
-      const tickersToFetch = retryFailedOnly
-        ? allTickers.filter((t) => !stocks[t])
-        : allTickers
+      const tickersToFetch =
+        retryFailedOnly || resumingIncomplete
+          ? allTickers.filter((t) => !stocks[t])
+          : allTickers
 
       if (retryFailedOnly && tickersToFetch.length === 0) {
         await setJob('done', {
@@ -567,12 +597,18 @@ export function runRetryFailedSnapshot() {
   return runUniverseSnapshot({ retryFailed: true })
 }
 
-/** Kick a background refresh if snapshot is missing/stale. */
+/** Kick a background refresh if snapshot is missing/stale/incomplete. */
 export async function maybeStartBackgroundSnapshot() {
   await recoverStaleSnapshotJob()
-  const existing = await readMarketSnapshotDbRow()
-  if (existing && isSnapshotFresh(existing.builtAt)) return
   if (runningJob) return
+  const job = await getSnapshotJobStatus()
+  if (job.status === 'running') return
+
+  const existing = await readMarketSnapshotDbRow()
+  if (existing && isSnapshotFresh(existing.builtAt) && !snapshotNeedsMoreWork(existing, job.status)) {
+    return
+  }
+
   console.log('[snapshot] starting background universe build…')
   void runUniverseSnapshot({ force: false }).catch(() => {})
 }
