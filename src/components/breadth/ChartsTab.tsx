@@ -10,8 +10,8 @@ import {
   YAxis,
 } from 'recharts'
 import type { ReactNode } from 'react'
-import { useCallback, useLayoutEffect, useState } from 'react'
-import type { TooltipContentProps } from 'recharts'
+import { useCallback, useState } from 'react'
+import type { MouseHandlerDataParam } from 'recharts'
 import type { BreadthBundle } from './breadthMath'
 
 type HoverTip = {
@@ -19,50 +19,86 @@ type HoverTip = {
   payload?: Array<{ name?: string; value?: number; color?: string }>
 }
 
+type ChartSeriesSpec<T extends Record<string, unknown>> = {
+  key: keyof T & string
+  name: string
+  color: string
+}
+
+type ChartMouseState = MouseHandlerDataParam
+
+function chartIndexFromState(state: ChartMouseState, data: ReadonlyArray<Record<string, unknown>>): number | undefined {
+  const raw = state.activeTooltipIndex ?? state.activeIndex
+  if (typeof raw === 'number') return raw
+  if (typeof raw === 'string') {
+    const idx = data.findIndex((row) => row.d === raw)
+    return idx >= 0 ? idx : undefined
+  }
+  return undefined
+}
+
 const CHART_MARGIN = { top: 8, right: 12, left: 4, bottom: 4 }
 const CHART_MARGIN_WITH_LEGEND = { top: 8, right: 12, left: 4, bottom: 28 }
 
 const chartTooltipCursor = { stroke: '#94a3b8', strokeDasharray: '4 4', strokeWidth: 1 }
 
-function ExternalTooltipBridge({
-  active,
-  payload,
-  label,
-  onTip,
-}: TooltipContentProps & { onTip: (tip: HoverTip | null) => void }) {
-  useLayoutEffect(() => {
-    if (active && payload?.length) {
-      onTip({
-        label,
-        payload: payload.map((entry) => ({
-          name: entry.name != null ? String(entry.name) : String(entry.dataKey ?? ''),
-          value:
-            typeof entry.value === 'number'
-              ? entry.value
-              : Array.isArray(entry.value)
-                ? Number(entry.value[0])
-                : Number(entry.value),
-          color: entry.color ?? entry.stroke,
-        })),
-      })
-    } else {
-      onTip(null)
-    }
-  }, [active, payload, label, onTip])
-  return null
+function tipsEqual(a: HoverTip | null, b: HoverTip | null): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  if (a.label !== b.label) return false
+  const ap = a.payload ?? []
+  const bp = b.payload ?? []
+  if (ap.length !== bp.length) return false
+  return ap.every((entry, i) => entry.name === bp[i].name && entry.value === bp[i].value)
 }
 
-function useChartHover() {
+function buildHoverTip<T extends Record<string, unknown>>(
+  data: T[],
+  labelKey: keyof T & string,
+  series: ReadonlyArray<ChartSeriesSpec<T>>,
+  index: number | undefined,
+  fallbackLabel?: string | number,
+): HoverTip | null {
+  if (index == null || index < 0 || index >= data.length) return null
+  const row = data[index]
+  return {
+    label: (row[labelKey] as string | number | undefined) ?? fallbackLabel,
+    payload: series.map((s) => ({
+      name: s.name,
+      value: Number(row[s.key]),
+      color: s.color,
+    })),
+  }
+}
+
+function useChartHover<T extends Record<string, unknown>>(
+  data: T[],
+  labelKey: keyof T & string,
+  series: ReadonlyArray<ChartSeriesSpec<T>>,
+) {
   const [tip, setTip] = useState<HoverTip | null>(null)
-  const onTip = useCallback((t: HoverTip | null) => setTip(t), [])
-  const tooltipContent = useCallback(
-    (props: TooltipContentProps) => (
-      <ExternalTooltipBridge {...props} onTip={onTip} />
-    ),
-    [onTip],
+
+  const onMouseMove = useCallback(
+    (state: ChartMouseState) => {
+      if (!state.isTooltipActive) {
+        setTip((prev) => (prev === null ? prev : null))
+        return
+      }
+      const next = buildHoverTip(
+        data,
+        labelKey,
+        series,
+        chartIndexFromState(state, data),
+        state.activeLabel,
+      )
+      setTip((prev) => (tipsEqual(prev, next) ? prev : next))
+    },
+    [data, labelKey, series],
   )
-  const onMouseLeave = useCallback(() => setTip(null), [])
-  return { tip, tooltipContent, onMouseLeave }
+
+  const onMouseLeave = useCallback(() => setTip((prev) => (prev === null ? prev : null)), [])
+
+  return { tip, onMouseMove, onMouseLeave }
 }
 
 function ChartHoverReadout({ tip }: { tip: HoverTip | null }) {
@@ -102,14 +138,10 @@ function ChartPlot({ tip, children }: { tip: HoverTip | null; children: ReactNod
 }
 
 /** Vertical crosshair only — values render in the header strip above the chart. */
-function ChartCrosshair({
-  content,
-}: {
-  content: (props: TooltipContentProps) => ReactNode
-}) {
+function ChartCrosshair() {
   return (
     <Tooltip
-      content={content}
+      content={() => null}
       cursor={chartTooltipCursor}
       isAnimationActive={false}
       wrapperStyle={{ pointerEvents: 'none', visibility: 'hidden', outline: 'none' }}
@@ -186,15 +218,25 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
   const advNow = bundle.advancing
   const decNow = bundle.declining
 
-  const advHover = useChartHover()
-  const sma20Hover = useChartHover()
-  const sma50Hover = useChartHover()
-  const sma200Hover = useChartHover()
-  const thrustHover = useChartHover()
-  const nearHover = useChartHover()
-  const rsiHover = useChartHover()
-  const rsHover = useChartHover()
-  const rvolHover = useChartHover()
+  const advHover = useChartHover(advDec, 'd', [
+    { key: 'Advances', name: 'Advances', color: '#16a34a' },
+    { key: 'Declines', name: 'Declines', color: '#94a3b8' },
+  ])
+  const sma20Hover = useChartHover(sma20, 'd', [{ key: 'v', name: '20 SMA', color: '#e11d48' }])
+  const sma50Hover = useChartHover(sma50, 'd', [{ key: 'v', name: '50 SMA', color: '#db2777' }])
+  const sma200Hover = useChartHover(sma200, 'd', [{ key: 'v', name: '200 SMA', color: '#f43f5e' }])
+  const thrustHover = useChartHover(thrust, 'd', [
+    { key: 'Thrust', name: 'Thrust', color: '#7c3aed' },
+    { key: 'Ma', name: '10-MA', color: '#d97706' },
+  ])
+  const nearHover = useChartHover(near, 'd', [{ key: 'v', name: 'Near 52W High', color: '#2563eb' }])
+  const rsiHover = useChartHover(rsi, 'd', [
+    { key: 'Overbought', name: 'Overbought', color: '#7c3aed' },
+    { key: 'Oversold', name: 'Oversold', color: '#ef4444' },
+    { key: 'Neutral', name: 'Neutral', color: '#f59e0b' },
+  ])
+  const rsHover = useChartHover(rsSeries, 'd', [{ key: 'v', name: 'RS ≥ 50', color: '#0d9488' }])
+  const rvolHover = useChartHover(rvolSeries, 'd', [{ key: 'v', name: 'RVOL ≥ 1.5×', color: '#ca8a04' }])
 
   return (
     <div className="space-y-4">
@@ -226,12 +268,13 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <LineChart
               data={advDec}
               margin={CHART_MARGIN_WITH_LEGEND}
+              onMouseMove={advHover.onMouseMove}
               onMouseLeave={advHover.onMouseLeave}
             >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} />
-            <ChartCrosshair content={advHover.tooltipContent} />
+            <ChartCrosshair />
             <Legend verticalAlign="bottom" height={24} />
             <Line
               type="monotone"
@@ -264,12 +307,13 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <LineChart
               data={sma20}
               margin={CHART_MARGIN}
+              onMouseMove={sma20Hover.onMouseMove}
               onMouseLeave={sma20Hover.onMouseLeave}
             >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <ChartCrosshair content={sma20Hover.tooltipContent} />
+            <ChartCrosshair />
             <Line type="monotone" dataKey="v" name="20 SMA" stroke="#e11d48" dot={false} strokeWidth={2} />
           </LineChart>
           </ResponsiveContainer>
@@ -288,12 +332,13 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <LineChart
               data={sma50}
               margin={CHART_MARGIN}
+              onMouseMove={sma50Hover.onMouseMove}
               onMouseLeave={sma50Hover.onMouseLeave}
             >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <ChartCrosshair content={sma50Hover.tooltipContent} />
+            <ChartCrosshair />
             <Line type="monotone" dataKey="v" name="50 SMA" stroke="#db2777" dot={false} strokeWidth={2} />
           </LineChart>
           </ResponsiveContainer>
@@ -312,12 +357,13 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <LineChart
               data={sma200}
               margin={CHART_MARGIN}
+              onMouseMove={sma200Hover.onMouseMove}
               onMouseLeave={sma200Hover.onMouseLeave}
             >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <ChartCrosshair content={sma200Hover.tooltipContent} />
+            <ChartCrosshair />
             <Line type="monotone" dataKey="v" name="200 SMA" stroke="#f43f5e" dot={false} strokeWidth={2} />
           </LineChart>
           </ResponsiveContainer>
@@ -336,12 +382,13 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <ComposedChart
               data={thrust}
               margin={CHART_MARGIN_WITH_LEGEND}
+              onMouseMove={thrustHover.onMouseMove}
               onMouseLeave={thrustHover.onMouseLeave}
             >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 1]} tick={{ fontSize: 10 }} />
-            <ChartCrosshair content={thrustHover.tooltipContent} />
+            <ChartCrosshair />
             <Legend verticalAlign="bottom" height={24} />
             <Line type="monotone" dataKey="Thrust" stroke="#7c3aed" dot={false} strokeWidth={2} />
             <Line type="monotone" dataKey="Ma" name="10-MA" stroke="#d97706" dot={false} strokeWidth={2} />
@@ -366,12 +413,13 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <LineChart
               data={near}
               margin={CHART_MARGIN}
+              onMouseMove={nearHover.onMouseMove}
               onMouseLeave={nearHover.onMouseLeave}
             >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} />
-            <ChartCrosshair content={nearHover.tooltipContent} />
+            <ChartCrosshair />
             <Line type="monotone" dataKey="v" name="Near 52W High" stroke="#2563eb" dot={false} strokeWidth={2} />
           </LineChart>
           </ResponsiveContainer>
@@ -390,12 +438,13 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <LineChart
               data={rsi}
               margin={CHART_MARGIN_WITH_LEGEND}
+              onMouseMove={rsiHover.onMouseMove}
               onMouseLeave={rsiHover.onMouseLeave}
             >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <ChartCrosshair content={rsiHover.tooltipContent} />
+            <ChartCrosshair />
             <Legend verticalAlign="bottom" height={24} />
             <Line type="monotone" dataKey="Overbought" stroke="#7c3aed" dot={false} strokeWidth={2} />
             <Line type="monotone" dataKey="Oversold" stroke="#ef4444" dot={false} strokeWidth={2} />
@@ -421,12 +470,13 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <LineChart
               data={rsSeries}
               margin={CHART_MARGIN}
+              onMouseMove={rsHover.onMouseMove}
               onMouseLeave={rsHover.onMouseLeave}
             >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <ChartCrosshair content={rsHover.tooltipContent} />
+            <ChartCrosshair />
             <Line type="monotone" dataKey="v" name="RS ≥ 50" stroke="#0d9488" dot={false} strokeWidth={2} />
           </LineChart>
           </ResponsiveContainer>
@@ -449,12 +499,13 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
             <LineChart
               data={rvolSeries}
               margin={CHART_MARGIN}
+              onMouseMove={rvolHover.onMouseMove}
               onMouseLeave={rvolHover.onMouseLeave}
             >
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <ChartCrosshair content={rvolHover.tooltipContent} />
+            <ChartCrosshair />
             <Line type="monotone" dataKey="v" name="RVOL ≥ 1.5×" stroke="#ca8a04" dot={false} strokeWidth={2} />
           </LineChart>
           </ResponsiveContainer>
