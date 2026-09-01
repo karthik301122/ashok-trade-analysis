@@ -1,6 +1,4 @@
 import {
-  Bar,
-  BarChart,
   CartesianGrid,
   ComposedChart,
   Legend,
@@ -109,15 +107,27 @@ export function ChartsTab({ bundle }: { bundle: BreadthBundle }) {
         }
       >
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={advDec}>
+          <LineChart data={advDec}>
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             <XAxis dataKey="d" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} />
             <Tooltip />
             <Legend />
-            <Bar dataKey="Advances" fill="#16a34a" />
-            <Bar dataKey="Declines" fill="#94a3b8" />
-          </BarChart>
+            <Line
+              type="monotone"
+              dataKey="Advances"
+              stroke="#16a34a"
+              dot={false}
+              strokeWidth={2}
+            />
+            <Line
+              type="monotone"
+              dataKey="Declines"
+              stroke="#94a3b8"
+              dot={false}
+              strokeWidth={2}
+            />
+          </LineChart>
         </ResponsiveContainer>
       </ChartCard>
 
