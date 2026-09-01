@@ -164,9 +164,8 @@ export function loadIndexMembersFile() {
 export function tickersForUniverseId(universeId) {
   const file = loadIndexMembersFile()
   if (!file) return []
-  const key = universeId === 'asx200' || universeId === 'asx500' || universeId === 'mid' || universeId === 'small'
-    ? universeId
-    : null
+  const key =
+    universeId === 'asx200' || universeId === 'mid' || universeId === 'small' ? universeId : null
   if (!key || !Array.isArray(file[key])) return []
   return file[key]
 }

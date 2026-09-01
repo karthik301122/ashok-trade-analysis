@@ -13,6 +13,13 @@ describe('eodhd symbols', () => {
     expect(toEodhdSymbol('XJO')).toBe('AXJO.INDX')
     expect(toEodhdSymbol('AXJO.INDX')).toBe('AXJO.INDX')
   })
+
+  it('maps All Ordinaries and Small Ordinaries indices', () => {
+    expect(toEodhdSymbol('^AORD')).toBe('AORD.INDX')
+    expect(toEodhdSymbol('XAO')).toBe('AORD.INDX')
+    expect(toEodhdSymbol('^AXSO')).toBe('AXSO.INDX')
+    expect(toEodhdSymbol('AXSO.INDX')).toBe('AXSO.INDX')
+  })
 })
 
 describe('eodhdOnlyMode', () => {

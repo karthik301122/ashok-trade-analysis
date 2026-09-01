@@ -60,6 +60,8 @@ export function getEodhdToken() {
 export function toEodhdSymbol(symbol) {
   const t = String(symbol).toUpperCase()
   if (t === '^AXJO' || t === 'XJO' || t === 'ASX200' || t === 'AXJO.INDX') return 'AXJO.INDX'
+  if (t === '^AORD' || t === 'AORD' || t === 'XAO' || t === 'AORD.INDX') return 'AORD.INDX'
+  if (t === '^AXSO' || t === 'AXSO' || t === 'AXSO.INDX') return 'AXSO.INDX'
   if (t.endsWith('.AU')) return t
   if (t.endsWith('.AX')) return `${t.slice(0, -3)}.AU`
   if (t.includes('.') || t.includes('^') || t.includes('=')) return t
@@ -361,6 +363,8 @@ export function eodhdCodeToAppTicker(code) {
   const c = String(code).trim().toUpperCase()
   if (!c) return ''
   if (c === 'AXJO.INDX' || c === '^AXJO') return '^AXJO'
+  if (c === 'AORD.INDX' || c === '^AORD' || c === 'XAO' || c === 'AORD') return '^AORD'
+  if (c === 'AXSO.INDX' || c === '^AXSO' || c === 'AXSO') return '^AXSO'
   if (c.endsWith('.AU')) return c.slice(0, -3)
   if (c.endsWith('.AX')) return c.slice(0, -3)
   return c

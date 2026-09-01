@@ -66,11 +66,14 @@ export function coerceIndexBars(raw: unknown): BreadthIndexBar[] {
   return out
 }
 
-/** Client fallback when /api/breadth/daily indexBars are thin — uses cached ^AXJO series. */
-export async function fetchIndexBarsForChart(fromIso: string): Promise<BreadthIndexBar[]> {
+/** Client fallback when /api/breadth/daily indexBars are thin — uses cached index series. */
+export async function fetchIndexBarsForChart(
+  fromIso: string,
+  indexSymbol = '^AXJO',
+): Promise<BreadthIndexBar[]> {
   try {
     const res = await fetch(
-      `/api/series/^AXJO?from=${encodeURIComponent(fromIso)}`,
+      `/api/series/${encodeURIComponent(indexSymbol)}?from=${encodeURIComponent(fromIso)}`,
       { credentials: 'include', cache: 'no-store' },
     )
     if (!res.ok) return []

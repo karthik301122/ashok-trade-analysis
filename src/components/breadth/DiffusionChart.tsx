@@ -123,7 +123,7 @@ export function DiffusionChart({
       >
         {indexData.length < 2 ? (
           <div className="flex h-full items-center justify-center px-4 text-center text-xs text-[var(--color-ink-soft)]">
-            ASX 200 index line unavailable — breadth chart below still uses your selected universe.
+            {indexLabel} line unavailable — breadth chart below still uses your selected universe.
           </div>
         ) : (
           <div className="h-full w-full">

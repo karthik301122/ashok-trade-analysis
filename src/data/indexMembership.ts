@@ -20,7 +20,6 @@ function memberList(key: keyof Pick<IndexMembersFile, 'asx200' | 'asx500' | 'mid
 
 const SETS: Record<UniverseId, Set<string>> = {
   asx200: new Set(memberList('asx200')),
-  asx500: new Set(memberList('asx500')),
   mid: new Set(memberList('mid')),
   small: new Set(memberList('small')),
 }

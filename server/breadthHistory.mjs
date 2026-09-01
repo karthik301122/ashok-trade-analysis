@@ -8,6 +8,7 @@ import {
 } from './seriesStore.mjs'
 import { fetchChartCloses } from './fetchSeries.mjs'
 import { UNIVERSE_IDS } from './breadthStore.mjs'
+import { universeChartIndex } from './universeIndex.mjs'
 import { tickersForUniverseId } from './eodhdIndexMembers.mjs'
 import fs from 'fs'
 import path from 'path'
@@ -45,7 +46,6 @@ function universeTickers(universeId) {
 
   const ranked = loadUniverseRows().sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
   if (universeId === 'asx200') return ranked.slice(0, 200).map((s) => s.ticker)
-  if (universeId === 'asx500') return ranked.slice(0, 500).map((s) => s.ticker)
   if (universeId === 'mid') return ranked.slice(200, 500).map((s) => s.ticker)
   return ranked.slice(500).map((s) => s.ticker)
 }
@@ -286,20 +286,21 @@ function dedupeIndexBarsByDay(rows) {
 }
 
 /**
- * ASX 200 index OHLC for the diffusion chart upper pane (from DB bars).
+ * Index OHLC for the diffusion chart upper pane (universe-specific).
+ * @param {string} [universeId]
  * @param {number} [days]
  */
-export async function getIndexBarsForChart(days = DEFAULT_DAYS) {
+export async function getIndexBarsForChart(universeId = 'asx200', days = DEFAULT_DAYS) {
+  const { symbol, aliases } = universeChartIndex(universeId)
   const minBars = 2
   const sliceLast = (bars) => (bars.length > days ? bars.slice(-days) : bars)
 
-  const cached = await readSeriesCache('^AXJO')
+  const cached = await readSeriesCache(symbol)
   if (cached?.closes?.length >= minBars) {
     const bars = dedupeIndexBarsByDay(cached.closes)
     if (bars.length >= minBars) return sliceLast(bars)
   }
 
-  const aliases = ['^AXJO', 'AXJO.INDX', 'XJO']
   const ph = aliases.map(() => '?').join(',')
   const rows = await sqlAll(
     `SELECT t, o, h, l, c, v FROM bars WHERE symbol IN (${ph}) ORDER BY t`,
@@ -314,7 +315,7 @@ export async function getIndexBarsForChart(days = DEFAULT_DAYS) {
 
   try {
     const { getCachedSeries } = await import('./getSeries.mjs')
-    const series = await getCachedSeries('^AXJO', fromIso, { staleOk: true })
+    const series = await getCachedSeries(symbol, fromIso, { staleOk: true })
     const fromSeries = dedupeIndexBarsByDay(series?.closes ?? [])
     if (fromSeries.length >= minBars) return sliceLast(fromSeries)
   } catch {
@@ -322,14 +323,14 @@ export async function getIndexBarsForChart(days = DEFAULT_DAYS) {
   }
 
   try {
-    const fresh = await fetchChartCloses('^AXJO', fromIso, { attempts: 5, baseDelayMs: 600 })
+    const fresh = await fetchChartCloses(symbol, fromIso, { attempts: 5, baseDelayMs: 600 })
     const freshBars = dedupeIndexBarsByDay(fresh?.closes ?? [])
     if (freshBars.length >= minBars) {
       const merged = cached?.closes?.length
         ? mergeBars(cached.closes, fresh.closes)
         : fresh.closes
       await writeSeriesCache({
-        symbol: '^AXJO',
+        symbol,
         updatedAt: Date.now(),
         closes: merged,
         last: merged[merged.length - 1].c,

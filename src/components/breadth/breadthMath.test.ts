@@ -63,7 +63,6 @@ describe('filterUniverse', () => {
       stock({ ticker: `ZZFALLBACK${i}`, weight: 600 - i }),
     )
     expect(filterUniverse(stocks, 'asx200')).toHaveLength(200)
-    expect(filterUniverse(stocks, 'asx500')).toHaveLength(500)
     expect(filterUniverse(stocks, 'mid')).toHaveLength(300)
     expect(filterUniverse(stocks, 'small')).toHaveLength(100)
     expect(filterUniverse(stocks, 'asx200')[0].ticker).toBe('ZZFALLBACK0')

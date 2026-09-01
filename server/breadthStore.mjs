@@ -1,6 +1,6 @@
 import { sqlAll, sqlRun } from './db.mjs'
 
-export const UNIVERSE_IDS = new Set(['asx200', 'asx500', 'mid', 'small'])
+export const UNIVERSE_IDS = new Set(['asx200', 'mid', 'small'])
 
 function mapRow(r) {
   return {

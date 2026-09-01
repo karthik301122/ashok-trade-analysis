@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, LayoutGrid } from 'lucide-react'
 import type { BreadthBundle } from './breadthMath'
-import { UNIVERSES, type UniverseId } from './breadthMath'
+import { UNIVERSES, universeIndexLabel, universeIndexSymbol, type UniverseId } from './breadthMath'
 import { DiffusionChart } from './DiffusionChart'
 import {
   DIFFUSION_GROUPS,
@@ -101,9 +101,12 @@ export function DiffusionIndicatorsView({
     [serverIndexBars, fallbackIndexBars],
   )
 
+  const indexSymbol = universeIndexSymbol(universeId)
+  const indexLabel = universeIndexLabel(universeId)
+
   useEffect(() => {
     setFallbackIndexBars([])
-  }, [universeId])
+  }, [universeId, indexSymbol])
 
   useEffect(() => {
     if (historyLoading) return
@@ -123,7 +126,7 @@ export function DiffusionIndicatorsView({
         : new Date(Date.now() - 120 * 86400 * 1000)
     from.setUTCDate(from.getUTCDate() - 10)
     const fromIso = from.toISOString().slice(0, 10)
-    void fetchIndexBarsForChart(fromIso).then((bars) => {
+    void fetchIndexBarsForChart(fromIso, indexSymbol).then((bars) => {
       if (!cancelled) setFallbackIndexBars(bars)
     })
     return () => {
@@ -136,6 +139,8 @@ export function DiffusionIndicatorsView({
     seriesTimes,
     chartHistory,
     bundle.dailyHistory,
+    universeId,
+    indexSymbol,
   ])
 
   const alignedIndex = useMemo(
@@ -259,9 +264,9 @@ export function DiffusionIndicatorsView({
           </div>
         ) : (
           <DiffusionChart
-            key={`${universeId}-${indicatorId}`}
+            key={`${universeId}-${indicatorId}-${indexSymbol}`}
             indexBars={alignedIndex}
-            indexLabel="ASX 200 Index"
+            indexLabel={indexLabel}
             indicatorLabel={`${def.label} · ${universeLabel}`}
             indicatorSeries={indicatorSeries}
             currentValue={currentVal}

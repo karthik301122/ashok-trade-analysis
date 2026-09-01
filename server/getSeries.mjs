@@ -16,6 +16,8 @@ import {
 export function resolveYahooSymbol(ticker) {
   const t = String(ticker).toUpperCase()
   if (t === '^AXJO' || t === 'XJO' || t === 'ASX200') return '^AXJO'
+  if (t === '^AORD' || t === 'AORD' || t === 'XAO' || t === 'AORD.INDX') return '^AORD'
+  if (t === '^AXSO' || t === 'AXSO' || t === 'AXSO.INDX') return '^AXSO'
   if (t.includes('=') || t.includes('-') || t.includes('.')) return t
   return `${t}.AX`
 }

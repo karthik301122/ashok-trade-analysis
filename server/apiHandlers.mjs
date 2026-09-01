@@ -328,7 +328,7 @@ export async function handleConnectApi(req, res, send) {
         snap?.stocks ?? {},
         builtAt,
       )
-      const indexBars = await getIndexBarsForChart()
+      const indexBars = await getIndexBarsForChart(universe)
       send(200, {
         universe,
         points: await readBreadthHistory(universe),
@@ -808,7 +808,7 @@ export function mountExpressApi(app) {
       const snap = await readMarketSnapshotRow()
       const builtAt = snap?.builtAt ?? 0
       chartHistory = await computeBreadthChartHistory(universe, snap?.stocks ?? {}, builtAt)
-      indexBars = await getIndexBarsForChart()
+      indexBars = await getIndexBarsForChart(universe)
     } catch {
       /* optional */
     }

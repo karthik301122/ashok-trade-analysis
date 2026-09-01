@@ -1,28 +1,37 @@
 import type { MarketSnapshot, StockMetrics } from '../../data/types'
 import { membershipSet } from '../../data/indexMembership'
 
-export type UniverseId = 'asx200' | 'asx500' | 'mid' | 'small'
+export type UniverseId = 'asx200' | 'mid' | 'small'
+
+export const UNIVERSE_INDEX: Record<UniverseId, { symbol: string; label: string }> = {
+  asx200: { symbol: '^AXJO', label: 'ASX 200' },
+  mid: { symbol: '^AORD', label: 'All Ordinaries (XAO)' },
+  small: { symbol: '^AXSO', label: 'S&P/ASX Small Ordinaries (AXSO)' },
+}
+
+export function universeIndexSymbol(id: UniverseId): string {
+  return UNIVERSE_INDEX[id]?.symbol ?? '^AXJO'
+}
+
+export function universeIndexLabel(id: UniverseId): string {
+  return UNIVERSE_INDEX[id]?.label ?? 'Index'
+}
 
 export const UNIVERSES: { id: UniverseId; label: string; hint: string }[] = [
   {
     id: 'asx200',
     label: 'Top 200',
-    hint: 'S&P/ASX 200 constituents (EODHD AXJO.INDX)',
-  },
-  {
-    id: 'asx500',
-    label: 'Top 500',
-    hint: 'All Ordinaries ~500 listings (EODHD AORD.INDX) — not ASX Mid Cap',
+    hint: 'S&P/ASX 200 constituents · chart index AXJO',
   },
   {
     id: 'mid',
-    label: 'Mid (201–500)',
-    hint: 'In All Ordinaries (AORD) but not in ASX 200 — computed set, not a separate index',
+    label: 'Mid (200–500)',
+    hint: 'All Ordinaries (AORD/XAO) minus ASX 200 · chart index XAO',
   },
   {
     id: 'small',
     label: 'Small',
-    hint: 'S&P/ASX Small Ordinaries (EODHD AXSO.INDX)',
+    hint: 'S&P/ASX Small Ordinaries · chart index AXSO',
   },
 ]
 
@@ -120,7 +129,6 @@ export function filterUniverse(stocks: StockMetrics[], id: UniverseId): StockMet
   }
   const ranked = rankedByWeight(list)
   if (id === 'asx200') return ranked.slice(0, 200)
-  if (id === 'asx500') return ranked.slice(0, 500)
   if (id === 'mid') return ranked.slice(200, 500)
   return ranked.slice(500)
 }
