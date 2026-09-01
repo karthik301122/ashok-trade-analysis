@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs'
-import { sqlOne, sqlRun } from './db.mjs'
+import { sqlAll, sqlOne, sqlRun } from './db.mjs'
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,31}$/i
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -27,6 +27,11 @@ export function validatePassword(password) {
 export async function countDbUsers() {
   const row = await sqlOne('SELECT COUNT(*) AS n FROM users')
   return Number(row?.n) || 0
+}
+
+export async function listDbUsernames() {
+  const rows = await sqlAll('SELECT username FROM users ORDER BY username')
+  return rows.map((r) => String(r.username))
 }
 
 export async function isDbAdmin(username) {

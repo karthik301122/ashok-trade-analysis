@@ -2,7 +2,7 @@
  * Shared /api handlers for Vite middleware and Express prod server.
  */
 import { authEnabled, handleAuthApi, requireAuthOrSend, getUserFromRequest, authPublicConfig, createSessionToken, sessionSetCookieHeader, verifyCredentials, sessionClearCookieHeader, envUserCount, loadUsers } from './auth.mjs'
-import { countDbUsers, normalizeUsername } from './userStore.mjs'
+import { countDbUsers, createDbUser, listDbUsernames, normalizeUsername } from './userStore.mjs'
 import { getCachedSeries, getIntradaySeries, seriesCacheFileCount } from './getSeries.mjs'
 import { readBreadthHistory, upsertBreadthPoint, UNIVERSE_IDS } from './breadthStore.mjs'
 import { computeBreadthChartHistory, getIndexBarsForChart } from './breadthHistory.mjs'
@@ -388,6 +388,7 @@ export async function handleConnectApi(req, res, send) {
       snapMeta ? { ...snapMeta, fresh: snapMeta.fresh } : {},
       universeTotal,
     )
+    const admin = await isAdminRequest(req)
     send(200, {
       ok: true,
       provider: seriesProviderName(),
@@ -395,7 +396,7 @@ export async function handleConnectApi(req, res, send) {
       eodhdOnly: eodhdOnlyMode(),
       productionMode: isProductionMode(),
       browserUniverseFetch: browserUniverseFetchEnabled(),
-      isAdmin: await isAdminRequest(req),
+      isAdmin: admin,
       rateLimits: {
         seriesPerMinute: seriesRateLimitPerMinute(),
         snapshotPerMinute: snapshotRateLimitPerMinute(),
@@ -404,6 +405,9 @@ export async function handleConnectApi(req, res, send) {
       authRequired: authEnabled(),
       authDbUserCount: authEnabled() ? await countDbUsers() : 0,
       authEnvUserCount: authEnabled() ? envUserCount() : 0,
+      ...(admin
+        ? { authUsernames: await listDbUsernames() }
+        : {}),
       maintenance: maintenanceEnabled(),
       maintenanceMessage: maintenanceEnabled() ? maintenanceMessage() : undefined,
       eodhdDailyLimit: eodhdDailyLimitMeta(),
@@ -522,6 +526,7 @@ export function mountExpressApi(app) {
         }
       : null
     const readiness = readinessFromSnapshot(snapMeta || {}, universeTotal)
+    const admin = await isAdminRequest(req)
     res.json({
       ok: true,
       provider: seriesProviderName(),
@@ -529,7 +534,7 @@ export function mountExpressApi(app) {
       eodhdOnly: eodhdOnlyMode(),
       productionMode: isProductionMode(),
       browserUniverseFetch: browserUniverseFetchEnabled(),
-      isAdmin: await isAdminRequest(req),
+      isAdmin: admin,
       rateLimits: {
         seriesPerMinute: seriesRateLimitPerMinute(),
         snapshotPerMinute: snapshotRateLimitPerMinute(),
@@ -538,6 +543,9 @@ export function mountExpressApi(app) {
       authRequired: authEnabled(),
       authDbUserCount: authEnabled() ? await countDbUsers() : 0,
       authEnvUserCount: authEnabled() ? envUserCount() : 0,
+      ...(admin
+        ? { authUsernames: await listDbUsernames() }
+        : {}),
       maintenance: maintenanceEnabled(),
       maintenanceMessage: maintenanceEnabled() ? maintenanceMessage() : undefined,
       eodhdDailyLimit: eodhdDailyLimitMeta(),
@@ -637,6 +645,32 @@ export function mountExpressApi(app) {
   app.post('/api/auth/logout', (_req, res) => {
     res.setHeader('Set-Cookie', sessionClearCookieHeader())
     return res.json({ ok: true })
+  })
+
+  app.get('/api/admin/users', async (req, res) => {
+    if (await requireSessionOrAdmin(req, (status, body) => res.status(status).json(body))) return
+    if (isProductionMode() && !(await isAdminRequest(req))) {
+      return res.status(403).json({
+        error: 'Admin only in production mode',
+        hint: 'Set ADMIN_USERS or call with x-admin-key header',
+      })
+    }
+    return res.json({ users: await listDbUsernames(), count: await countDbUsers() })
+  })
+
+  app.post('/api/admin/users', async (req, res) => {
+    if (await requireSessionOrAdmin(req, (status, body) => res.status(status).json(body))) return
+    if (isProductionMode() && !(await isAdminRequest(req))) {
+      return res.status(403).json({
+        error: 'Admin only in production mode',
+        hint: 'Set ADMIN_USERS or call with x-admin-key header',
+      })
+    }
+    const result = await createDbUser(req.body?.username, req.body?.password, {
+      isAdmin: Boolean(req.body?.isAdmin),
+    })
+    if (!result.ok) return res.status(400).json({ error: result.error })
+    return res.status(201).json({ ok: true, user: result.user })
   })
 
   app.get('/api/series/:ticker', async (req, res) => {
