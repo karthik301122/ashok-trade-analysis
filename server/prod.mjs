@@ -28,8 +28,11 @@ const dist = path.join(root, 'dist')
 const port = Number(process.env.PORT) || 4173
 
 const app = express()
+app.set('trust proxy', 1)
 app.use(express.json({ limit: '8mb' }))
 app.use(maintenanceMiddleware)
+
+await initDb()
 
 mountExpressApi(app)
 
@@ -38,8 +41,6 @@ app.use(express.static(dist))
 app.get(/.*/, (_req, res) => {
   res.sendFile(path.join(dist, 'index.html'))
 })
-
-await initDb()
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`ASX Sector Intelligence running on http://localhost:${port}`)

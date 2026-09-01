@@ -1,7 +1,8 @@
 /**
  * Shared /api handlers for Vite middleware and Express prod server.
  */
-import { authEnabled, handleAuthApi, requireAuthOrSend, getUserFromRequest, authPublicConfig, createSessionToken, sessionSetCookieHeader, verifyCredentials, sessionClearCookieHeader } from './auth.mjs'
+import { authEnabled, handleAuthApi, requireAuthOrSend, getUserFromRequest, authPublicConfig, createSessionToken, sessionSetCookieHeader, verifyCredentials, sessionClearCookieHeader, envUserCount, loadUsers } from './auth.mjs'
+import { countDbUsers, normalizeUsername } from './userStore.mjs'
 import { getCachedSeries, getIntradaySeries, seriesCacheFileCount } from './getSeries.mjs'
 import { readBreadthHistory, upsertBreadthPoint, UNIVERSE_IDS } from './breadthStore.mjs'
 import { computeBreadthChartHistory, getIndexBarsForChart } from './breadthHistory.mjs'
@@ -401,6 +402,8 @@ export async function handleConnectApi(req, res, send) {
       },
       readiness,
       authRequired: authEnabled(),
+      authDbUserCount: authEnabled() ? await countDbUsers() : 0,
+      authEnvUserCount: authEnabled() ? envUserCount() : 0,
       maintenance: maintenanceEnabled(),
       maintenanceMessage: maintenanceEnabled() ? maintenanceMessage() : undefined,
       eodhdDailyLimit: eodhdDailyLimitMeta(),
@@ -533,6 +536,8 @@ export function mountExpressApi(app) {
       },
       readiness,
       authRequired: authEnabled(),
+      authDbUserCount: authEnabled() ? await countDbUsers() : 0,
+      authEnvUserCount: authEnabled() ? envUserCount() : 0,
       maintenance: maintenanceEnabled(),
       maintenanceMessage: maintenanceEnabled() ? maintenanceMessage() : undefined,
       eodhdDailyLimit: eodhdDailyLimitMeta(),
@@ -614,7 +619,16 @@ export function mountExpressApi(app) {
       return res.status(400).json({ error: 'Auth is not configured on this server' })
     }
     const user = await verifyCredentials(req.body?.username, req.body?.password)
-    if (!user) return res.status(401).json({ error: 'Invalid username or password' })
+    if (!user) {
+      const { log } = await import('./log.mjs')
+      const username = normalizeUsername(req.body?.username || '')
+      log('warn', 'auth.login.fail', {
+        username,
+        envUser: loadUsers().has(username),
+        dbUserCount: await countDbUsers(),
+      })
+      return res.status(401).json({ error: 'Invalid username or password' })
+    }
     const token = createSessionToken(user)
     res.setHeader('Set-Cookie', sessionSetCookieHeader(token))
     return res.json({ user })

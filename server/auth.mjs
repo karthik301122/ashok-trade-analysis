@@ -24,9 +24,13 @@ import {
 export const COOKIE_NAME = 'asx_sid'
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
+function authSecret() {
+  return process.env.AUTH_SECRET?.trim() || ''
+}
+
 /** Auth is on when AUTH_SECRET is set (users from env and/or SQLite). */
 export function authEnabled() {
-  return Boolean(process.env.AUTH_SECRET?.trim())
+  return Boolean(authSecret())
 }
 
 function envBool(name, defaultValue = false) {
@@ -62,10 +66,15 @@ export function loadUsers() {
     const idx = trimmed.indexOf(':')
     if (idx <= 0) continue
     const user = trimmed.slice(0, idx).trim().toLowerCase()
-    const hash = trimmed.slice(idx + 1).trim()
+    // Azure App Settings sometimes escapes $ as $$ in bcrypt hashes.
+    const hash = trimmed.slice(idx + 1).trim().replace(/\$\$/g, '$')
     if (user && hash) map.set(user, hash)
   }
   return map
+}
+
+export function envUserCount() {
+  return loadUsers().size
 }
 
 export function authPublicConfig() {
@@ -76,12 +85,16 @@ export function authPublicConfig() {
 
 export async function verifyCredentials(username, password) {
   if (!username || !password) return null
-  const users = loadUsers()
   const key = normalizeUsername(username)
+  const users = loadUsers()
   const envHash = users.get(key)
   if (envHash) {
-    const ok = await bcrypt.compare(String(password), envHash)
-    if (ok) return key
+    try {
+      const ok = await bcrypt.compare(String(password), envHash)
+      if (ok) return key
+    } catch {
+      /* malformed AUTH_USERS hash — fall through to database */
+    }
   }
   return verifyDbCredentials(username, password)
 }
@@ -101,7 +114,7 @@ function fromB64url(str) {
 }
 
 export function createSessionToken(username) {
-  const secret = process.env.AUTH_SECRET
+  const secret = authSecret()
   if (!secret) throw new Error('AUTH_SECRET missing')
   const exp = Date.now() + MAX_AGE_MS
   const payload = b64url(`${username}|${exp}`)
@@ -111,10 +124,11 @@ export function createSessionToken(username) {
 
 /** @returns {string | null} username */
 export function verifySessionToken(token) {
-  if (!token || !process.env.AUTH_SECRET) return null
+  const secret = authSecret()
+  if (!token || !secret) return null
   const [payload, sig] = String(token).split('.')
   if (!payload || !sig) return null
-  const expected = crypto.createHmac('sha256', process.env.AUTH_SECRET).update(payload).digest('base64url')
+  const expected = crypto.createHmac('sha256', secret).update(payload).digest('base64url')
   const a = Buffer.from(sig)
   const b = Buffer.from(expected)
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null
@@ -291,7 +305,17 @@ export async function handleAuthApi(req, res, send) {
       return send(400, { error: 'Invalid JSON' })
     }
     const user = await verifyCredentials(body.username, body.password)
-    if (!user) return send(401, { error: 'Invalid username or password' })
+    if (!user) {
+      const { log } = await import('./log.mjs')
+      const { countDbUsers } = await import('./userStore.mjs')
+      const dbCount = await countDbUsers()
+      log('warn', 'auth.login.fail', {
+        username: normalizeUsername(body.username || ''),
+        envUser: loadUsers().has(normalizeUsername(body.username || '')),
+        dbUserCount: dbCount,
+      })
+      return send(401, { error: 'Invalid username or password' })
+    }
     const token = createSessionToken(user)
     return send(200, { user }, { 'Set-Cookie': sessionSetCookieHeader(token) })
   }

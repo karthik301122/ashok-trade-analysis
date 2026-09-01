@@ -78,6 +78,7 @@ function maintenanceHtml() {
 /** Paths that stay available while maintenance mode is on. */
 function maintenanceBypass(pathname, req) {
   if (pathname === '/api/ping' || pathname === '/api/health') return true
+  if (pathname.startsWith('/api/auth/')) return true
   // Let cached SPAs load assets so the client can show the maintenance screen.
   if (pathname.startsWith('/assets/')) return true
   if (pathname === '/favicon.ico' || pathname === '/vite.svg') return true
