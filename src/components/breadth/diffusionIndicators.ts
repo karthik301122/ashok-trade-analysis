@@ -123,13 +123,31 @@ function seriesFromBundleHistory(
 export function buildDiffusionSeries(
   bundle: BreadthBundle,
   indicatorId: DiffusionIndicatorId,
+  chartHistory?: BreadthDailyPoint[],
 ): LineData<Time>[] {
   const def = findDiffusionIndicator(indicatorId)
   const daily =
-    bundle.dailyHistory.length >= 10 ? bundle.dailyHistory : bundle.historyKind === 'ohlc-daily' ? bundle.dailyHistory : []
+    chartHistory && chartHistory.length >= 2
+      ? chartHistory
+      : bundle.dailyHistory.length >= 10
+        ? bundle.dailyHistory
+        : bundle.historyKind === 'ohlc-daily'
+          ? bundle.dailyHistory
+          : []
 
   if (def.field && daily.length) {
     return seriesFromDailyHistory(daily, def.field)
+  }
+  if (indicatorId === 'thrust' && daily.length) {
+    return daily.map((p) => {
+      const adv = p.advancing ?? 0
+      const dec = p.declining ?? 0
+      const tot = adv + dec
+      return {
+        time: dayToChartTime(p.day),
+        value: tot > 0 ? Math.round((adv / tot) * 1000) / 1000 : 0.5,
+      }
+    })
   }
   if (def.historyKey) {
     return seriesFromBundleHistory(bundle, def.historyKey)

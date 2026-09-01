@@ -13,9 +13,12 @@ import {
   findDiffusionIndicator,
 } from './diffusionIndicators'
 import { fetchYahooOhlc, type OhlcBar } from '../../lib/yahoo'
+import type { BreadthDailyPoint } from '../../lib/breadthApi'
 
 type Props = {
   bundle: BreadthBundle
+  chartHistory: BreadthDailyPoint[]
+  historyLoading: boolean
   universeId: UniverseId
   onUniverseChange: (id: UniverseId) => void
   onOpenClassic?: () => void
@@ -33,6 +36,8 @@ function filterIndexToSeries(indexBars: OhlcBar[], seriesTimes: number[]): OhlcB
 
 export function DiffusionIndicatorsView({
   bundle,
+  chartHistory,
+  historyLoading,
   universeId,
   onUniverseChange,
   onOpenClassic,
@@ -44,8 +49,8 @@ export function DiffusionIndicatorsView({
 
   const def = findDiffusionIndicator(indicatorId)
   const indicatorSeries = useMemo(
-    () => buildDiffusionSeries(bundle, indicatorId),
-    [bundle, indicatorId],
+    () => buildDiffusionSeries(bundle, indicatorId, chartHistory),
+    [bundle, indicatorId, chartHistory],
   )
   const seriesTimes = useMemo(
     () => indicatorSeries.map((p) => p.time as number),
@@ -181,7 +186,11 @@ export function DiffusionIndicatorsView({
           </select>
         </div>
 
-        {indexLoading && !alignedIndex.length ? (
+        {historyLoading ? (
+          <div className="flex h-[520px] items-center justify-center rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-sm text-[var(--color-ink-soft)]">
+            Loading {universeLabel} breadth history…
+          </div>
+        ) : indexLoading && !alignedIndex.length ? (
           <div className="flex h-[520px] items-center justify-center rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-sm text-[var(--color-ink-soft)]">
             Loading index & breadth history…
           </div>
@@ -194,6 +203,7 @@ export function DiffusionIndicatorsView({
           </div>
         ) : (
           <DiffusionChart
+            key={`${universeId}-${indicatorId}`}
             indexBars={alignedIndex}
             indexLabel="ASX 200 Index"
             indicatorLabel={`${def.label} · ${universeLabel}`}

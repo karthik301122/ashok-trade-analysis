@@ -27,14 +27,11 @@ function toBarSymbol(ticker) {
 }
 
 /**
- * @param {Array<{ ticker: string, weight?: number }> | Record<string, unknown>} stocks
+ * Full ASX universe by weight rank — OHLC bars come from SQLite, not the live snapshot row set.
  * @param {string} universeId
  */
-function universeTickers(stocks, universeId) {
-  const available = stockMapKeys(stocks)
-  const ranked = loadUniverseRows()
-    .filter((u) => available.has(u.ticker))
-    .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
+function universeTickers(universeId) {
+  const ranked = loadUniverseRows().sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
   if (universeId === 'asx200') return ranked.slice(0, 200).map((s) => s.ticker)
   if (universeId === 'asx500') return ranked.slice(0, 500).map((s) => s.ticker)
   if (universeId === 'mid') return ranked.slice(200, 500).map((s) => s.ticker)
@@ -138,8 +135,8 @@ function loadBarsMap(tickers) {
   return map
 }
 
-/** @type {{ builtAt: number, universe: string, points: object[] } | null} */
-let chartCache = null
+/** @type {Map<string, { builtAt: number, points: object[] }>} */
+const chartCache = new Map()
 
 /**
  * Reconstruct ~3 months of breadth chart points from SQLite OHLCV bars.
@@ -149,17 +146,13 @@ let chartCache = null
  * @param {number} [days]
  */
 export function computeBreadthChartHistory(universeId, stocks, builtAt, days = DEFAULT_DAYS) {
-  if (!UNIVERSE_IDS.has(universeId) || !stockMapKeys(stocks).size) return []
-  if (
-    chartCache &&
-    chartCache.builtAt === builtAt &&
-    chartCache.universe === universeId &&
-    chartCache.points.length
-  ) {
-    return chartCache.points
+  if (!UNIVERSE_IDS.has(universeId)) return []
+  const cached = chartCache.get(universeId)
+  if (cached && cached.builtAt === builtAt && cached.points.length) {
+    return cached.points
   }
 
-  const tickers = universeTickers(stocks, universeId)
+  const tickers = universeTickers(universeId)
   if (!tickers.length) return []
 
   const barsMap = loadBarsMap(tickers)
@@ -252,10 +245,10 @@ export function computeBreadthChartHistory(universeId, stocks, builtAt, days = D
     })
   }
 
-  chartCache = { builtAt, universe: universeId, points }
+  chartCache.set(universeId, { builtAt, points })
   return points
 }
 
 export function clearBreadthChartCache() {
-  chartCache = null
+  chartCache.clear()
 }

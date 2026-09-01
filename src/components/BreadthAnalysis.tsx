@@ -49,15 +49,20 @@ function BreadthAnalysisBody({
   const [listOpen, setListOpen] = useState(false)
   const [serverPoints, setServerPoints] = useState<BreadthDailyPoint[]>([])
   const [chartHistory, setChartHistory] = useState<BreadthDailyPoint[]>([])
+  const [historyLoading, setHistoryLoading] = useState(true)
 
   useEffect(() => {
     if (paused) return
     let cancelled = false
+    setHistoryLoading(true)
+    setChartHistory([])
+    setServerPoints([])
     void (async () => {
       const { points, chartHistory: history } = await fetchBreadthDaily(universeId)
       if (!cancelled) {
         setServerPoints(points)
         setChartHistory(history)
+        setHistoryLoading(false)
       }
     })()
     return () => {
@@ -153,6 +158,8 @@ function BreadthAnalysisBody({
           </div>
           <DiffusionIndicatorsView
             bundle={bundle}
+            chartHistory={chartHistory}
+            historyLoading={historyLoading}
             universeId={universeId}
             onUniverseChange={setUniverseId}
             onOpenClassic={() => setViewMode('classic')}
