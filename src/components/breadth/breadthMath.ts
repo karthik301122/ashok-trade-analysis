@@ -7,17 +7,17 @@ export const UNIVERSES: { id: UniverseId; label: string; hint: string }[] = [
   {
     id: 'asx200',
     label: 'Top 200',
-    hint: 'S&P/ASX 200 (EODHD AXJO.INDX constituents)',
+    hint: 'S&P/ASX 200 constituents (EODHD AXJO.INDX)',
   },
   {
     id: 'asx500',
     label: 'Top 500',
-    hint: 'All Ordinaries — ~500 largest ASX listings (EODHD AORD.INDX)',
+    hint: 'All Ordinaries ~500 listings (EODHD AORD.INDX) — not ASX Mid Cap',
   },
   {
     id: 'mid',
     label: 'Mid (201–500)',
-    hint: 'In All Ordinaries but not in ASX 200',
+    hint: 'In All Ordinaries (AORD) but not in ASX 200 — computed set, not a separate index',
   },
   {
     id: 'small',

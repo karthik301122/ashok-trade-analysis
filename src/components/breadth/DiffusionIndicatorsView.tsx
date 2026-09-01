@@ -12,6 +12,7 @@ import {
   diffusionReferenceLevels,
   findDiffusionIndicator,
 } from './diffusionIndicators'
+import type { Time } from 'lightweight-charts'
 import { fetchYahooOhlc, type OhlcBar } from '../../lib/yahoo'
 import type { BreadthDailyPoint, BreadthIndexBar } from '../../lib/breadthApi'
 
@@ -27,7 +28,14 @@ type Props = {
 
 const INDEX_SYMBOL = '^AXJO'
 
-/** Snap bar timestamps to noon UTC so index pane aligns with breadth daily points. */
+function timeToUnix(time: Time): number {
+  if (typeof time === 'number' && Number.isFinite(time)) return time
+  if (typeof time === 'string' && time.length >= 10) {
+    return Math.floor(new Date(`${time.slice(0, 10)}T12:00:00Z`).getTime() / 1000)
+  }
+  return 0
+}
+
 function noonUtcFromUnix(t: number): number {
   const day = new Date(t * 1000).toISOString().slice(0, 10)
   return Math.floor(new Date(`${day}T12:00:00Z`).getTime() / 1000)
@@ -66,7 +74,6 @@ export function DiffusionIndicatorsView({
   const [indicatorId, setIndicatorId] = useState<DiffusionIndicatorId>('sma-20')
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set(['sma']))
   const [fallbackIndexBars, setFallbackIndexBars] = useState<OhlcBar[]>([])
-  const [indexLoading, setIndexLoading] = useState(false)
 
   const def = findDiffusionIndicator(indicatorId)
   const indicatorSeries = useMemo(
@@ -74,7 +81,7 @@ export function DiffusionIndicatorsView({
     [bundle, indicatorId, chartHistory],
   )
   const seriesTimes = useMemo(
-    () => indicatorSeries.map((p) => p.time as number),
+    () => indicatorSeries.map((p) => timeToUnix(p.time)).filter((t) => t > 0),
     [indicatorSeries],
   )
 
@@ -89,24 +96,14 @@ export function DiffusionIndicatorsView({
 
   useEffect(() => {
     if (historyLoading) return
-    if (serverIndexBars.length >= 10) {
-      setIndexLoading(false)
-      return
-    }
-    if (fallbackIndexBars.length >= 10) {
-      setIndexLoading(false)
-      return
-    }
+    if (serverIndexBars.length >= 10) return
+    if (fallbackIndexBars.length >= 10) return
     const probe = filterIndexToSeries(
       serverIndexBars.length ? serverIndexBars : fallbackIndexBars,
       seriesTimes,
     )
-    if (probe.length >= 10) {
-      setIndexLoading(false)
-      return
-    }
+    if (probe.length >= 10) return
     let cancelled = false
-    setIndexLoading(true)
     const earliest = chartHistory[0]?.day ?? bundle.dailyHistory[0]?.day
     const from =
       earliest && earliest.length === 10
@@ -115,10 +112,7 @@ export function DiffusionIndicatorsView({
     from.setUTCDate(from.getUTCDate() - 10)
     const fromIso = from.toISOString().slice(0, 10)
     void fetchYahooOhlc(INDEX_SYMBOL, fromIso).then((bars) => {
-      if (!cancelled) {
-        setFallbackIndexBars(bars ?? [])
-        setIndexLoading(false)
-      }
+      if (!cancelled) setFallbackIndexBars(bars ?? [])
     })
     return () => {
       cancelled = true
@@ -230,7 +224,7 @@ export function DiffusionIndicatorsView({
             value={universeId}
             onChange={(e) => onUniverseChange(e.target.value as UniverseId)}
             className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-semibold"
-            title="Universe"
+            title={UNIVERSES.find((u) => u.id === universeId)?.hint ?? 'Universe'}
           >
             {UNIVERSES.map((u) => (
               <option key={u.id} value={u.id}>
@@ -243,10 +237,6 @@ export function DiffusionIndicatorsView({
         {historyLoading ? (
           <div className="flex h-[520px] items-center justify-center rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-sm text-[var(--color-ink-soft)]">
             Loading {universeLabel} breadth history…
-          </div>
-        ) : indexLoading && !alignedIndex.length ? (
-          <div className="flex h-[520px] items-center justify-center rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-sm text-[var(--color-ink-soft)]">
-            Loading index & breadth history…
           </div>
         ) : indicatorSeries.length < 2 ? (
           <div className="flex h-[520px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] px-6 text-center text-sm text-[var(--color-ink-soft)]">
