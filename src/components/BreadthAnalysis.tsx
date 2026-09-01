@@ -14,6 +14,7 @@ import { BreadthGauges } from './breadth/BreadthGauges'
 import { ADSummation } from './breadth/ADSummation'
 import { MetricRows } from './breadth/MetricRows'
 import { ChartsTab } from './breadth/ChartsTab'
+import { DiffusionIndicatorsView } from './breadth/DiffusionIndicatorsView'
 import { HowToReadTab } from './breadth/HowToReadTab'
 import { SeasonalityTab } from './breadth/SeasonalityTab'
 import { copyTickersToTradingView } from '../lib/tradingview'
@@ -22,6 +23,7 @@ import { membershipSourceLabel } from '../data/indexMembership'
 
 type Props = { snapshot: MarketSnapshot; active?: boolean }
 type TabId = 'sma' | 'rsi' | 'rsvol' | 'charts' | 'howto' | 'monthpulse'
+type ViewMode = 'diffusion' | 'classic'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'sma', label: 'SMA Breadth' },
@@ -41,6 +43,7 @@ function BreadthAnalysisBody({
 }) {
   const bundleCache = useRef<BreadthBundle | null>(null)
   const [universeId, setUniverseId] = useState<UniverseId>('asx200')
+  const [viewMode, setViewMode] = useState<ViewMode>('diffusion')
   const [tab, setTab] = useState<TabId>('sma')
   const [copied, setCopied] = useState(false)
   const [listOpen, setListOpen] = useState(false)
@@ -131,6 +134,32 @@ function BreadthAnalysisBody({
 
   return (
     <div className={paused ? 'hidden' : 'space-y-5'} aria-hidden={paused}>
+      {viewMode === 'diffusion' ? (
+        <>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold tracking-tight">
+                Market Breadth Analysis
+              </h1>
+              <p className="text-sm text-[var(--color-ink-soft)]">
+                {universeLabel} · {bundle.stocks.length} stocks · {snapshot.asOf}
+              </p>
+            </div>
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${badgeClass(bundle.overall)}`}
+            >
+              {sentimentLabel(bundle.overall)} · {universeLabel}
+            </span>
+          </div>
+          <DiffusionIndicatorsView
+            bundle={bundle}
+            universeId={universeId}
+            onUniverseChange={setUniverseId}
+            onOpenClassic={() => setViewMode('classic')}
+          />
+        </>
+      ) : (
+        <>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold tracking-tight">
@@ -144,6 +173,13 @@ function BreadthAnalysisBody({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setViewMode('diffusion')}
+            className="rounded-lg border border-sky-500 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 dark:bg-sky-950/50 dark:text-sky-100"
+          >
+            Diffusion charts
+          </button>
           <button
             type="button"
             onClick={copyUniverse}
@@ -251,6 +287,8 @@ function BreadthAnalysisBody({
       {tab === 'howto' && <HowToReadTab />}
       {tab === 'monthpulse' && (
         <SeasonalityTab snapshot={snapshot} bundle={bundle} universeId={universeId} />
+      )}
+        </>
       )}
     </div>
   )
