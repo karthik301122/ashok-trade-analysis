@@ -36,7 +36,7 @@ import { usePatternPrefs } from './usePatternPrefs'
 export type DetectMode = 'draw' | 'rules' | 'candle' | 'alias' | 'script' | 'none'
 
 type Props = {
-  variant?: 'page' | 'sidebar'
+  variant?: 'page' | 'sidebar' | 'studio'
   bars?: OhlcBar[]
   ticker?: string
   drawTools: DrawnTool[]
@@ -221,17 +221,24 @@ export function PatternCreatePanel({
   }
 
   const isSidebar = variant === 'sidebar'
+  const isStudio = variant === 'studio'
 
   return (
     <div
       className={
-        isSidebar
-          ? 'min-h-0 flex-1 overflow-auto bg-[var(--color-bg)] p-4'
+        isSidebar || isStudio
+          ? 'min-h-0 flex-1 overflow-auto bg-[var(--color-bg)] p-4 lg:p-5'
           : 'min-h-0 flex-1 overflow-auto bg-[var(--color-bg)]'
       }
     >
-      <div className={isSidebar ? 'space-y-4' : 'mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8'}>
-        {!isSidebar && (
+      <div
+        className={
+          isSidebar || isStudio
+            ? 'space-y-4'
+            : 'mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8'
+        }
+      >
+        {!isSidebar && !isStudio && (
           <div className="mb-6">
             <h3 className="font-[family-name:var(--font-display)] text-xl font-bold tracking-tight text-teal-900 dark:text-teal-100">
               Create my pattern
@@ -247,7 +254,7 @@ export function PatternCreatePanel({
         <form onSubmit={submitCustom} className="space-y-4">
           <div
             className={
-              isSidebar
+              isSidebar || isStudio
                 ? 'space-y-4'
                 : 'grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]'
             }
@@ -256,12 +263,14 @@ export function PatternCreatePanel({
               className={
                 isSidebar
                   ? 'space-y-3'
-                  : 'space-y-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5'
+                  : isStudio
+                    ? 'space-y-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4'
+                    : 'space-y-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5'
               }
             >
           {isSidebar ? (
           <h3 className="text-sm font-bold text-teal-900 dark:text-teal-100">Create my pattern</h3>
-        ) : (
+        ) : isStudio ? null : (
           <h4 className="text-sm font-bold">Basics</h4>
         )}
               <input
@@ -373,7 +382,9 @@ export function PatternCreatePanel({
               className={
                 isSidebar
                   ? 'space-y-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3'
-                  : 'min-h-[320px] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5'
+                  : isStudio
+                    ? 'space-y-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4'
+                    : 'min-h-[320px] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5'
               }
             >
               {detectMode === 'candle' && (
@@ -699,7 +710,7 @@ export function PatternCreatePanel({
               {detectMode === 'none' && (
                 <div
                   className={
-                    isSidebar
+                    isSidebar || isStudio
                       ? 'text-sm text-[var(--color-ink-soft)]'
                       : 'flex h-full min-h-[200px] items-center justify-center text-sm text-[var(--color-ink-soft)]'
                   }
@@ -737,7 +748,7 @@ export function PatternCreatePanel({
                 onClick={onCancel}
                 className="rounded-lg border border-[var(--color-border)] px-5 py-2.5 text-sm font-semibold hover:bg-[var(--color-muted)]"
               >
-                Back to chart
+                Close
               </button>
             )}
           </div>

@@ -183,7 +183,7 @@ export function PatternPanel({
                     Create my pattern
                   </p>
                   <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
-                    Full-width builder for rules, candle shapes, or scan script.
+                    Opens a dedicated builder for draw, rules, candle shapes, or scan script.
                   </p>
                 </div>
                 <button

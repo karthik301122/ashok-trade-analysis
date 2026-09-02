@@ -26,11 +26,10 @@ import {
   type OhlcBar,
 } from '../lib/patterns'
 import { PatternPanel } from './patterns/PatternPanel'
-import { PatternCreatePanel, type DetectMode } from './patterns/PatternCreatePanel'
+import { PatternCreateModal } from './patterns/PatternCreateModal'
 import { AnnotatedPatternChart } from './patterns/AnnotatedPatternChart'
 import { TradingViewChart } from './TradingViewChart'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
-import type { DrawnTool } from '../lib/patterns/drawnPattern'
 
 /** Open chart zoomed/annotated to a special (or other) pattern hit. */
 export type ChartPatternFocus = {
@@ -41,7 +40,6 @@ export type ChartPatternFocus = {
 }
 
 type ChartView = 'desk' | 'tradingview'
-type ModalTab = 'chart' | 'createPattern'
 
 type Props = {
   ticker: string
@@ -106,11 +104,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
   const [error, setError] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<PatternCategoryId | null>(null)
   const [selected, setSelected] = useState<PatternHit | null>(null)
-  const [modalTab, setModalTab] = useState<ModalTab>('chart')
-  const [drawTools, setDrawTools] = useState<DrawnTool[]>([])
-  const [drawTimeframe, setDrawTimeframe] = useState<'daily' | 'weekly'>('daily')
-  const [createDetectMode, setCreateDetectMode] = useState<DetectMode>('draw')
-  const [createBias, setCreateBias] = useState<PatternBias>('bullish')
+  const [createOpen, setCreateOpen] = useState(false)
   const [intradayLoading, setIntradayLoading] = useState(false)
   const intradayFetchGen = useRef(0)
   const [fund, setFund] = useState<{
@@ -146,7 +140,6 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
     setChartBarInterval('1d')
     setChartView('desk')
     setDeskFallbackNote(null)
-    setModalTab('chart')
     const focusSnapshot = initialFocus
       ? {
           name: initialFocus.name,
@@ -292,15 +285,10 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
 
   const chartBars = useMemo(() => {
     if (!displayBars?.length) return null
-    if (modalTab === 'createPattern') {
-      const daily = dailyBars?.length ? filterBarsByWindow(dailyBars, prefs.scanWindow) : displayBars
-      const base = daily.length >= 10 ? daily : dailyBars?.slice(-Math.min(260, dailyBars.length)) ?? displayBars
-      return base.length > 260 ? base.slice(-260) : base
-    }
     const isIntradayView = isIntradayDeskInterval(effectiveInterval)
     if (selected) return barsAroundHit(displayBars, selected, isIntradayView)
     return windowBars
-  }, [displayBars, dailyBars, selected, windowBars, effectiveInterval, modalTab, prefs.scanWindow])
+  }, [displayBars, selected, windowBars, effectiveInterval])
 
   const tvInterval = tradingViewIntervalForPref(chartInterval, prefs.scanWindow, dataProvider)
   const tvRange = tradingViewRangeForWindow(prefs.scanWindow)
@@ -309,13 +297,6 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
 
   const deskChartReady = Boolean(chartBars?.length) && !intradayLoading
   const showTradingView = chartView === 'tradingview' || (!deskChartReady && !intradayLoading && !loading)
-
-  useEffect(() => {
-    if (modalTab !== 'createPattern' || createDetectMode !== 'draw') return
-    setChartView('desk')
-    setDeskFallbackNote(null)
-    setSelected(null)
-  }, [modalTab, createDetectMode])
 
   useEffect(() => {
     if (loading) return
@@ -355,6 +336,20 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
     }
   }, [])
 
+  if (createOpen) {
+    return (
+      <PatternCreateModal
+        ticker={ticker}
+        name={name}
+        onClose={() => setCreateOpen(false)}
+        onSaved={(category) => {
+          setCreateOpen(false)
+          setActiveCategory(category)
+        }}
+      />
+    )
+  }
+
   const modal = (
     <div
       className="fixed inset-0 z-[100] isolate flex flex-col bg-[var(--color-bg)]"
@@ -369,24 +364,18 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
             {name ? <span className="ml-2 text-sm font-medium text-[var(--color-ink-soft)]">{name}</span> : null}
           </h2>
           <p className="text-xs text-[var(--color-ink-soft)]">
-            {modalTab === 'createPattern'
-              ? 'Create a private pattern — scans full ASX when saved'
-              : `${symbol} · ${chartModeLabel}${selected ? ` · ${selected.name}` : ` · ${scanWindowLabel(prefs.scanWindow)}`}`}
+            {symbol} · {chartModeLabel}
+            {selected ? ` · ${selected.name}` : ` · ${scanWindowLabel(prefs.scanWindow)}`}
           </p>
-      {modalTab === 'createPattern' && createDetectMode === 'draw' && !showTradingView && (
-            <p className="mt-0.5 text-[10px] text-teal-700 dark:text-teal-300">
-              Open Draw tools on the chart, place levels/lines, then save from the panel.
-            </p>
-          )}
-          {modalTab === 'chart' && deskFallbackNote && (
+          {deskFallbackNote && (
             <p className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-300">{deskFallbackNote}</p>
           )}
-          {modalTab === 'chart' && showTradingView && selected && !deskFallbackNote && (
+          {showTradingView && selected && !deskFallbackNote && (
             <p className="mt-0.5 text-[10px] text-[var(--color-ink-soft)]">
               Pattern overlays are on the desk chart — switch to Desk to see lines on the chart.
             </p>
           )}
-          {modalTab === 'chart' && fund && (
+          {fund && (
             <p className="mt-1 flex flex-wrap gap-3 text-[11px] font-semibold tabular-nums text-[var(--color-ink-soft)]">
               <span>PE {fund.pe != null ? fund.pe.toFixed(1) : '—'}</span>
               <span>Fwd PE {fund.forwardPe != null ? fund.forwardPe.toFixed(1) : '—'}</span>
@@ -406,32 +395,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-lg border border-[var(--color-border)] text-xs font-bold">
-            <button
-              type="button"
-              onClick={() => setModalTab('chart')}
-              className={`rounded-l-lg px-3 py-1.5 ${
-                modalTab === 'chart'
-                  ? 'bg-teal-700 text-white'
-                  : 'bg-[var(--color-bg)] text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]'
-              }`}
-            >
-              Chart
-            </button>
-            <button
-              type="button"
-              onClick={() => setModalTab('createPattern')}
-              className={`rounded-r-lg px-3 py-1.5 ${
-                modalTab === 'createPattern'
-                  ? 'bg-teal-700 text-white'
-                  : 'bg-[var(--color-bg)] text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]'
-              }`}
-            >
-              Create pattern
-            </button>
-          </div>
-          {(modalTab === 'chart' || modalTab === 'createPattern') && (
-            <div className="flex rounded-lg border border-[var(--color-border)] text-[10px] font-bold">
+          <div className="flex rounded-lg border border-[var(--color-border)] text-[10px] font-bold">
             <button
               type="button"
               onClick={() => {
@@ -459,8 +423,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
               TV
             </button>
           </div>
-          )}
-          {modalTab === 'chart' && selected && (
+          {selected && (
             <button
               type="button"
               onClick={() => setSelected(null)}
@@ -469,8 +432,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
               Clear pattern
             </button>
           )}
-          {modalTab === 'chart' && (
-            <a
+          <a
               href={tvUrl}
               target="_blank"
               rel="noreferrer"
@@ -479,7 +441,6 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
               <ExternalLink size={14} />
               Open in TradingView
             </a>
-          )}
           <button
             type="button"
             onClick={onClose}
@@ -515,58 +476,32 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
             />
           ) : (
             <AnnotatedPatternChart
-              key={`desk-${ticker}-${modalTab}`}
+              key={`desk-${ticker}`}
               bars={chartBars!}
-              selected={modalTab === 'createPattern' ? null : selected}
+              selected={selected}
               intraday={isIntradayDeskInterval(effectiveInterval)}
-              drawEnabled={modalTab === 'createPattern' && createDetectMode === 'draw'}
-              drawTools={drawTools}
-              onDrawToolsChange={setDrawTools}
-              drawBias={createBias}
             />
           )}
         </div>
         <div
           className="relative z-10 flex h-[45vh] min-h-0 shrink-0 flex-col border-t border-[var(--color-border)] bg-[var(--color-bg)] md:h-auto md:w-[min(400px,32vw)] md:border-l md:border-t-0"
         >
-          {modalTab === 'createPattern' ? (
-            <PatternCreatePanel
-              variant="sidebar"
-              ticker={ticker}
-              drawTools={drawTools}
-              onDrawToolsChange={setDrawTools}
-              drawTimeframe={drawTimeframe}
-              onDrawTimeframeChange={setDrawTimeframe}
-              onDetectModeChange={setCreateDetectMode}
-              onBiasChange={setCreateBias}
-              onSaved={(category) => {
-                setModalTab('chart')
-                setActiveCategory(category)
-                setDrawTools([])
-              }}
-              onCancel={() => {
-                setModalTab('chart')
-                setDrawTools([])
-              }}
-            />
-          ) : (
-            <PatternPanel
-              loading={loading}
-              error={error}
-              categories={categories}
-              catalogTotal={catalogTotal}
-              scanWindow={prefs.scanWindow}
-              onScanWindowChange={setScanWindow}
-              chartInterval={chartInterval}
-              onChartIntervalChange={setChartInterval}
-              chartBarInterval={effectiveInterval}
-              activeCategory={activeCategory}
-              selectedPatternId={selected?.id ?? null}
-              onSelectCategory={setActiveCategory}
-              onSelectPattern={onSelectPattern}
-              onOpenCreateTab={() => setModalTab('createPattern')}
-            />
-          )}
+          <PatternPanel
+            loading={loading}
+            error={error}
+            categories={categories}
+            catalogTotal={catalogTotal}
+            scanWindow={prefs.scanWindow}
+            onScanWindowChange={setScanWindow}
+            chartInterval={chartInterval}
+            onChartIntervalChange={setChartInterval}
+            chartBarInterval={effectiveInterval}
+            activeCategory={activeCategory}
+            selectedPatternId={selected?.id ?? null}
+            onSelectCategory={setActiveCategory}
+            onSelectPattern={onSelectPattern}
+            onOpenCreateTab={() => setCreateOpen(true)}
+          />
         </div>
       </div>
     </div>
