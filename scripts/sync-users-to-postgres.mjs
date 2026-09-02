@@ -35,7 +35,23 @@ if (!rows.length) {
   process.exit(1)
 }
 
-await initDb()
+try {
+  await initDb()
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err)
+  console.error('\nCould not connect to Azure PostgreSQL from your PC.')
+  console.error('This is usually the firewall — your home IP is not allowed yet.\n')
+  console.error('Fix (Azure Portal):')
+  console.error('  1. Open tradersscope-db → Settings → Networking')
+  console.error('  2. Check "Allow public access"')
+  console.error('  3. Click "+ Add current client IP address"')
+  console.error('  4. Save, wait 1 minute, run this script again.\n')
+  console.error('Or create one user without Postgres access:')
+  console.error('  set ADMIN_API_KEY=<from Azure app Configuration>')
+  console.error('  node scripts/create-prod-user-api.mjs email@example.com "password"\n')
+  console.error('Details:', msg)
+  process.exit(1)
+}
 
 let upserted = 0
 for (const row of rows) {

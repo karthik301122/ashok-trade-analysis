@@ -17,6 +17,7 @@
     "create-user": "node scripts/create-user.mjs",
     "list-users": "node scripts/list-users.mjs",
     "sync-users": "node scripts/sync-users-to-postgres.mjs",
+    "create-prod-user": "node scripts/create-prod-user-api.mjs",
     "start": "node server/prod.mjs",
     "lint": "oxlint",
     "test": "vitest run",

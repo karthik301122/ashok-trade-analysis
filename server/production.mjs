@@ -35,10 +35,10 @@ function adminUserSet() {
 
 export async function isAdminUser(username) {
   if (!username) return false
-  if (await isDbAdmin(username)) return true
+  const key = String(username).trim().toLowerCase()
   const admins = adminUserSet()
-  if (!admins.size) return false
-  return admins.has(String(username).trim().toLowerCase())
+  if (admins.size && admins.has(key)) return true
+  return await isDbAdmin(username)
 }
 
 /**

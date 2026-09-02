@@ -20,7 +20,7 @@ export async function createPostgresBackend(connectionString) {
     ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false },
     max: Number(process.env.PG_POOL_MAX) || 10,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 15_000,
+    connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS) || 60_000,
   })
 
   const schemaSql = fs.readFileSync(path.join(__dirname, 'schema.postgres.sql'), 'utf8')

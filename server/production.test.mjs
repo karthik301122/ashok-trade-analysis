@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
+import { resetDbForTests } from './db.mjs'
 import {
   browserUniverseFetchEnabled,
   isAdminRequest,
@@ -14,6 +15,8 @@ describe('production mode', () => {
 
   beforeEach(() => {
     process.env = { ...prev }
+    delete process.env.DATABASE_URL
+    resetDbForTests()
   })
 
   afterEach(() => {
