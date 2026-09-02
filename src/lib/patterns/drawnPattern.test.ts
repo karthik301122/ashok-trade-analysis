@@ -92,6 +92,6 @@ describe('drawnPattern', () => {
     ])
     const text = describeDrawnSpec({ timeframe: 'daily', tools: [tool] })
     expect(text).toContain('daily')
-    expect(text).toContain('Trendline')
+    expect(text).toContain('Trend line')
   })
 })

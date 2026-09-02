@@ -1,9 +1,15 @@
+export type PatternAlertWatch = {
+  ticker: string
+  patternIds: string[]
+}
+
 export type AuthMe = {
   user: string | null
   authRequired: boolean
   canReceiveAlertEmail?: boolean
   alertEmailOptIn?: boolean
   patternAlertIds?: string[]
+  patternAlertWatches?: PatternAlertWatch[]
 }
 
 export type AuthConfig = {
@@ -42,10 +48,42 @@ export async function fetchAuthMe(): Promise<AuthMe> {
       canReceiveAlertEmail: Boolean(json.canReceiveAlertEmail),
       alertEmailOptIn: Boolean(json.alertEmailOptIn),
       patternAlertIds: Array.isArray(json.patternAlertIds) ? json.patternAlertIds : [],
+      patternAlertWatches: Array.isArray(json.patternAlertWatches) ? json.patternAlertWatches : [],
     }
   } catch {
     const cfg = await fetchAuthConfig()
     return { user: null, authRequired: cfg.authRequired }
+  }
+}
+
+export async function setPatternAlertWatches(
+  watches: PatternAlertWatch[],
+): Promise<
+  { ok: true; patternAlertWatches: PatternAlertWatch[]; patternAlertIds: string[] } | { ok: false; error: string }
+> {
+  try {
+    const res = await fetch('/api/auth/pattern-alert-prefs', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ watches }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: (json as { error?: string }).error || 'Could not update pattern alerts',
+      }
+    }
+    const saved = (json as { patternAlertWatches?: PatternAlertWatch[] }).patternAlertWatches
+    const ids = (json as { patternAlertIds?: string[] }).patternAlertIds
+    return {
+      ok: true,
+      patternAlertWatches: Array.isArray(saved) ? saved : watches,
+      patternAlertIds: Array.isArray(ids) ? ids : [],
+    }
+  } catch {
+    return { ok: false, error: 'Network error' }
   }
 }
 

@@ -16,9 +16,11 @@ import {
 import {
   getAlertEmailOptIn,
   getPatternAlertIds,
+  getPatternAlertWatches,
   isEmailLogin,
   setAlertEmailOptIn,
   setPatternAlertIds,
+  setPatternAlertWatches,
 } from './userPrefs.mjs'
 
 export const COOKIE_NAME = 'asx_sid'
@@ -227,12 +229,14 @@ export async function handleAuthApi(req, res, send) {
     const canReceiveAlertEmail = isEmailLogin(user)
     const alertEmailOptIn = canReceiveAlertEmail ? await getAlertEmailOptIn(user) : false
     const patternAlertIds = await getPatternAlertIds(user)
+    const patternAlertWatches = await getPatternAlertWatches(user)
     return send(200, {
       user,
       authRequired: true,
       canReceiveAlertEmail,
       alertEmailOptIn,
       patternAlertIds,
+      patternAlertWatches,
     })
   }
 
@@ -242,8 +246,10 @@ export async function handleAuthApi(req, res, send) {
     }
     const user = getUserFromRequest(req)
     if (!user) return send(401, { error: 'Unauthorized', authRequired: true })
-    const patternAlertIds = await getPatternAlertIds(user)
-    return send(200, { patternAlertIds })
+    return send(200, {
+      patternAlertIds: await getPatternAlertIds(user),
+      patternAlertWatches: await getPatternAlertWatches(user),
+    })
   }
 
   if (path === '/api/auth/pattern-alert-prefs' && method === 'POST') {
@@ -257,6 +263,15 @@ export async function handleAuthApi(req, res, send) {
       body = await readJsonBody(req)
     } catch {
       return send(400, { error: 'Invalid JSON' })
+    }
+    const rawWatches = body?.watches ?? body?.patternAlertWatches
+    if (Array.isArray(rawWatches)) {
+      const saved = await setPatternAlertWatches(user, rawWatches)
+      return send(200, {
+        ok: true,
+        patternAlertWatches: saved,
+        patternAlertIds: await getPatternAlertIds(user),
+      })
     }
     const raw = body?.patternIds ?? body?.patternAlertIds
     const patternIds = Array.isArray(raw) ? raw : []

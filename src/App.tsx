@@ -5,7 +5,7 @@ import { MainPagePanels } from './components/MainPagePanels'
 import { AuthPage } from './components/AuthPage'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
 import { fetchDeskServerConfig, type DeskServerConfig } from './lib/deskConfig'
-import { fetchAuthMe, logout as apiLogout } from './lib/auth'
+import { fetchAuthMe, logout as apiLogout, type PatternAlertWatch } from './lib/auth'
 import type { MarketSnapshot } from './data/types'
 import { ASX_UNIVERSE_COUNT } from './data/universe'
 import { applyStocksOnlyFilter, STOCKS_ONLY_LS_KEY } from './lib/instrumentFilter'
@@ -22,6 +22,7 @@ export default function App() {
   const [authChecking, setAuthChecking] = useState(true)
   const [authRequired, setAuthRequired] = useState(false)
   const [user, setUser] = useState<string | null>(null)
+  const [patternAlertWatches, setPatternAlertWatches] = useState<PatternAlertWatch[]>([])
   const [page, setPage] = useState<AppPage>('sector')
   const [, startNavTransition] = useTransition()
   const navigate = useCallback((next: AppPage) => {
@@ -90,6 +91,7 @@ export default function App() {
       if (cancelled) return
       setAuthRequired(me.authRequired)
       setUser(me.user)
+      setPatternAlertWatches(me.patternAlertWatches ?? [])
       setAuthChecking(false)
     })()
     return () => {
@@ -250,15 +252,18 @@ export default function App() {
     return () => abortRef.current?.abort()
   }, [canUseApp])
 
-  const handleLogin = (u: string) => {
+  const handleLogin = async (u: string) => {
     startedLoad.current = false
     setUser(u)
+    const me = await fetchAuthMe()
+    setPatternAlertWatches(me.patternAlertWatches ?? [])
   }
 
   const handleLogout = async () => {
     abortRef.current?.abort()
     await apiLogout()
     setUser(null)
+    setPatternAlertWatches([])
     setSnapshot(null)
     setMeta(null)
     setError(null)
@@ -462,7 +467,10 @@ export default function App() {
               <PrewarmSnapshotPatterns snapshot={displaySnapshot!} />
               <WatchPatternAlertScan
                 snapshot={displaySnapshot!}
-                paused={page !== 'sector' && page !== 'special-patterns'}
+                alertWatches={patternAlertWatches}
+                paused={
+                  page !== 'sector' && page !== 'special-patterns' && page !== 'alerts'
+                }
               />
               <MainPagePanels
                 page={page}
@@ -473,6 +481,8 @@ export default function App() {
                   deskConfig?.liveQuotes?.fresh && deskConfig.liveQuotes.marketOpen,
                 )}
                 backfilling={backfilling}
+                patternAlertWatches={patternAlertWatches}
+                onPatternAlertWatchesChange={setPatternAlertWatches}
               />
             </PanelErrorBoundary>
           </>

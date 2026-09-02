@@ -3,7 +3,7 @@ import { readMarketSnapshotRow } from './snapshotJob.mjs'
 import { matchAlertRule } from './alertMatch.mjs'
 import { queryPatternScanState } from './patternScanStore.mjs'
 import { alertEmailConfigured, sendAlertEmailDigest } from './alertEmail.mjs'
-import { listAlertEmailOptInUsers, getPatternAlertIds } from './userPrefs.mjs'
+import { listAlertEmailOptInUsers, filterPatternAlertEventsForUser, filterPatternAlertItemsForUser } from './userPrefs.mjs'
 import { log } from './log.mjs'
 
 /**
@@ -94,12 +94,7 @@ export async function listAlertEvents(limit = 50, username = null) {
   }))
 
   if (username) {
-    const subscribed = await getPatternAlertIds(username)
-    events = events.filter((e) => {
-      const pid = e.payload?.patternId
-      if (!pid) return true
-      return subscribed.includes(String(pid))
-    })
+    events = await filterPatternAlertEventsForUser(username, events)
   }
 
   return events
@@ -185,10 +180,7 @@ export async function evaluateAlerts() {
     const optInUsers = await listAlertEmailOptInUsers()
     let sentCount = 0
     for (const username of optInUsers) {
-      const subscribed = await getPatternAlertIds(username)
-      const items = emailQueue.filter(
-        (item) => !item.patternId || subscribed.includes(item.patternId),
-      )
+      const items = await filterPatternAlertItemsForUser(username, emailQueue)
       if (!items.length) continue
       const emailOk = await sendAlertEmailDigest(items, [username])
       if (emailOk) {

@@ -9,6 +9,8 @@ import { UnifiedSpecialScansProvider } from './patterns/UnifiedSpecialScansConte
 import type { ViewId } from './ViewTabs'
 import type { AppPage } from '../lib/appPage'
 
+import type { PatternAlertWatch } from '../lib/patterns/patternAlertWatches'
+
 type Props = {
   page: AppPage
   snapshot: MarketSnapshot
@@ -16,6 +18,8 @@ type Props = {
   onViewChange: (id: ViewId) => void
   livePricesActive: boolean
   backfilling: boolean
+  patternAlertWatches?: PatternAlertWatch[]
+  onPatternAlertWatchesChange?: (watches: PatternAlertWatch[]) => void
 }
 
 function mainPagePanelsPropsEqual(prev: Props, next: Props): boolean {
@@ -37,6 +41,8 @@ function MainPagePanelsInner({
   onViewChange,
   livePricesActive,
   backfilling,
+  patternAlertWatches,
+  onPatternAlertWatchesChange,
 }: Props) {
   const overlayPage = page === 'alerts' || page === 'create-pattern'
 
@@ -54,7 +60,13 @@ function MainPagePanelsInner({
         <BreadthAnalysis snapshot={snapshot} visible={page === 'breadth'} />
         <SpecialPatternsPanel snapshot={snapshot} visible={page === 'special-patterns'} />
       </div>
-      {page === 'alerts' && <AlertsPanel />}
+      {page === 'alerts' && (
+        <AlertsPanel
+          snapshot={snapshot}
+          watches={patternAlertWatches}
+          onWatchesChange={onPatternAlertWatchesChange}
+        />
+      )}
       {page === 'create-pattern' && <PatternCreatePage />}
     </UnifiedSpecialScansProvider>
   )

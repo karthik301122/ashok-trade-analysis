@@ -27,7 +27,7 @@ import {
 } from './alerts.mjs'
 import { upsertPatternScanBatch } from './patternScanStore.mjs'
 import { alertEmailConfigured } from './alertEmail.mjs'
-import { getAlertEmailOptIn, getPatternAlertIds, isEmailLogin, setAlertEmailOptIn, setPatternAlertIds } from './userPrefs.mjs'
+import { getAlertEmailOptIn, getPatternAlertIds, getPatternAlertWatches, isEmailLogin, setAlertEmailOptIn, setPatternAlertIds, setPatternAlertWatches } from './userPrefs.mjs'
 import { getFundamentals } from './fundamentals.mjs'
 import { checkRateLimit, clientKey, log, pruneRateLimitBuckets } from './log.mjs'
 import { seriesProviderName, isIntradayInterval } from './fetchSeries.mjs'
@@ -568,12 +568,14 @@ export function mountExpressApi(app) {
     const canReceiveAlertEmail = isEmailLogin(user)
     const alertEmailOptIn = canReceiveAlertEmail ? await getAlertEmailOptIn(user) : false
     const patternAlertIds = await getPatternAlertIds(user)
+    const patternAlertWatches = await getPatternAlertWatches(user)
     return res.json({
       user,
       authRequired: true,
       canReceiveAlertEmail,
       alertEmailOptIn,
       patternAlertIds,
+      patternAlertWatches,
     })
   })
 
@@ -599,7 +601,10 @@ export function mountExpressApi(app) {
     }
     const user = getUserFromRequest(req)
     if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
-    return res.json({ patternAlertIds: await getPatternAlertIds(user) })
+    return res.json({
+      patternAlertIds: await getPatternAlertIds(user),
+      patternAlertWatches: await getPatternAlertWatches(user),
+    })
   })
 
   app.post('/api/auth/pattern-alert-prefs', async (req, res) => {
@@ -608,6 +613,15 @@ export function mountExpressApi(app) {
     }
     const user = getUserFromRequest(req)
     if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    const rawWatches = req.body?.watches ?? req.body?.patternAlertWatches
+    if (Array.isArray(rawWatches)) {
+      const saved = await setPatternAlertWatches(user, rawWatches)
+      return res.json({
+        ok: true,
+        patternAlertWatches: saved,
+        patternAlertIds: await getPatternAlertIds(user),
+      })
+    }
     const raw = req.body?.patternIds ?? req.body?.patternAlertIds
     const patternIds = Array.isArray(raw) ? raw : []
     const saved = await setPatternAlertIds(user, patternIds)

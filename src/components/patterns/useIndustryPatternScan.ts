@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchYahooOhlcForPatternScan } from '../../lib/yahoo'
 import { postPatternScanBatch, type PatternScanUploadRow } from '../../lib/patternScanApi'
 import { detectAllCustomRules, filterHitsByWindow, scanPatterns } from '../../lib/patterns'
-import { collectWatchPatternUploadRows } from '../../lib/patterns/watchPatternAlertUpload'
+import {
+  collectAlertWatchUploadRows,
+  collectWatchPatternUploadRows,
+} from '../../lib/patterns/watchPatternAlertUpload'
+import type { PatternAlertWatch } from '../../lib/patterns/patternAlertWatches'
 import { cacheMissingStartT, getTickerPatternHits } from '../../lib/patternHitsCache'
 import { hasOverviewChartWatch } from '../../lib/overviewPatternHits'
 import { usePatternPrefs } from './usePatternPrefs'
@@ -20,12 +24,20 @@ export function useIndustryPatternScan(
   tickers: string[],
   enabled: boolean,
   fullUniverse = false,
+  alertWatches: PatternAlertWatch[] = [],
 ) {
   const { rememberHits, prefs, hitsScanEpoch } = usePatternPrefs()
   const scanWindow = prefs.scanWindow
   const customPatterns = prefs.customPatterns
   const starredNames = prefs.starredNames
-  const chartWatch = hasOverviewChartWatch(prefs)
+  const chartWatch = hasOverviewChartWatch(prefs) || alertWatches.length > 0
+  const watchByTicker = useMemo(() => {
+    const m = new Map<string, string[]>()
+    for (const w of alertWatches) {
+      m.set(w.ticker.toUpperCase(), w.patternIds)
+    }
+    return m
+  }, [alertWatches])
   const [scanning, setScanning] = useState(false)
   const [done, setDone] = useState(0)
   const [total, setTotal] = useState(0)
@@ -119,6 +131,13 @@ export function useIndustryPatternScan(
             )
             pendingUpload.push(
               ...collectWatchPatternUploadRows(ticker, prefs, result.hits, customHits),
+              ...collectAlertWatchUploadRows(
+                ticker,
+                watchByTicker.get(ticker.toUpperCase()) ?? [],
+                result.hits,
+                customHits,
+                prefs,
+              ),
             )
             if (pendingUpload.length >= UPLOAD_BATCH) flushUpload()
           }
@@ -153,6 +172,8 @@ export function useIndustryPatternScan(
     enabled,
     fullUniverse,
     chartWatch,
+    watchByTicker,
+    alertWatches,
     scanWindow,
     customPatterns,
     starredNames,

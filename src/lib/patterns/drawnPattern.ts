@@ -1,10 +1,15 @@
 import type { OhlcBar } from './types'
 import type { PatternBias, PatternHit } from './types'
 import { completedWeeklyBars } from './weeklyBars'
+import {
+  getDrawToolDef,
+  minPointsForTool,
+  type DrawnToolType as CatalogDrawnToolType,
+} from './drawToolCatalog'
+
+export type DrawnToolType = Exclude<CatalogDrawnToolType, 'cursor' | 'eraser'>
 
 export type DrawnAnchor = { time: number; price: number }
-
-export type DrawnToolType = 'hline' | 'trendline' | 'ray' | 'zone'
 
 export type DrawnTrigger =
   | 'near'
@@ -21,6 +26,8 @@ export type DrawnTool = {
   trigger: DrawnTrigger
   /** % tolerance for near/break (default 0.5) */
   tolerancePct: number
+  /** Annotation label */
+  text?: string
 }
 
 export type DrawnPatternSpec = {
@@ -31,6 +38,14 @@ export type DrawnPatternSpec = {
 const LOOKBACK = 12
 const DEFAULT_TOLERANCE = 0.5
 
+const LEGACY_TYPE_MAP: Record<string, DrawnToolType> = {
+  hline: 'hline',
+  trendline: 'trendline',
+  ray: 'ray',
+  zone: 'zone',
+  rectangle: 'rectangle',
+}
+
 function num(v: unknown, fallback: number): number {
   const n = Number(v)
   return Number.isFinite(n) ? n : fallback
@@ -40,14 +55,23 @@ function clampTol(n: number): number {
   return Math.max(0.05, Math.min(5, n))
 }
 
+function participatesInDetect(type: DrawnToolType): boolean {
+  const def = getDrawToolDef(type)
+  if (!def) return false
+  return def.kind === 'level' || def.kind === 'zone' || def.kind === 'fib' || def.kind === 'forecast'
+}
+
 export function defaultTriggerForTool(type: DrawnToolType, bias: PatternBias): DrawnTrigger {
-  if (type === 'zone') return 'inside_zone'
-  if (type === 'hline') {
+  const def = getDrawToolDef(type)
+  if (def?.kind === 'zone' || type === 'rectangle' || type.includes('channel')) return 'inside_zone'
+  if (type === 'hline' || type === 'hray') {
     if (bias === 'bullish') return 'break_above'
     if (bias === 'bearish') return 'break_below'
     return 'near'
   }
-  if (type === 'trendline' || type === 'ray') {
+  if (type === 'long_position') return 'break_above'
+  if (type === 'short_position') return 'break_below'
+  if (def?.kind === 'level' || def?.kind === 'fib') {
     if (bias === 'bullish') return 'break_above'
     if (bias === 'bearish') return 'break_below'
     return 'near'
@@ -59,6 +83,7 @@ export function newDrawnTool(
   type: DrawnToolType,
   points: DrawnAnchor[],
   bias: PatternBias = 'neutral',
+  text?: string,
 ): DrawnTool {
   return {
     id: `dt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -66,32 +91,31 @@ export function newDrawnTool(
     points,
     trigger: defaultTriggerForTool(type, bias),
     tolerancePct: DEFAULT_TOLERANCE,
+    text,
   }
 }
 
 export function normalizeDrawnTool(raw: unknown): DrawnTool | null {
   if (raw == null || typeof raw !== 'object') return null
-  const o = raw as Partial<DrawnTool>
-  const type: DrawnToolType | null =
-    o.type === 'hline' ||
-    o.type === 'trendline' ||
-    o.type === 'ray' ||
-    o.type === 'zone'
-      ? o.type
-      : null
-  if (!type) return null
+  const o = raw as Partial<DrawnTool> & { type?: string }
+  const rawType = String(o.type ?? '')
+  if (rawType === 'cursor' || rawType === 'eraser') return null
+  const mapped = LEGACY_TYPE_MAP[rawType] ?? rawType
+  const def = getDrawToolDef(mapped as CatalogDrawnToolType)
+  if (!def && !LEGACY_TYPE_MAP[rawType]) return null
+  const type: DrawnToolType = def ? (def.id as DrawnToolType) : LEGACY_TYPE_MAP[rawType]
   if (!Array.isArray(o.points) || o.points.length < 1) return null
 
+  const need = minPointsForTool(type)
   const points: DrawnAnchor[] = []
-  const need = type === 'hline' ? 1 : 2
-  for (const p of o.points.slice(0, need)) {
+  for (const p of o.points) {
     if (!p || typeof p !== 'object') continue
     const time = num((p as DrawnAnchor).time, NaN)
     const price = num((p as DrawnAnchor).price, NaN)
     if (!Number.isFinite(time) || !Number.isFinite(price)) continue
     points.push({ time, price })
   }
-  if (points.length < need) return null
+  if (points.length < Math.min(need, 1)) return null
 
   const triggers: DrawnTrigger[] = [
     'near',
@@ -111,6 +135,7 @@ export function normalizeDrawnTool(raw: unknown): DrawnTool | null {
     points,
     trigger,
     tolerancePct: clampTol(num(o.tolerancePct, DEFAULT_TOLERANCE)),
+    text: typeof o.text === 'string' ? o.text : undefined,
   }
 }
 
@@ -125,6 +150,7 @@ export function normalizeDrawnSpec(raw: unknown): DrawnPatternSpec | null {
 }
 
 export function describeDrawnTool(tool: DrawnTool): string {
+  const def = getDrawToolDef(tool.type)
   const tol = tool.tolerancePct
   const triggerLabels: Record<DrawnTrigger, string> = {
     near: `near level (±${tol}%)`,
@@ -134,13 +160,7 @@ export function describeDrawnTool(tool: DrawnTool): string {
     touch_support: `touch support (±${tol}%)`,
     touch_resistance: `touch resistance (±${tol}%)`,
   }
-  const typeLabels: Record<DrawnToolType, string> = {
-    hline: 'Horizontal',
-    trendline: 'Trendline',
-    ray: 'Ray',
-    zone: 'Zone',
-  }
-  return `${typeLabels[tool.type]} · ${triggerLabels[tool.trigger]}`
+  return `${def?.label ?? tool.type} · ${triggerLabels[tool.trigger]}`
 }
 
 export function describeDrawnSpec(spec: DrawnPatternSpec | null | undefined): string {
@@ -171,13 +191,22 @@ function zoneBounds(tool: DrawnTool): { top: number; bottom: number } {
 }
 
 function levelPrice(tool: DrawnTool, t: number): number {
-  if (tool.type === 'hline') return tool.points[0].price
-  if (tool.type === 'trendline' || tool.type === 'ray') return trendlinePriceAt(tool, t)
+  if (tool.type === 'hline' || tool.type === 'hray') return tool.points[0].price
+  if (
+    tool.type === 'trendline' ||
+    tool.type === 'ray' ||
+    tool.type === 'extended_line' ||
+    tool.type === 'info_line' ||
+    tool.type === 'trend_angle'
+  ) {
+    return trendlinePriceAt(tool, t)
+  }
   const { top, bottom } = zoneBounds(tool)
   return (top + bottom) / 2
 }
 
 function toolTriggeredAt(bars: OhlcBar[], i: number, tool: DrawnTool): boolean {
+  if (!participatesInDetect(tool.type)) return true
   if (i < 0 || i >= bars.length) return false
   const bar = bars[i]
   const prev = i > 0 ? bars[i - 1] : bar
@@ -187,7 +216,13 @@ function toolTriggeredAt(bars: OhlcBar[], i: number, tool: DrawnTool): boolean {
   const low = bar.l
   const high = bar.h
 
-  if (tool.type === 'zone') {
+  const isZone =
+    tool.type === 'zone' ||
+    tool.type === 'rectangle' ||
+    tool.type.includes('channel') ||
+    getDrawToolDef(tool.type)?.kind === 'zone'
+
+  if (isZone && tool.points.length >= 2) {
     const { top, bottom } = zoneBounds(tool)
     const padTop = top * tol
     const padBottom = bottom * tol
@@ -233,7 +268,9 @@ function toolTriggeredAt(bars: OhlcBar[], i: number, tool: DrawnTool): boolean {
 }
 
 function allToolsTriggeredAt(bars: OhlcBar[], i: number, tools: DrawnTool[]): boolean {
-  return tools.every((tool) => toolTriggeredAt(bars, i, tool))
+  const detectTools = tools.filter((t) => participatesInDetect(t.type))
+  if (!detectTools.length) return tools.length > 0
+  return detectTools.every((tool) => toolTriggeredAt(bars, i, tool))
 }
 
 function hitPointsFromTools(tools: DrawnTool[]): DrawnAnchor[] {

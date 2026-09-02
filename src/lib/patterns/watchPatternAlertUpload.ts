@@ -6,7 +6,13 @@ import {
   isSpecialPatternName,
 } from './specialCatalog'
 import type { PatternHit } from './types'
-import { chartPatternAlertId, customPatternAlertId } from './patternAlertIds'
+import {
+  chartPatternAlertId,
+  customPatternAlertId,
+  decodePatternAlertId,
+  CHART_PATTERN_ALERT_PREFIX,
+  CUSTOM_PATTERN_ALERT_PREFIX,
+} from './patternAlertIds'
 
 export const PATTERN_ALERT_CONFIRMED_SCORE = 85
 
@@ -70,6 +76,55 @@ export function collectWatchPatternUploadRows(
     if (!hit) continue
     const row = hitToPatternUploadRow(ticker, customPatternAlertId(c.id), hit.confidence)
     if (row) rows.push(row)
+  }
+
+  return rows
+}
+
+/** Upload rows for explicit per-stock alert pattern ids (not only ★ starred). */
+export function collectAlertWatchUploadRows(
+  ticker: string,
+  patternIds: string[],
+  catalogHits: PatternHit[],
+  customHits: PatternHit[],
+  prefs: PatternPrefs,
+): PatternScanUploadRow[] {
+  if (!patternIds.length) return []
+  const byName = new Map<string, PatternHit>()
+  for (const h of catalogHits) {
+    const prev = byName.get(h.name)
+    if (!prev || h.endT > prev.endT) byName.set(h.name, h)
+  }
+
+  const rows: PatternScanUploadRow[] = []
+  const seen = new Set<string>()
+
+  for (const pid of patternIds) {
+    if (pid.startsWith(CHART_PATTERN_ALERT_PREFIX)) {
+      const name = decodePatternAlertId(pid)
+      const hit = byName.get(name)
+      if (!hit) continue
+      const row = hitToPatternUploadRow(ticker, pid, hit.confidence)
+      if (row && !seen.has(pid)) {
+        seen.add(pid)
+        rows.push(row)
+      }
+    } else if (pid.startsWith(CUSTOM_PATTERN_ALERT_PREFIX)) {
+      const customId = pid.slice(CUSTOM_PATTERN_ALERT_PREFIX.length)
+      const c = prefs.customPatterns.find((x) => x.id === customId)
+      if (!c || !isDetectableCustom(c)) continue
+      let hit = customHits.find((h) => h.name === c.name)
+      if (!hit && c.basedOn) {
+        const base = byName.get(c.basedOn)
+        if (base) hit = { ...base, name: c.name, bias: c.bias }
+      }
+      if (!hit) continue
+      const row = hitToPatternUploadRow(ticker, pid, hit.confidence)
+      if (row && !seen.has(pid)) {
+        seen.add(pid)
+        rows.push(row)
+      }
+    }
   }
 
   return rows
