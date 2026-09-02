@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react'
+import { memo } from 'react'
 import type { MarketSnapshot } from '../data/types'
 import { APP_NAME } from '../lib/brand'
 import { ViewTabs, type ViewId } from './ViewTabs'
@@ -73,34 +73,15 @@ function SectorMarketsSectionBody({
   )
 }
 
-function SectorMarketsSectionShell({
-  snapshot,
-  view,
-  onViewChange,
-  livePricesActive,
-  backfilling,
-  active = true,
-}: Props) {
-  const [mounted, setMounted] = useState(active)
-
-  useEffect(() => {
-    if (active) {
-      setMounted(true)
-      return
-    }
-    const id = window.setTimeout(() => setMounted(false), 4000)
-    return () => window.clearTimeout(id)
-  }, [active])
-
-  if (!mounted) return null
-
+function SectorMarketsSectionShell(props: Props) {
+  const active = props.active ?? true
   return (
     <SectorMarketsSectionBody
-      snapshot={snapshot}
-      view={view}
-      onViewChange={onViewChange}
-      livePricesActive={livePricesActive}
-      backfilling={backfilling}
+      snapshot={props.snapshot}
+      view={props.view}
+      onViewChange={props.onViewChange}
+      livePricesActive={props.livePricesActive}
+      backfilling={props.backfilling}
       paused={!active}
     />
   )

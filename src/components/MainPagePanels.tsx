@@ -37,27 +37,30 @@ function MainPagePanelsInner({
   livePricesActive,
   backfilling,
 }: Props) {
-  if (page === 'alerts') return <AlertsPanel />
-  if (page === 'create-pattern') return <PatternCreatePage />
+  const overlayPage = page === 'alerts' || page === 'create-pattern'
 
   return (
     <>
-      <SectorMarketsSection
-        snapshot={snapshot}
-        view={view}
-        onViewChange={onViewChange}
-        livePricesActive={livePricesActive}
-        backfilling={backfilling}
-        active={page === 'sector'}
-      />
-      <BreadthAnalysis snapshot={snapshot} active={page === 'breadth'} />
-      <SpecialPatternsPanel snapshot={snapshot} active={page === 'special-patterns'} />
+      <div hidden={overlayPage} aria-hidden={overlayPage}>
+        <SectorMarketsSection
+          snapshot={snapshot}
+          view={view}
+          onViewChange={onViewChange}
+          livePricesActive={livePricesActive}
+          backfilling={backfilling}
+          active={page === 'sector'}
+        />
+        <BreadthAnalysis snapshot={snapshot} active={page === 'breadth'} />
+        <SpecialPatternsPanel snapshot={snapshot} active={page === 'special-patterns'} />
+      </div>
+      {page === 'alerts' && <AlertsPanel />}
+      {page === 'create-pattern' && <PatternCreatePage />}
     </>
   )
 }
 
 /**
- * Keep heavy tabs mounted briefly after switch (see SectorMarketsSection / Breadth / Patterns)
- * so navigation feels instant and background scans pause instead of cold-restarting.
+ * Main tabs stay mounted (hidden when Alerts / Create pattern) so navigation
+ * does not cold-mount heavy panels or restart background scans.
  */
 export const MainPagePanels = memo(MainPagePanelsInner, mainPagePanelsPropsEqual)

@@ -105,13 +105,52 @@ export function scanSpecialPattern(
     .sort((a, b) => b.m3 - a.m3)
 }
 
+const snapshotScanCache = new Map<
+  string,
+  { pattern: SpecialPatternDef; hits: SpecialPatternHit[]; count: number }[]
+>()
+
 export function scanAllSpecialPatterns(
   stocks: StockMetrics[],
   indexM3: number,
 ): { pattern: SpecialPatternDef; hits: SpecialPatternHit[]; count: number }[] {
+  const cacheKey = `${stocks.length}:${stocks[0]?.ticker ?? ''}:${stocks[stocks.length - 1]?.ticker ?? ''}:${indexM3}`
+  const cached = snapshotScanCache.get(cacheKey)
+  if (cached) return cached
+
   const ctx = buildSpecialScanContext(stocks, indexM3)
-  return SNAPSHOT_PATTERN_CATALOG.map((pattern) => {
-    const hits = scanSpecialPattern(pattern, stocks, ctx)
+  const hitBuckets = new Map<string, SpecialPatternHit[]>()
+  for (const pattern of SNAPSHOT_PATTERN_CATALOG) {
+    hitBuckets.set(pattern.id, [])
+  }
+
+  for (const s of stocks) {
+    for (const pattern of SNAPSHOT_PATTERN_CATALOG) {
+      const fn = evaluators[pattern.id]
+      if (!fn?.(s, ctx)) continue
+      hitBuckets.get(pattern.id)!.push({
+        patternId: pattern.id,
+        patternName: pattern.name,
+        bias: pattern.bias,
+        ticker: s.ticker,
+        name: s.name,
+        sector: s.sector,
+        industry: s.industry,
+        rs: Math.round(s.rs ?? 0),
+        m3: s.m3,
+        relativeVolume: s.relativeVolume ?? 0,
+        rsi: s.rsi ?? 50,
+        lastPrice: s.lastPrice ?? 0,
+      })
+    }
+  }
+
+  const result = SNAPSHOT_PATTERN_CATALOG.map((pattern) => {
+    const hits = hitBuckets.get(pattern.id) ?? []
+    hits.sort((a, b) => b.m3 - a.m3)
     return { pattern, hits, count: hits.length }
   })
+
+  snapshotScanCache.set(cacheKey, result)
+  return result
 }

@@ -13,6 +13,7 @@ import { RefreshCw } from 'lucide-react'
 import { MaintenancePage } from './components/MaintenancePage'
 import { PatternPrefsProvider } from './components/patterns/PatternPrefsContext'
 import { WatchPatternAlertScan } from './components/patterns/WatchPatternAlertScan'
+import { PrewarmSnapshotPatterns } from './components/PrewarmSnapshotPatterns'
 import { PanelErrorBoundary } from './components/PanelErrorBoundary'
 import { AppNavContext, type AppPage } from './lib/appPage'
 
@@ -458,6 +459,7 @@ export default function App() {
             </div>
 
             <PanelErrorBoundary title="This tab failed to load">
+              <PrewarmSnapshotPatterns snapshot={displaySnapshot!} />
               <WatchPatternAlertScan
                 snapshot={displaySnapshot!}
                 paused={page !== 'sector' && page !== 'special-patterns'}

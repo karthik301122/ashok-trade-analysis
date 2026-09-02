@@ -317,19 +317,6 @@ function BreadthAnalysisBody({
 }
 
 function BreadthAnalysisShell({ snapshot, active }: Props) {
-  const [mounted, setMounted] = useState(active)
-
-  useEffect(() => {
-    if (active) {
-      setMounted(true)
-      return
-    }
-    const id = window.setTimeout(() => setMounted(false), 4000)
-    return () => window.clearTimeout(id)
-  }, [active])
-
-  if (!mounted) return null
-
   return <BreadthAnalysisBody snapshot={snapshot} paused={!active} />
 }
 

@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState, useDeferredValue } from 'react'
+import { memo, startTransition, useEffect, useMemo, useState, useDeferredValue } from 'react'
 import { Copy, Search, Sparkles, Star } from 'lucide-react'
 import type { MarketSnapshot } from '../data/types'
 import { formatPct, formatPrice, perfCellClass, resolveStockPrice } from '../lib/format'
@@ -125,10 +125,34 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: Props) {
     scriptScanVersion,
   } = useUnifiedSpecialScans(snapshot.stocks, active, indexM3)
 
-  const snapshotScan = useMemo(
-    () => (active ? scanAllSpecialPatterns(deferredStocks, indexM3) : []),
-    [active, deferredStocks, indexM3],
-  )
+  const [snapshotScan, setSnapshotScan] = useState<
+    ReturnType<typeof scanAllSpecialPatterns>
+  >([])
+
+  useEffect(() => {
+    if (!active) return
+    let cancelled = false
+    const stocks = deferredStocks
+    const run = () => {
+      if (cancelled) return
+      startTransition(() => {
+        if (cancelled) return
+        setSnapshotScan(scanAllSpecialPatterns(stocks, indexM3))
+      })
+    }
+    if (typeof requestIdleCallback !== 'undefined') {
+      const id = requestIdleCallback(run, { timeout: 120 })
+      return () => {
+        cancelled = true
+        cancelIdleCallback(id)
+      }
+    }
+    const id = window.setTimeout(run, 0)
+    return () => {
+      cancelled = true
+      window.clearTimeout(id)
+    }
+  }, [active, deferredStocks, indexM3])
   const snapshotById = useMemo(
     () => new Map(snapshotScan.map((r) => [r.pattern.id, r])),
     [snapshotScan],
@@ -138,7 +162,7 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: Props) {
     SPECIAL_PATTERN_CATALOG.find((p) => p.id === selectedId) ?? SPECIAL_PATTERN_CATALOG[0]
 
   const weeklyHitsAll = useMemo(() => {
-    if (!selected || selected.kind !== 'weekly') return [] as WeeklySpecialHit[]
+    if (!active || !selected || selected.kind !== 'weekly') return [] as WeeklySpecialHit[]
     void version
     return aggregateWeeklyHits(tickers, selected.id as KarthikPatternId).map((h) => {
       const stock = stockByTicker.get(h.ticker.toUpperCase())
@@ -148,7 +172,7 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: Props) {
         relativeVolume: h.relativeVolume ?? stock?.relativeVolume ?? 0,
       }
     })
-  }, [selected, tickers, version, stockByTicker])
+  }, [active, selected, tickers, version, stockByTicker])
 
   const weeklyHits = useMemo(
     () =>
@@ -176,10 +200,10 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: Props) {
   )
 
   const livermoreHitsAll = useMemo(() => {
-    if (!selected || selected.kind !== 'livermore') return [] as LivermoreHit[]
+    if (!active || !selected || selected.kind !== 'livermore') return [] as LivermoreHit[]
     void livermoreVersion
     return aggregateLivermoreHits(snapshot.stocks, selected.id)
-  }, [selected, snapshot.stocks, livermoreVersion])
+  }, [active, selected, snapshot.stocks, livermoreVersion])
 
   const livermoreHits = useMemo(
     () =>
@@ -192,10 +216,10 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: Props) {
   )
 
   const scriptHitsAll = useMemo(() => {
-    if (!selected || selected.kind !== 'scan') return [] as ScriptScanRow[]
+    if (!active || !selected || selected.kind !== 'scan') return [] as ScriptScanRow[]
     void scriptScanVersion
     return aggregateScriptHits(snapshot.stocks, selected.id)
-  }, [selected, snapshot.stocks, scriptScanVersion])
+  }, [active, selected, snapshot.stocks, scriptScanVersion])
 
   const scriptHits = useMemo(
     () =>
@@ -239,20 +263,23 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: Props) {
   }, [category, query])
 
   const weeklyHitCountMap = useMemo(() => {
+    if (!active) return new Map<string, number>()
     void version
     return weeklyHitCounts(tickers)
-  }, [tickers, version])
+  }, [active, tickers, version])
 
   const livermoreHitCountMap = useMemo(() => {
+    if (!active) return new Map<string, number>()
     void livermoreVersion
     const ids = SPECIAL_PATTERN_CATALOG.filter((p) => p.kind === 'livermore').map((p) => p.id)
     return livermoreHitCounts(snapshot.stocks, ids)
-  }, [snapshot.stocks, livermoreVersion])
+  }, [active, snapshot.stocks, livermoreVersion])
 
   const scriptHitCountMap = useMemo(() => {
+    if (!active) return new Map<string, number>()
     void scriptScanVersion
     return scriptHitCounts(snapshot.stocks)
-  }, [snapshot.stocks, scriptScanVersion])
+  }, [active, snapshot.stocks, scriptScanVersion])
 
   const patternCount = (p: SpecialPatternDef) => {
     if (p.kind === 'weekly') return weeklyHitCountMap.get(p.id) ?? 0
@@ -1102,19 +1129,6 @@ function PatternDetail({
 }
 
 function SpecialPatternsPanelShell({ snapshot, active = true }: Props) {
-  const [mounted, setMounted] = useState(active)
-
-  useEffect(() => {
-    if (active) {
-      setMounted(true)
-      return
-    }
-    const id = window.setTimeout(() => setMounted(false), 4000)
-    return () => window.clearTimeout(id)
-  }, [active])
-
-  if (!mounted) return null
-
   return (
     <div hidden={!active} aria-hidden={!active}>
       <SpecialPatternsPanelBody snapshot={snapshot} active={active} />
