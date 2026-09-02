@@ -76,26 +76,34 @@ export function useUnifiedSpecialScans(
     let cancelled = false
     let flushTimer: ReturnType<typeof setTimeout> | null = null
 
-    const need = list.filter((t) => {
-      const key = t.toUpperCase()
-      const w = getTickerWeeklySpecial(key)
-      const l = getTickerLivermore(key)
-      const s = getTickerScriptScan(key)
-      return (
-        isStale(w?.updatedAt, now) ||
-        isStale(l?.updatedAt, now) ||
-        isStale(s?.updatedAt, now)
-      )
-    })
-
-    if (!need.length) {
-      setScanning(false)
-      setDone(0)
-      setTotal(0)
-      return
-    }
-
     void (async () => {
+      const need: string[] = []
+      for (let i = 0; i < list.length; i++) {
+        if (cancelled || g !== gen.current) return
+        const t = list[i]
+        const key = t.toUpperCase()
+        const w = getTickerWeeklySpecial(key)
+        const l = getTickerLivermore(key)
+        const s = getTickerScriptScan(key)
+        if (
+          isStale(w?.updatedAt, now) ||
+          isStale(l?.updatedAt, now) ||
+          isStale(s?.updatedAt, now)
+        ) {
+          need.push(t)
+        }
+        if (i % 500 === 499) await new Promise<void>((r) => setTimeout(r, 0))
+      }
+
+      if (!need.length) {
+        if (!cancelled && g === gen.current) {
+          setScanning(false)
+          setDone(0)
+          setTotal(0)
+        }
+        return
+      }
+
       let indexReturn20 = 0
       let indexReturn5 = 0
       let indexOhlc: Awaited<ReturnType<typeof fetchYahooOhlcForPatternScan>> = null

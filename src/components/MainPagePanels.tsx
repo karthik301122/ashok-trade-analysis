@@ -5,6 +5,7 @@ import { BreadthAnalysis } from './BreadthAnalysis'
 import { SpecialPatternsPanel } from './SpecialPatternsPanel'
 import { SectorMarketsSection } from './SectorMarketsSection'
 import { PatternCreatePage } from './patterns/PatternCreatePage'
+import { UnifiedSpecialScansProvider } from './patterns/UnifiedSpecialScansContext'
 import type { ViewId } from './ViewTabs'
 import type { AppPage } from '../lib/appPage'
 
@@ -40,7 +41,7 @@ function MainPagePanelsInner({
   const overlayPage = page === 'alerts' || page === 'create-pattern'
 
   return (
-    <>
+    <UnifiedSpecialScansProvider snapshot={snapshot} enabled={!overlayPage}>
       <div hidden={overlayPage} aria-hidden={overlayPage}>
         <SectorMarketsSection
           snapshot={snapshot}
@@ -48,14 +49,14 @@ function MainPagePanelsInner({
           onViewChange={onViewChange}
           livePricesActive={livePricesActive}
           backfilling={backfilling}
-          active={page === 'sector'}
+          visible={page === 'sector'}
         />
-        <BreadthAnalysis snapshot={snapshot} active={page === 'breadth'} />
-        <SpecialPatternsPanel snapshot={snapshot} active={page === 'special-patterns'} />
+        <BreadthAnalysis snapshot={snapshot} visible={page === 'breadth'} />
+        <SpecialPatternsPanel snapshot={snapshot} visible={page === 'special-patterns'} />
       </div>
       {page === 'alerts' && <AlertsPanel />}
       {page === 'create-pattern' && <PatternCreatePage />}
-    </>
+    </UnifiedSpecialScansProvider>
   )
 }
 

@@ -24,7 +24,7 @@ import {
   isSpecialOverviewHit,
   isStarredOverviewHit,
 } from '../lib/overviewPatternHits'
-import { useUnifiedSpecialScans } from './patterns/useUnifiedSpecialScans'
+import { useSharedUnifiedSpecialScans } from './patterns/UnifiedSpecialScansContext'
 
 type Props = {
   snapshot: MarketSnapshot
@@ -111,7 +111,7 @@ export function SectorTable({ snapshot, livePricesActive = false, active = true 
     version: weeklyVersion,
     livermoreVersion,
     scriptScanVersion,
-  } = useUnifiedSpecialScans(
+  } = useSharedUnifiedSpecialScans(
     snapshot.stocks,
     heavyPatternScans && active,
     snapshot.benchmarkPerf.m3,

@@ -22,7 +22,7 @@ import { fetchBreadthDaily, postBreadthDaily, type BreadthDailyPoint, type Bread
 import { membershipSourceLabel } from '../data/indexMembership'
 import { PanelErrorBoundary } from './PanelErrorBoundary'
 
-type Props = { snapshot: MarketSnapshot; active?: boolean }
+type Props = { snapshot: MarketSnapshot; visible?: boolean }
 type TabId = 'sma' | 'rsi' | 'rsvol' | 'charts' | 'howto' | 'monthpulse'
 type ViewMode = 'diffusion' | 'classic'
 
@@ -316,15 +316,16 @@ function BreadthAnalysisBody({
   )
 }
 
-function BreadthAnalysisShell({ snapshot, active }: Props) {
-  return <BreadthAnalysisBody snapshot={snapshot} paused={!active} />
+function BreadthAnalysisShell({ snapshot, visible }: Props) {
+  if (!visible) return null
+  return <BreadthAnalysisBody snapshot={snapshot} paused={false} />
 }
 
 export const BreadthAnalysis = memo(
   BreadthAnalysisShell,
   (prev, next) => {
-    if (!prev.active && !next.active) return true
-    if (prev.active !== next.active) return false
+    if (!prev.visible && !next.visible) return true
+    if (prev.visible !== next.visible) return false
     return prev.snapshot === next.snapshot
   },
 )
