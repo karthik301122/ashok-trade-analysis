@@ -317,8 +317,7 @@ export function PatternCreatePanel({
               {detectMode === 'draw' && (
                 <div className="space-y-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
                   <p className="text-xs text-[var(--color-ink-soft)]">
-                    Use the drawing toolbar on the chart (left side) to place levels, trend lines,
-                    rays, and zones.
+                    Open Draw on the chart, then place levels, trend lines, rays, and zones.
                   </p>
                   <label className="text-xs font-semibold text-[var(--color-ink-soft)]">
                     Scan timeframe

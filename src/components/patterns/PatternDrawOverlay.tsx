@@ -6,7 +6,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react'
-import { ArrowUpRight, Crosshair, Eraser, Minus, Square, TrendingUp } from 'lucide-react'
+import { ArrowUpRight, Crosshair, Eraser, Minus, Pencil, Square, TrendingUp, X } from 'lucide-react'
 import type { IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts'
 import type { OhlcBar, PatternBias } from '../../lib/patterns'
 import { useIsDark } from '../../lib/useIsDark'
@@ -102,6 +102,7 @@ export function PatternDrawOverlay({
   const [pending, setPending] = useState<DrawnAnchor[]>([])
   const [hoverAnchor, setHoverAnchor] = useState<DrawnAnchor | null>(null)
   const [snapEnabled, setSnapEnabled] = useState(true)
+  const [toolbarOpen, setToolbarOpen] = useState(false)
 
   const snapBars = bars.length > 260 ? bars.slice(-260) : bars
   const drawingActive = activeTool !== 'cursor'
@@ -456,6 +457,7 @@ export function PatternDrawOverlay({
       if (e.key === 'Escape') {
         setPending([])
         setHoverAnchor(null)
+        setToolbarOpen(false)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -478,33 +480,67 @@ export function PatternDrawOverlay({
     </button>
   )
 
+  const showHelp = toolbarOpen || activeTool !== 'cursor' || pending.length > 0
+
   if (!chartReady || !snapBars.length) return null
 
   return (
     <>
       <div
-        className="absolute left-2 top-2 z-20 flex flex-col gap-0.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-md"
+        className="absolute left-2 top-2 z-20"
         onPointerDown={(e) => e.stopPropagation()}
       >
-        {toolbarBtn('cursor', <Crosshair className="h-4 w-4" />, 'Crosshair (pan & zoom)')}
-        <div className="my-0.5 h-px bg-[var(--color-border)]" />
-        {toolbarBtn('hline', <Minus className="h-4 w-4" />, TOOL_LABELS.hline)}
-        {toolbarBtn('trendline', <TrendingUp className="h-4 w-4" />, TOOL_LABELS.trendline)}
-        {toolbarBtn('ray', <ArrowUpRight className="h-4 w-4" />, TOOL_LABELS.ray)}
-        {toolbarBtn('zone', <Square className="h-4 w-4" />, TOOL_LABELS.zone)}
-        <div className="my-0.5 h-px bg-[var(--color-border)]" />
-        {toolbarBtn('eraser', <Eraser className="h-4 w-4" />, 'Eraser')}
-        <label
-          className="mt-0.5 flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]"
-          title="Snap to OHLC"
-        >
-          <input
-            type="checkbox"
-            checked={snapEnabled}
-            onChange={(e) => setSnapEnabled(e.target.checked)}
-          />
-          Snap
-        </label>
+        {!toolbarOpen ? (
+          <button
+            type="button"
+            title="Draw tools"
+            onClick={() => setToolbarOpen(true)}
+            className="flex h-9 items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 shadow-md transition-colors hover:bg-[var(--color-muted)] text-teal-700 dark:text-teal-300"
+          >
+            <Pencil className="h-4 w-4" />
+            <span className="text-[10px] font-bold uppercase tracking-wide">Draw</span>
+          </button>
+        ) : (
+          <div className="flex flex-col gap-0.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-md">
+            <div className="flex items-center justify-between gap-1 px-0.5 pb-0.5">
+              <span className="text-[9px] font-bold uppercase tracking-wide text-[var(--color-ink-soft)]">
+                Draw
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setToolbarOpen(false)
+                  setPending([])
+                  setHoverAnchor(null)
+                }}
+                className="rounded p-0.5 text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]"
+                title="Close"
+                aria-label="Close draw tools"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {toolbarBtn('cursor', <Crosshair className="h-4 w-4" />, 'Crosshair (pan & zoom)')}
+            <div className="my-0.5 h-px bg-[var(--color-border)]" />
+            {toolbarBtn('hline', <Minus className="h-4 w-4" />, TOOL_LABELS.hline)}
+            {toolbarBtn('trendline', <TrendingUp className="h-4 w-4" />, TOOL_LABELS.trendline)}
+            {toolbarBtn('ray', <ArrowUpRight className="h-4 w-4" />, TOOL_LABELS.ray)}
+            {toolbarBtn('zone', <Square className="h-4 w-4" />, TOOL_LABELS.zone)}
+            <div className="my-0.5 h-px bg-[var(--color-border)]" />
+            {toolbarBtn('eraser', <Eraser className="h-4 w-4" />, 'Eraser')}
+            <label
+              className="mt-0.5 flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]"
+              title="Snap to OHLC"
+            >
+              <input
+                type="checkbox"
+                checked={snapEnabled}
+                onChange={(e) => setSnapEnabled(e.target.checked)}
+              />
+              Snap
+            </label>
+          </div>
+        )}
       </div>
 
       <canvas
@@ -525,10 +561,12 @@ export function PatternDrawOverlay({
         }}
       />
 
-      <div className="absolute bottom-2 left-2 right-2 z-20 rounded-md bg-[var(--color-surface)]/90 px-2.5 py-1.5 text-[10px] text-[var(--color-ink-soft)] shadow-sm backdrop-blur-sm">
-        {helpForTool(activeTool, pending.length)}
-        {pending.length > 0 && ' Esc to cancel.'}
-      </div>
+      {showHelp && (
+        <div className="absolute bottom-2 left-2 z-20 max-w-[min(calc(100%-1rem),360px)] rounded-md bg-[var(--color-surface)]/90 px-2.5 py-1.5 text-[10px] text-[var(--color-ink-soft)] shadow-sm backdrop-blur-sm">
+          {helpForTool(activeTool, pending.length)}
+          {pending.length > 0 && ' Esc to cancel.'}
+        </div>
+      )}
     </>
   )
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useDeferredValue } from 'react'
+import { createPortal } from 'react-dom'
 import { ExternalLink, X } from 'lucide-react'
 import { toTradingViewSymbol } from '../lib/tradingview'
 import { fetchDeskIntraday, fetchYahooOhlc } from '../lib/yahoo'
@@ -346,9 +347,17 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
         ? `${chartIntervalShort(chartBarInterval as '5m' | '30m' | '1h' | '1d')} desk OHLC`
         : 'daily desk OHLC'
 
-  return (
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [])
+
+  const modal = (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-[var(--color-bg)]"
+      className="fixed inset-0 z-[100] isolate flex flex-col bg-[var(--color-bg)]"
       role="dialog"
       aria-modal="true"
       aria-label={`${ticker} chart`}
@@ -366,7 +375,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
           </p>
       {modalTab === 'createPattern' && createDetectMode === 'draw' && !showTradingView && (
             <p className="mt-0.5 text-[10px] text-teal-700 dark:text-teal-300">
-              Draw on the chart using the left toolbar, then save from the panel.
+              Open Draw tools on the chart, place levels/lines, then save from the panel.
             </p>
           )}
           {modalTab === 'chart' && deskFallbackNote && (
@@ -486,7 +495,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <div className="min-h-[50vh] min-w-0 flex-1 md:min-h-0">
+        <div className="relative isolate min-h-[50vh] min-w-0 flex-1 overflow-hidden md:min-h-0">
           {loading || intradayLoading ? (
             <div className="flex h-full min-h-[50vh] flex-col items-center justify-center gap-2 text-sm text-[var(--color-ink-soft)]">
               <div className="h-8 w-8 animate-spin rounded-full border-2 border-teal-200 border-t-teal-600" />
@@ -517,7 +526,9 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
             />
           )}
         </div>
-        <div className="h-[45vh] shrink-0 md:h-auto md:w-[min(400px,32vw)]">
+        <div
+          className="relative z-10 flex h-[45vh] min-h-0 shrink-0 flex-col border-t border-[var(--color-border)] bg-[var(--color-bg)] md:h-auto md:w-[min(400px,32vw)] md:border-l md:border-t-0"
+        >
           {modalTab === 'createPattern' ? (
             <PatternCreatePanel
               variant="sidebar"
@@ -560,4 +571,6 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
       </div>
     </div>
   )
+
+  return createPortal(modal, document.body)
 }
