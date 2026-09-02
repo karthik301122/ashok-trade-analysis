@@ -441,6 +441,13 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
           </div>
           {!showTradingView && drawTools.length > 0 && (
             <>
+              <button
+                type="button"
+                onClick={() => setDrawTools([])}
+                className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/40"
+              >
+                Clear drawings
+              </button>
               <label className="flex items-center gap-1.5 text-[10px] font-semibold text-[var(--color-ink-soft)]">
                 Scan
                 <select

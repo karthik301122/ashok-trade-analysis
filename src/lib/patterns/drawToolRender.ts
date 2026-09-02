@@ -273,7 +273,6 @@ export function renderDrawnTool(c: ChartDrawContext, tool: DrawnTool, dashed = f
       }
       break
     case 'trendline':
-    case 'extended_line':
     case 'info_line':
     case 'trend_angle':
     case 'regression_channel':
@@ -281,11 +280,20 @@ export function renderDrawnTool(c: ChartDrawContext, tool: DrawnTool, dashed = f
         const p1 = c.toXY(pts[0])
         const p2 = c.toXY(pts[1])
         if (p1 && p2) {
-          infiniteLine(c.ctx, p1.x, p1.y, p2.x, p2.y, c.width, c.height, color, dashed)
+          line(c.ctx, p1.x, p1.y, p2.x, p2.y, color, dashed)
           if (tool.type === 'info_line' && !dashed) {
             c.drawPriceLabel(p2.x, p2.y, pts[1].price, color)
             c.drawPriceLabel(p1.x, p1.y, pts[0].price, color)
           }
+        }
+      }
+      break
+    case 'extended_line':
+      if (pts.length >= 2) {
+        const p1 = c.toXY(pts[0])
+        const p2 = c.toXY(pts[1])
+        if (p1 && p2) {
+          infiniteLine(c.ctx, p1.x, p1.y, p2.x, p2.y, c.width, c.height, color, dashed)
         }
       }
       break

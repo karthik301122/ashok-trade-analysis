@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
   ArrowUp,
   Crosshair,
@@ -7,6 +7,7 @@ import {
   Minus,
   Pencil,
   Square,
+  Trash2,
   TrendingUp,
   Type,
   X,
@@ -30,6 +31,8 @@ type Props = {
   onSnapChange: (v: boolean) => void
   pendingCount: number
   helpText: string
+  drawingCount: number
+  onClearAll: () => void
 }
 
 const CATEGORY_ICONS: Record<DrawToolCategoryId, ReactNode> = {
@@ -59,9 +62,11 @@ export function helpForDrawTool(active: ActiveDrawTool, pending: number): string
     if (def.kind === 'brush') return 'Drag to draw. Release to finish.'
     return 'Click to add points. Double-click or Enter to finish.'
   }
-  if (def.clickCount === 1) return `Click once to place ${def.label.toLowerCase()}.`
-  if (pending > 0) return `Click point ${pending + 1} of ${def.clickCount} for ${def.label.toLowerCase()}.`
-  return `Click ${def.clickCount} points for ${def.label.toLowerCase()}.`
+  if (def.clickCount === 1) return `Click once on the chart to place ${def.label.toLowerCase()}.`
+  if (pending > 0) {
+    return `Point ${pending} placed — click point ${pending + 1} of ${def.clickCount} on the chart.`
+  }
+  return `Click ${def.clickCount} points on the chart for ${def.label.toLowerCase()}.`
 }
 
 export function PatternDrawToolbar({
@@ -73,8 +78,14 @@ export function PatternDrawToolbar({
   onSnapChange,
   pendingCount,
   helpText,
+  drawingCount,
+  onClearAll,
 }: Props) {
   const [flyout, setFlyout] = useState<DrawToolCategoryId | null>(null)
+
+  useEffect(() => {
+    if (open && activeTool === 'cursor') setFlyout('lines')
+  }, [open, activeTool])
 
   if (!open) {
     return (
@@ -139,7 +150,7 @@ export function PatternDrawToolbar({
         <div className="my-0.5 h-px bg-[var(--color-border)]" />
         <button
           type="button"
-          title="Eraser"
+          title="Remove one drawing — click a line on the chart"
           onClick={() => {
             onSelectTool('eraser')
             setFlyout(null)
@@ -149,6 +160,18 @@ export function PatternDrawToolbar({
           }`}
         >
           <Eraser className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          title="Clear all drawings"
+          disabled={drawingCount === 0}
+          onClick={() => {
+            onClearAll()
+            setFlyout(null)
+          }}
+          className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-[var(--color-muted)] disabled:opacity-35"
+        >
+          <Trash2 className="h-4 w-4" />
         </button>
         <label
           className="mt-0.5 flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]"

@@ -45,7 +45,7 @@ export function PatternDrawOverlay({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const dark = useIsDark()
 
-  const [activeTool, setActiveTool] = useState<ActiveDrawTool>('hline')
+  const [activeTool, setActiveTool] = useState<ActiveDrawTool>('cursor')
   const [pending, setPending] = useState<DrawnAnchor[]>([])
   const [hoverAnchor, setHoverAnchor] = useState<DrawnAnchor | null>(null)
   const [snapEnabled, setSnapEnabled] = useState(true)
@@ -54,7 +54,8 @@ export function PatternDrawOverlay({
   const brushing = useRef(false)
 
   const snapBars = bars.length > 260 ? bars.slice(-260) : bars
-  const drawingActive = activeTool !== 'cursor'
+  const chartToolActive = activeTool !== 'cursor' && activeTool !== 'eraser'
+  const pointerOnOverlay = activeTool !== 'cursor'
 
   const buildContext = useCallback(
     (ctx: CanvasRenderingContext2D, w: number, h: number): ChartDrawContext | null => {
@@ -290,7 +291,7 @@ export function PatternDrawOverlay({
       }
       return
     }
-    if (!drawingActive || activeTool === 'eraser') {
+    if (!chartToolActive) {
       setHoverAnchor(null)
       return
     }
@@ -317,14 +318,23 @@ export function PatternDrawOverlay({
     return () => window.removeEventListener('keydown', onKey)
   }, [activeTool, pending, finishTool])
 
+  const clearAllDrawings = useCallback(() => {
+    onToolsChange([])
+    setPending([])
+    setHoverAnchor(null)
+    setBrushStroke([])
+    setActiveTool('cursor')
+  }, [onToolsChange])
+
   const helpText = helpForDrawTool(activeTool, pending.length)
+  const showFloatingHelp = activeTool !== 'cursor' || pending.length > 0
 
   if (!chartReady || !snapBars.length) return null
 
   return (
     <>
       <div
-        className="absolute left-2 top-2 z-20"
+        className="absolute left-2 top-2 z-20 flex items-start gap-1"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <PatternDrawToolbar
@@ -341,18 +351,36 @@ export function PatternDrawOverlay({
           onSnapChange={setSnapEnabled}
           pendingCount={pending.length}
           helpText={helpText}
+          drawingCount={tools.length}
+          onClearAll={clearAllDrawings}
         />
+        {!toolbarOpen && showFloatingHelp && (
+          <div className="max-w-[240px] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-[10px] text-[var(--color-ink-soft)] shadow-sm">
+            {helpText}
+            {pending.length > 0 && (
+              <span className="mt-0.5 block font-mono text-[9px]">
+                {pending.length} point{pending.length === 1 ? '' : 's'} placed · Esc cancel
+              </span>
+            )}
+          </div>
+        )}
       </div>
+
+      {tools.length > 0 && activeTool === 'cursor' && !toolbarOpen && (
+        <div className="absolute bottom-3 left-2 z-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[10px] text-[var(--color-ink-soft)] shadow-sm">
+          {tools.length} drawing{tools.length === 1 ? '' : 's'} · Open Draw → eraser or trash to remove
+        </div>
+      )}
 
       <canvas
         ref={canvasRef}
         className="absolute inset-0 z-10"
         style={{
-          pointerEvents: drawingActive ? 'auto' : 'none',
+          pointerEvents: pointerOnOverlay ? 'auto' : 'none',
           cursor:
             activeTool === 'eraser'
               ? 'pointer'
-              : drawingActive
+              : chartToolActive
                 ? 'crosshair'
                 : 'default',
         }}
