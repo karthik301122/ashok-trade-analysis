@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -51,6 +52,26 @@ export function PatternPrefsProvider({
     () => new Map(),
   )
   const [hitsScanEpoch, setHitsScanEpoch] = useState(0)
+  const pendingHitsRef = useRef<Map<string, TickerPatternCache>>(new Map())
+  const flushHitsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const flushHitsBatch = useCallback(() => {
+    const pending = pendingHitsRef.current
+    if (pending.size === 0) return
+    pendingHitsRef.current = new Map()
+    setHitsByTicker((prev) => {
+      const next = new Map(prev)
+      for (const [key, value] of pending) next.set(key, value)
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (flushHitsTimerRef.current) clearTimeout(flushHitsTimerRef.current)
+      flushHitsBatch()
+    }
+  }, [flushHitsBatch])
 
   const clearHitsAndRescan = useCallback(() => {
     clearAllPatternHits()
@@ -143,18 +164,29 @@ export function PatternPrefsProvider({
       meta?: { scanWindow?: PatternScanWindow; asOf?: number | null },
     ) => {
       setTickerPatternHits(ticker, hits, meta)
-      setHitsByTicker((prev) => {
-        const next = new Map(prev)
-        next.set(ticker.toUpperCase(), {
-          updatedAt: Date.now(),
-          hits,
-          scanWindow: meta?.scanWindow,
-          asOf: meta?.asOf ?? null,
-        })
-        return next
+      const key = ticker.toUpperCase()
+      pendingHitsRef.current.set(key, {
+        updatedAt: Date.now(),
+        hits,
+        scanWindow: meta?.scanWindow,
+        asOf: meta?.asOf ?? null,
       })
+      if (pendingHitsRef.current.size >= 25) {
+        if (flushHitsTimerRef.current) {
+          clearTimeout(flushHitsTimerRef.current)
+          flushHitsTimerRef.current = null
+        }
+        flushHitsBatch()
+        return
+      }
+      if (!flushHitsTimerRef.current) {
+        flushHitsTimerRef.current = setTimeout(() => {
+          flushHitsTimerRef.current = null
+          flushHitsBatch()
+        }, 450)
+      }
     },
-    [],
+    [flushHitsBatch],
   )
 
   const overviewHitsFor = useCallback(

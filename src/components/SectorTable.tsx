@@ -30,6 +30,8 @@ type Props = {
   snapshot: MarketSnapshot
   /** EODHD live (delayed) prices applied on server */
   livePricesActive?: boolean
+  /** Pause OHLC pattern scans when Markets tab is hidden */
+  active?: boolean
 }
 
 function biasChipClass(bias: string) {
@@ -84,7 +86,7 @@ function PatternHitChips({ hits, prefs }: { hits: CachedPatternHit[]; prefs: Pat
   )
 }
 
-export function SectorTable({ snapshot, livePricesActive = false }: Props) {
+export function SectorTable({ snapshot, livePricesActive = false, active = true }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [sectorFilters, setSectorFilters] = useState<string[]>([])
   const [industryFilter, setIndustryFilter] = useState<string | null>(null)
@@ -109,7 +111,11 @@ export function SectorTable({ snapshot, livePricesActive = false }: Props) {
     version: weeklyVersion,
     livermoreVersion,
     scriptScanVersion,
-  } = useUnifiedSpecialScans(snapshot.stocks, heavyPatternScans, snapshot.benchmarkPerf.m3)
+  } = useUnifiedSpecialScans(
+    snapshot.stocks,
+    heavyPatternScans && active,
+    snapshot.benchmarkPerf.m3,
+  )
 
   const indexM3 = snapshot.benchmarkPerf.m3
   const universe = snapshot.stocks
@@ -210,7 +216,7 @@ export function SectorTable({ snapshot, livePricesActive = false }: Props) {
   }, [industries, expanded, starOnly, searching])
 
   const { scanning: patternScanning, done: patternDone, total: patternTotal } =
-    useIndustryPatternScan(visibleTickers, chartWatch && !heavyChartScans, false)
+    useIndustryPatternScan(visibleTickers, chartWatch && !heavyChartScans && active, false)
 
   const toggleSectorFilter = (name: string) => {
     setSectorFilters((prev) => {

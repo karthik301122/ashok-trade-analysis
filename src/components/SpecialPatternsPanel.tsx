@@ -1,4 +1,4 @@
-import { useMemo, useState, useDeferredValue } from 'react'
+import { memo, useEffect, useMemo, useState, useDeferredValue } from 'react'
 import { Copy, Search, Sparkles, Star } from 'lucide-react'
 import type { MarketSnapshot } from '../data/types'
 import { formatPct, formatPrice, perfCellClass, resolveStockPrice } from '../lib/format'
@@ -59,7 +59,7 @@ function matchSectorIndustry(
   return true
 }
 
-export function SpecialPatternsPanel({ snapshot, active = true }: Props) {
+function SpecialPatternsPanelBody({ snapshot, active = true }: Props) {
   const [selectedId, setSelectedId] = useState('stage-2')
   const [category, setCategory] = useState<string>('weekly-karthik')
   const [query, setQuery] = useState('')
@@ -1100,3 +1100,33 @@ function PatternDetail({
     </div>
   )
 }
+
+function SpecialPatternsPanelShell({ snapshot, active = true }: Props) {
+  const [mounted, setMounted] = useState(active)
+
+  useEffect(() => {
+    if (active) {
+      setMounted(true)
+      return
+    }
+    const id = window.setTimeout(() => setMounted(false), 4000)
+    return () => window.clearTimeout(id)
+  }, [active])
+
+  if (!mounted) return null
+
+  return (
+    <div hidden={!active} aria-hidden={!active}>
+      <SpecialPatternsPanelBody snapshot={snapshot} active={active} />
+    </div>
+  )
+}
+
+export const SpecialPatternsPanel = memo(
+  SpecialPatternsPanelShell,
+  (prev, next) => {
+    if (!prev.active && !next.active) return true
+    if (prev.active !== next.active) return false
+    return prev.snapshot === next.snapshot
+  },
+)

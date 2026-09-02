@@ -19,7 +19,6 @@ type Props = {
 
 function mainPagePanelsPropsEqual(prev: Props, next: Props): boolean {
   if (prev.page !== next.page) return false
-  // Alerts and create-pattern do not use live snapshot updates while active.
   if (next.page === 'alerts' || next.page === 'create-pattern') return true
   return (
     prev.snapshot === next.snapshot &&
@@ -38,31 +37,27 @@ function MainPagePanelsInner({
   livePricesActive,
   backfilling,
 }: Props) {
-  switch (page) {
-    case 'alerts':
-      return <AlertsPanel />
-    case 'create-pattern':
-      return <PatternCreatePage />
-    case 'breadth':
-      return <BreadthAnalysis snapshot={snapshot} active />
-    case 'special-patterns':
-      return <SpecialPatternsPanel snapshot={snapshot} active />
-    case 'sector':
-    default:
-      return (
-        <SectorMarketsSection
-          snapshot={snapshot}
-          view={view}
-          onViewChange={onViewChange}
-          livePricesActive={livePricesActive}
-          backfilling={backfilling}
-        />
-      )
-  }
+  if (page === 'alerts') return <AlertsPanel />
+  if (page === 'create-pattern') return <PatternCreatePage />
+
+  return (
+    <>
+      <SectorMarketsSection
+        snapshot={snapshot}
+        view={view}
+        onViewChange={onViewChange}
+        livePricesActive={livePricesActive}
+        backfilling={backfilling}
+        active={page === 'sector'}
+      />
+      <BreadthAnalysis snapshot={snapshot} active={page === 'breadth'} />
+      <SpecialPatternsPanel snapshot={snapshot} active={page === 'special-patterns'} />
+    </>
+  )
 }
 
 /**
- * Mount only the active main tab. Hidden keep-alive previously left SectorTable
- * running full-universe OHLC scans while on Breadth or Alerts, blocking navigation.
+ * Keep heavy tabs mounted briefly after switch (see SectorMarketsSection / Breadth / Patterns)
+ * so navigation feels instant and background scans pause instead of cold-restarting.
  */
 export const MainPagePanels = memo(MainPagePanelsInner, mainPagePanelsPropsEqual)

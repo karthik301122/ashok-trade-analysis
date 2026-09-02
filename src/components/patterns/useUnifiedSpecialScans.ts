@@ -20,7 +20,7 @@ import { postPatternScanBatch, type PatternScanUploadRow } from '../../lib/patte
 const CONCURRENCY = 6
 const STALE_MS = 12 * 60 * 60 * 1000
 const BATCH_WRITE = 25
-const UI_TICK = 1
+const UI_TICK = 15
 const FLUSH_DEBOUNCE_MS = 400
 const INDEX_SYMBOL = '^AXJO'
 
@@ -48,10 +48,10 @@ export function useUnifiedSpecialScans(
   const [scriptVersion, setScriptVersion] = useState(0)
   const gen = useRef(0)
 
-  const tickerKey = useMemo(
-    () => stocks.map((s) => s.ticker).sort().join(','),
-    [stocks],
-  )
+  const tickerKey = useMemo(() => {
+    if (!stocks.length) return ''
+    return `${stocks.length}:${stocks[0]?.ticker ?? ''}:${stocks[stocks.length - 1]?.ticker ?? ''}`
+  }, [stocks.length, stocks[0]?.ticker, stocks[stocks.length - 1]?.ticker])
 
   const stockByTicker = useMemo(() => {
     const m = new Map<string, StockMetrics>()
@@ -63,7 +63,7 @@ export function useUnifiedSpecialScans(
   stockByTickerRef.current = stockByTicker
 
   useEffect(() => {
-    const list = tickerKey ? tickerKey.split(',') : []
+    const list = stocks.map((s) => s.ticker)
     if (!enabled || list.length === 0) {
       setScanning(false)
       setDone(0)
@@ -294,7 +294,7 @@ export function useUnifiedSpecialScans(
       cancelled = true
       if (flushTimer) clearTimeout(flushTimer)
     }
-  }, [tickerKey, enabled, indexM3])
+  }, [tickerKey, stocks, enabled, indexM3])
 
   return {
     scanning,

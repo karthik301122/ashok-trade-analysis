@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { Header } from './components/Header'
 import type { ViewId } from './components/ViewTabs'
 import { MainPagePanels } from './components/MainPagePanels'
@@ -22,6 +22,10 @@ export default function App() {
   const [authRequired, setAuthRequired] = useState(false)
   const [user, setUser] = useState<string | null>(null)
   const [page, setPage] = useState<AppPage>('sector')
+  const [, startNavTransition] = useTransition()
+  const navigate = useCallback((next: AppPage) => {
+    startNavTransition(() => setPage(next))
+  }, [])
   const [view, setView] = useState<ViewId>('sector-table')
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
@@ -305,13 +309,13 @@ export default function App() {
 
   return (
     <PatternPrefsProvider user={user}>
-    <AppNavContext.Provider value={{ page, setPage }}>
+    <AppNavContext.Provider value={{ page, setPage: navigate }}>
     <div className="min-h-screen bg-[var(--color-muted)] text-[var(--color-ink)]">
       <Header
         dark={dark}
         onToggleDark={() => setDark((d) => !d)}
         page={page}
-        onPage={setPage}
+        onPage={navigate}
         authRequired={authRequired}
         user={user}
         onLogout={authRequired ? handleLogout : undefined}
@@ -454,7 +458,10 @@ export default function App() {
             </div>
 
             <PanelErrorBoundary title="This tab failed to load">
-              <WatchPatternAlertScan snapshot={displaySnapshot!} />
+              <WatchPatternAlertScan
+                snapshot={displaySnapshot!}
+                paused={page !== 'sector' && page !== 'special-patterns'}
+              />
               <MainPagePanels
                 page={page}
                 snapshot={displaySnapshot!}

@@ -22,11 +22,20 @@ export function useIndustryPatternScan(
   fullUniverse = false,
 ) {
   const { rememberHits, prefs, hitsScanEpoch } = usePatternPrefs()
+  const scanWindow = prefs.scanWindow
+  const customPatterns = prefs.customPatterns
+  const starredNames = prefs.starredNames
+  const chartWatch = hasOverviewChartWatch(prefs)
   const [scanning, setScanning] = useState(false)
   const [done, setDone] = useState(0)
   const [total, setTotal] = useState(0)
   const queueGen = useRef(0)
-  const tickerKey = useMemo(() => [...new Set(tickers)].sort().join(','), [tickers])
+  const tickerScanKey = useMemo(() => {
+    const unique = [...new Set(tickers)]
+    if (!unique.length) return ''
+    if (unique.length <= 80) return unique.sort().join(',')
+    return `${unique.length}:${unique[0]}:${unique[unique.length - 1]}`
+  }, [tickers])
   const concurrency = fullUniverse
     ? import.meta.env.PROD
       ? 4
@@ -36,9 +45,8 @@ export function useIndustryPatternScan(
       : 2
 
   useEffect(() => {
-    const list = tickerKey ? tickerKey.split(',') : []
-    const watch = hasOverviewChartWatch(prefs)
-    if (!enabled || !watch || list.length === 0) {
+    const list = [...new Set(tickers)]
+    if (!enabled || !chartWatch || list.length === 0) {
       setScanning(false)
       setDone(0)
       setTotal(0)
@@ -52,7 +60,7 @@ export function useIndustryPatternScan(
       return (
         !cached ||
         now - cached.updatedAt > STALE_MS ||
-        cached.scanWindow !== prefs.scanWindow ||
+        cached.scanWindow !== scanWindow ||
         cacheMissingStartT(cached)
       )
     })
@@ -90,11 +98,11 @@ export function useIndustryPatternScan(
           const ohlc = await fetchYahooOhlcForPatternScan(ticker)
           if (cancelled || gen !== queueGen.current) return
           if (ohlc?.length) {
-            const result = scanPatterns(ohlc, { window: prefs.scanWindow })
+            const result = scanPatterns(ohlc, { window: scanWindow })
             const customHits = result.asOf
               ? filterHitsByWindow(
-                  detectAllCustomRules(ohlc, prefs.customPatterns),
-                  prefs.scanWindow,
+                  detectAllCustomRules(ohlc, customPatterns),
+                  scanWindow,
                   result.asOf,
                 )
               : []
@@ -107,15 +115,10 @@ export function useIndustryPatternScan(
                 endT: h.endT,
                 confidence: h.confidence,
               })),
-              { scanWindow: prefs.scanWindow, asOf: result.asOf },
+              { scanWindow, asOf: result.asOf },
             )
             pendingUpload.push(
-              ...collectWatchPatternUploadRows(
-                ticker,
-                prefs,
-                result.hits,
-                customHits,
-              ),
+              ...collectWatchPatternUploadRows(ticker, prefs, result.hits, customHits),
             )
             if (pendingUpload.length >= UPLOAD_BATCH) flushUpload()
           }
@@ -123,7 +126,13 @@ export function useIndustryPatternScan(
           /* skip failed ticker */
         }
         finished++
-        if (!cancelled && gen === queueGen.current) setDone(finished)
+        if (
+          !cancelled &&
+          gen === queueGen.current &&
+          (finished % 12 === 0 || finished === scanList.length)
+        ) {
+          setDone(finished)
+        }
       }
     }
 
@@ -138,7 +147,19 @@ export function useIndustryPatternScan(
     return () => {
       cancelled = true
     }
-  }, [tickerKey, enabled, fullUniverse, prefs, rememberHits, hitsScanEpoch, concurrency])
+  }, [
+    tickerScanKey,
+    tickers,
+    enabled,
+    fullUniverse,
+    chartWatch,
+    scanWindow,
+    customPatterns,
+    starredNames,
+    rememberHits,
+    hitsScanEpoch,
+    concurrency,
+  ])
 
   return { scanning, done, total }
 }
