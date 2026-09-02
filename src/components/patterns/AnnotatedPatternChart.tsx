@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createChart,
   CandlestickSeries,
   LineSeries,
+  HistogramSeries,
   LineStyle,
   type IChartApi,
   type ISeriesApi,
@@ -13,15 +14,40 @@ import {
   type UTCTimestamp,
   type AutoscaleInfoProvider,
 } from 'lightweight-charts'
-import type { OhlcBar, PatternHit } from '../../lib/patterns'
+import type { OhlcBar, PatternBias, PatternHit } from '../../lib/patterns'
+import type { DrawnTool } from '../../lib/patterns/drawnPattern'
 import { sanitizeOhlcBars } from '../../lib/ohlcSanitize'
+import {
+  applyIndicatorScaleMargins,
+  activeSeriesKeys,
+  ALL_DESK_SCALE_IDS,
+  ALL_DESK_SERIES,
+  defaultDeskIndicatorSet,
+  allDeskIndicatorSet,
+  macdHistogramData,
+  seriesDataForKey,
+  toLineData,
+  volumeHistogramData,
+  type DeskIndicatorId,
+  type DeskSeriesKey,
+} from '../../lib/chartIndicators'
 import { useIsDark } from '../../lib/useIsDark'
+import { DeskChartIndicatorBar } from './DeskChartIndicatorBar'
+import { PatternDrawOverlay } from './PatternDrawOverlay'
 
 type Props = {
   bars: OhlcBar[]
   selected: PatternHit | null
   intraday?: boolean
+  drawEnabled?: boolean
+  drawTools?: DrawnTool[]
+  onDrawToolsChange?: (tools: DrawnTool[]) => void
+  drawBias?: PatternBias
 }
+
+type IndicatorSeriesMap = Partial<
+  Record<DeskSeriesKey, ISeriesApi<'Line'> | ISeriesApi<'Histogram'>>
+>
 
 function nearestBar(bars: OhlcBar[], t: number): OhlcBar | null {
   if (!bars.length) return null
@@ -81,13 +107,38 @@ const intradayAutoscale: AutoscaleInfoProvider = (original) => {
   }
 }
 
-export function AnnotatedPatternChart({ bars, selected, intraday = false }: Props) {
+export function AnnotatedPatternChart({
+  bars,
+  selected,
+  intraday = false,
+  drawEnabled = false,
+  drawTools = [],
+  onDrawToolsChange,
+  drawBias = 'neutral',
+}: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const lineRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const indicatorRefs = useRef<IndicatorSeriesMap>({})
   const priceLinesRef = useRef<IPriceLine[]>([])
+  const [chartReady, setChartReady] = useState(false)
+  const [activeIndicators, setActiveIndicators] = useState<Set<DeskIndicatorId>>(
+    () => defaultDeskIndicatorSet(),
+  )
   const dark = useIsDark()
+
+  const toggleIndicator = useCallback((id: DeskIndicatorId) => {
+    setActiveIndicators((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const allIndicatorsOn = useCallback(() => setActiveIndicators(allDeskIndicatorSet()), [])
+  const allIndicatorsOff = useCallback(() => setActiveIndicators(new Set()), [])
 
   useEffect(() => {
     const el = wrapRef.current
@@ -123,10 +174,36 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
       lastValueVisible: false,
       priceLineVisible: false,
     })
+
+    const indMap: IndicatorSeriesMap = {}
+    for (const s of ALL_DESK_SERIES) {
+      if (s.kind === 'histogram') {
+        indMap[s.key] = chart.addSeries(HistogramSeries, {
+          priceScaleId: s.scaleId,
+          priceFormat: s.key === 'volume' ? { type: 'volume' } : undefined,
+          lastValueVisible: false,
+          priceLineVisible: false,
+        })
+      } else {
+        indMap[s.key] = chart.addSeries(LineSeries, {
+          color: s.color,
+          lineWidth: (s.lineWidth ?? 2) as 1 | 2 | 3 | 4,
+          priceScaleId: s.scaleId,
+          lastValueVisible: false,
+          priceLineVisible: false,
+        })
+      }
+    }
+
     chart.priceScale('right').applyOptions({
       autoScale: true,
       scaleMargins: { top: 0.08, bottom: 0.08 },
     })
+    for (const scaleId of ALL_DESK_SCALE_IDS) {
+      if (scaleId === 'right') continue
+      chart.priceScale(scaleId).applyOptions({ visible: false })
+    }
+
     const removeTvLogo = () => wrapRef.current?.querySelector('#tv-attr-logo')?.remove()
     removeTvLogo()
     requestAnimationFrame(removeTvLogo)
@@ -134,12 +211,16 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
     chartRef.current = chart
     candleRef.current = candle
     lineRef.current = line
+    indicatorRefs.current = indMap
+    setChartReady(true)
 
     return () => {
       chart.remove()
       chartRef.current = null
       candleRef.current = null
       lineRef.current = null
+      indicatorRefs.current = {}
+      setChartReady(false)
     }
   }, [dark])
 
@@ -148,7 +229,7 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
     const candle = candleRef.current
     if (!chart || !candle || !bars.length) return
 
-    const clean = sanitizeOhlcBars(bars)
+    const clean = sanitizeOhlcBars(bars).map((b) => ({ ...b, v: b.v ?? 0 }))
     const priceRange = priceRangeForBars(clean)
     candle.applyOptions({
       autoscaleInfoProvider: intraday
@@ -171,6 +252,32 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
     candle.setData(barsToCandleData(bars))
     chart.timeScale().fitContent()
   }, [bars, intraday])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart || !chartReady || !bars.length) return
+
+    const clean = sanitizeOhlcBars(bars).map((b) => ({ ...b, v: b.v ?? 0 }))
+    applyIndicatorScaleMargins(chart, activeIndicators)
+
+    const keys = activeSeriesKeys(activeIndicators)
+    for (const s of ALL_DESK_SERIES) {
+      const series = indicatorRefs.current[s.key]
+      if (!series) continue
+      if (!keys.has(s.key)) {
+        series.setData([])
+        continue
+      }
+      if (s.kind === 'histogram') {
+        const hist = series as ISeriesApi<'Histogram'>
+        if (s.key === 'volume') hist.setData(volumeHistogramData(clean))
+        else if (s.key === 'macd_hist') hist.setData(macdHistogramData(clean))
+        else hist.setData(toLineData(seriesDataForKey(s.key, clean)))
+      } else {
+        ;(series as ISeriesApi<'Line'>).setData(toLineData(seriesDataForKey(s.key, clean)))
+      }
+    }
+  }, [bars, activeIndicators, chartReady])
 
   useEffect(() => {
     const candle = candleRef.current
@@ -250,5 +357,31 @@ export function AnnotatedPatternChart({ bars, selected, intraday = false }: Prop
     }
   }, [selected, bars, intraday])
 
-  return <div ref={wrapRef} className="h-full w-full" />
+  const showDrawOverlay = drawEnabled && onDrawToolsChange && drawTools && chartReady
+
+  return (
+    <div className="relative h-full w-full">
+      <div ref={wrapRef} className="h-full w-full" />
+      {chartReady && (
+        <DeskChartIndicatorBar
+          active={activeIndicators}
+          onToggle={toggleIndicator}
+          onAllOn={allIndicatorsOn}
+          onAllOff={allIndicatorsOff}
+        />
+      )}
+      {showDrawOverlay && (
+        <PatternDrawOverlay
+          bars={bars}
+          tools={drawTools}
+          onToolsChange={onDrawToolsChange}
+          bias={drawBias}
+          chartRef={chartRef}
+          seriesRef={candleRef}
+          wrapRef={wrapRef}
+          chartReady={chartReady}
+        />
+      )}
+    </div>
+  )
 }

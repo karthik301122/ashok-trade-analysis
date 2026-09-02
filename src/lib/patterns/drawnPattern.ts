@@ -4,7 +4,7 @@ import { completedWeeklyBars } from './weeklyBars'
 
 export type DrawnAnchor = { time: number; price: number }
 
-export type DrawnToolType = 'hline' | 'trendline' | 'zone'
+export type DrawnToolType = 'hline' | 'trendline' | 'ray' | 'zone'
 
 export type DrawnTrigger =
   | 'near'
@@ -47,8 +47,11 @@ export function defaultTriggerForTool(type: DrawnToolType, bias: PatternBias): D
     if (bias === 'bearish') return 'break_below'
     return 'near'
   }
-  if (bias === 'bullish') return 'break_above'
-  if (bias === 'bearish') return 'break_below'
+  if (type === 'trendline' || type === 'ray') {
+    if (bias === 'bullish') return 'break_above'
+    if (bias === 'bearish') return 'break_below'
+    return 'near'
+  }
   return 'near'
 }
 
@@ -70,7 +73,12 @@ export function normalizeDrawnTool(raw: unknown): DrawnTool | null {
   if (raw == null || typeof raw !== 'object') return null
   const o = raw as Partial<DrawnTool>
   const type: DrawnToolType | null =
-    o.type === 'hline' || o.type === 'trendline' || o.type === 'zone' ? o.type : null
+    o.type === 'hline' ||
+    o.type === 'trendline' ||
+    o.type === 'ray' ||
+    o.type === 'zone'
+      ? o.type
+      : null
   if (!type) return null
   if (!Array.isArray(o.points) || o.points.length < 1) return null
 
@@ -129,6 +137,7 @@ export function describeDrawnTool(tool: DrawnTool): string {
   const typeLabels: Record<DrawnToolType, string> = {
     hline: 'Horizontal',
     trendline: 'Trendline',
+    ray: 'Ray',
     zone: 'Zone',
   }
   return `${typeLabels[tool.type]} · ${triggerLabels[tool.trigger]}`
@@ -163,7 +172,7 @@ function zoneBounds(tool: DrawnTool): { top: number; bottom: number } {
 
 function levelPrice(tool: DrawnTool, t: number): number {
   if (tool.type === 'hline') return tool.points[0].price
-  if (tool.type === 'trendline') return trendlinePriceAt(tool, t)
+  if (tool.type === 'trendline' || tool.type === 'ray') return trendlinePriceAt(tool, t)
   const { top, bottom } = zoneBounds(tool)
   return (top + bottom) / 2
 }

@@ -82,6 +82,7 @@ describe('drawnPattern', () => {
     expect(defaultTriggerForTool('hline', 'bullish')).toBe('break_above')
     expect(defaultTriggerForTool('hline', 'bearish')).toBe('break_below')
     expect(defaultTriggerForTool('zone', 'bullish')).toBe('inside_zone')
+    expect(defaultTriggerForTool('ray', 'bullish')).toBe('break_above')
   })
 
   it('describeDrawnSpec is human readable', () => {

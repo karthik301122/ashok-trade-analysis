@@ -30,20 +30,38 @@ import {
   type CandleTimeframe,
 } from '../../lib/patterns'
 import type { DrawnTool } from '../../lib/patterns/drawnPattern'
-import { describeDrawnSpec, defaultTriggerForTool } from '../../lib/patterns/drawnPattern'
-import { PatternDrawChart } from './PatternDrawChart'
+import { describeDrawnSpec, describeDrawnTool, defaultTriggerForTool } from '../../lib/patterns/drawnPattern'
 import { usePatternPrefs } from './usePatternPrefs'
 
-type DetectMode = 'draw' | 'rules' | 'candle' | 'alias' | 'script' | 'none'
+export type DetectMode = 'draw' | 'rules' | 'candle' | 'alias' | 'script' | 'none'
 
 type Props = {
+  variant?: 'page' | 'sidebar'
   bars?: OhlcBar[]
   ticker?: string
+  drawTools: DrawnTool[]
+  onDrawToolsChange: (tools: DrawnTool[]) => void
+  drawTimeframe: 'daily' | 'weekly'
+  onDrawTimeframeChange: (tf: 'daily' | 'weekly') => void
+  onDetectModeChange?: (mode: DetectMode) => void
+  onBiasChange?: (bias: PatternBias) => void
   onSaved?: (category: PatternCategoryId) => void
   onCancel?: () => void
 }
 
-export function PatternCreatePanel({ bars = [], ticker, onSaved, onCancel }: Props) {
+export function PatternCreatePanel({
+  variant = 'page',
+  bars: _bars = [],
+  ticker,
+  drawTools,
+  onDrawToolsChange,
+  drawTimeframe,
+  onDrawTimeframeChange,
+  onDetectModeChange,
+  onBiasChange,
+  onSaved,
+  onCancel,
+}: Props) {
   const { createCustom, updateCustom, customPatterns, deleteCustom } = usePatternPrefs()
   const [cName, setCName] = useState('')
   const [cBias, setCBias] = useState<PatternBias>('bullish')
@@ -54,8 +72,6 @@ export function PatternCreatePanel({ bars = [], ticker, onSaved, onCancel }: Pro
   const [conditions, setConditions] = useState<RuleCondition[]>(() => [newCondition('rsi')])
   const [candleShape, setCandleShape] = useState<CandleShapeSpec>(() => defaultCandleShape('hammer'))
   const [cScanScript, setCScanScript] = useState(SCANSCRIPT_EXAMPLE)
-  const [drawTools, setDrawTools] = useState<DrawnTool[]>([])
-  const [drawTimeframe, setDrawTimeframe] = useState<'daily' | 'weekly'>('daily')
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const scriptErrors = useMemo(
@@ -69,10 +85,21 @@ export function PatternCreatePanel({ bars = [], ticker, onSaved, onCancel }: Pro
 
   useEffect(() => {
     if (detectMode !== 'draw' || !drawTools.length) return
-    setDrawTools((prev) =>
-      prev.map((t) => ({ ...t, trigger: defaultTriggerForTool(t.type, cBias) })),
-    )
-  }, [cBias, detectMode])
+    const next = drawTools.map((t) => ({
+      ...t,
+      trigger: defaultTriggerForTool(t.type, cBias),
+    }))
+    const changed = drawTools.some((t, i) => t.trigger !== next[i]?.trigger)
+    if (changed) onDrawToolsChange(next)
+  }, [cBias, detectMode, drawTools, onDrawToolsChange])
+
+  useEffect(() => {
+    onDetectModeChange?.(detectMode)
+  }, [detectMode, onDetectModeChange])
+
+  useEffect(() => {
+    onBiasChange?.(cBias)
+  }, [cBias, onBiasChange])
 
   const catalogNames = useMemo(
     () => [...new Set(PATTERN_CATALOG.map((p) => p.name))].sort((a, b) => a.localeCompare(b)),
@@ -89,8 +116,8 @@ export function PatternCreatePanel({ bars = [], ticker, onSaved, onCancel }: Pro
     setConditions([newCondition('rsi')])
     setCandleShape(defaultCandleShape('hammer'))
     setCScanScript(SCANSCRIPT_EXAMPLE)
-    setDrawTools([])
-    setDrawTimeframe('daily')
+    onDrawToolsChange([])
+    onDrawTimeframeChange('daily')
     setEditingId(null)
   }
 
@@ -103,8 +130,8 @@ export function PatternCreatePanel({ bars = [], ticker, onSaved, onCancel }: Pro
     setCDesc(c.description)
     if (c.drawnSpec?.tools?.length) {
       setDetectMode('draw')
-      setDrawTools(c.drawnSpec.tools)
-      setDrawTimeframe(c.drawnSpec.timeframe)
+      onDrawToolsChange(c.drawnSpec.tools)
+      onDrawTimeframeChange(c.drawnSpec.timeframe)
     } else if (c.candleShape) {
       setDetectMode('candle')
       setCandleShape(c.candleShape)
@@ -193,23 +220,50 @@ export function PatternCreatePanel({ bars = [], ticker, onSaved, onCancel }: Pro
     onSaved?.('custom')
   }
 
-  return (
-    <div className="min-h-0 flex-1 overflow-auto bg-[var(--color-bg)]">
-      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mb-6">
-          <h3 className="font-[family-name:var(--font-display)] text-xl font-bold tracking-tight text-teal-900 dark:text-teal-100">
-            Create my pattern
-          </h3>
-          <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
-            Private pattern saved on this device. Draw levels on the chart, or use rules, candle shapes, or scan script.
-            {ticker ? ` Template chart: ${ticker}.` : ''} Scans the full ASX when saved.
-          </p>
-        </div>
+  const isSidebar = variant === 'sidebar'
 
-        <form onSubmit={submitCustom} className="space-y-6">
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-            <div className="space-y-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-              <h4 className="text-sm font-bold">Basics</h4>
+  return (
+    <div
+      className={
+        isSidebar
+          ? 'min-h-0 flex-1 overflow-auto bg-[var(--color-bg)] p-4'
+          : 'min-h-0 flex-1 overflow-auto bg-[var(--color-bg)]'
+      }
+    >
+      <div className={isSidebar ? 'space-y-4' : 'mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8'}>
+        {!isSidebar && (
+          <div className="mb-6">
+            <h3 className="font-[family-name:var(--font-display)] text-xl font-bold tracking-tight text-teal-900 dark:text-teal-100">
+              Create my pattern
+            </h3>
+            <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
+              Private pattern saved on this device. Draw levels on the chart, or use rules, candle
+              shapes, or scan script.
+              {ticker ? ` Template chart: ${ticker}.` : ''} Scans the full ASX when saved.
+            </p>
+          </div>
+        )}
+
+        <form onSubmit={submitCustom} className="space-y-4">
+          <div
+            className={
+              isSidebar
+                ? 'space-y-4'
+                : 'grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]'
+            }
+          >
+            <div
+              className={
+                isSidebar
+                  ? 'space-y-3'
+                  : 'space-y-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5'
+              }
+            >
+          {isSidebar ? (
+          <h3 className="text-sm font-bold text-teal-900 dark:text-teal-100">Create my pattern</h3>
+        ) : (
+          <h4 className="text-sm font-bold">Basics</h4>
+        )}
               <input
                 value={cName}
                 onChange={(e) => setCName(e.target.value)}
@@ -240,7 +294,7 @@ export function PatternCreatePanel({ bars = [], ticker, onSaved, onCancel }: Pro
                 </legend>
                 {(
                   [
-                    ['draw', 'Draw on chart (levels, trendlines, zones)'],
+                    ['draw', 'Draw on chart (TradingView-style tools)'],
                     ['rules', 'My conditions (RSI, RVOL, MAs…)'],
                     ['script', SCANSCRIPT_NAME + ' (text rules)'],
                     ['candle', 'Candle shape builder'],
@@ -259,18 +313,19 @@ export function PatternCreatePanel({ bars = [], ticker, onSaved, onCancel }: Pro
                   </label>
                 ))}
               </fieldset>
-            </div>
 
-            <div className="min-h-[320px] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
               {detectMode === 'draw' && (
-                <div className="space-y-4">
-                  <h4 className="text-sm font-bold">Draw pattern on chart</h4>
+                <div className="space-y-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                  <p className="text-xs text-[var(--color-ink-soft)]">
+                    Use the drawing toolbar on the chart (left side) to place levels, trend lines,
+                    rays, and zones.
+                  </p>
                   <label className="text-xs font-semibold text-[var(--color-ink-soft)]">
                     Scan timeframe
                     <select
                       value={drawTimeframe}
                       onChange={(e) =>
-                        setDrawTimeframe(e.target.value === 'weekly' ? 'weekly' : 'daily')
+                        onDrawTimeframeChange(e.target.value === 'weekly' ? 'weekly' : 'daily')
                       }
                       className="ml-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-sm"
                     >
@@ -278,20 +333,50 @@ export function PatternCreatePanel({ bars = [], ticker, onSaved, onCancel }: Pro
                       <option value="weekly">Weekly bars</option>
                     </select>
                   </label>
-                  <PatternDrawChart
-                    bars={bars}
-                    tools={drawTools}
-                    onToolsChange={setDrawTools}
-                    bias={cBias}
-                  />
                   {drawTools.length > 0 && (
-                    <p className="text-xs text-[var(--color-ink-soft)]">
-                      {describeDrawnSpec({ timeframe: drawTimeframe, tools: drawTools })}
-                    </p>
+                    <>
+                      <p className="text-xs text-[var(--color-ink-soft)]">
+                        {describeDrawnSpec({ timeframe: drawTimeframe, tools: drawTools })}
+                      </p>
+                      <ul className="space-y-1 text-xs">
+                        {drawTools.map((tool) => (
+                          <li key={tool.id} className="flex items-center justify-between gap-2">
+                            <span className="text-[var(--color-ink-soft)]">
+                              {describeDrawnTool(tool)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onDrawToolsChange(drawTools.filter((t) => t.id !== tool.id))
+                              }
+                              className="text-rose-600 hover:underline"
+                            >
+                              Remove
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                      <button
+                        type="button"
+                        onClick={() => onDrawToolsChange([])}
+                        className="text-xs font-semibold text-rose-600 hover:underline"
+                      >
+                        Clear all drawings
+                      </button>
+                    </>
                   )}
                 </div>
               )}
+            </div>
 
+            {detectMode !== 'draw' && (
+            <div
+              className={
+                isSidebar
+                  ? 'space-y-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3'
+                  : 'min-h-[320px] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5'
+              }
+            >
               {detectMode === 'candle' && (
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold">Candle shape</h4>
@@ -613,11 +698,18 @@ export function PatternCreatePanel({ bars = [], ticker, onSaved, onCancel }: Pro
               )}
 
               {detectMode === 'none' && (
-                <div className="flex h-full min-h-[200px] items-center justify-center text-sm text-[var(--color-ink-soft)]">
+                <div
+                  className={
+                    isSidebar
+                      ? 'text-sm text-[var(--color-ink-soft)]'
+                      : 'flex h-full min-h-[200px] items-center justify-center text-sm text-[var(--color-ink-soft)]'
+                  }
+                >
                   Name-only pattern — no automatic scan. Use for manual tracking or starring.
                 </div>
               )}
             </div>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-3 border-t border-[var(--color-border)] pt-4">
