@@ -43,6 +43,8 @@ type Props = {
   onDrawToolsChange: (tools: DrawnTool[]) => void
   drawTimeframe: 'daily' | 'weekly'
   onDrawTimeframeChange: (tf: 'daily' | 'weekly') => void
+  /** Saving a pattern from chart drawings — hide detect-mode picker */
+  drawSaveMode?: boolean
   onDetectModeChange?: (mode: DetectMode) => void
   onBiasChange?: (bias: PatternBias) => void
   onSaved?: (category: PatternCategoryId) => void
@@ -57,6 +59,7 @@ export function PatternCreatePanel({
   onDrawToolsChange,
   drawTimeframe,
   onDrawTimeframeChange,
+  drawSaveMode = false,
   onDetectModeChange,
   onBiasChange,
   onSaved,
@@ -67,7 +70,9 @@ export function PatternCreatePanel({
   const [cBias, setCBias] = useState<PatternBias>('bullish')
   const [cDesc, setCDesc] = useState('')
   const [cBasedOn, setCBasedOn] = useState('')
-  const [detectMode, setDetectMode] = useState<DetectMode>('rules')
+  const [detectMode, setDetectMode] = useState<DetectMode>(
+    drawSaveMode ? 'draw' : 'rules',
+  )
   const [matchMode, setMatchMode] = useState<'all' | 'any'>('all')
   const [conditions, setConditions] = useState<RuleCondition[]>(() => [newCondition('rsi')])
   const [candleShape, setCandleShape] = useState<CandleShapeSpec>(() => defaultCandleShape('hammer'))
@@ -111,7 +116,7 @@ export function PatternCreatePanel({
     setCDesc('')
     setCBasedOn('')
     setCBias('bullish')
-    setDetectMode('draw')
+    setDetectMode(drawSaveMode ? 'draw' : 'rules')
     setMatchMode('all')
     setConditions([newCondition('rsi')])
     setCandleShape(defaultCandleShape('hammer'))
@@ -238,7 +243,7 @@ export function PatternCreatePanel({
             : 'mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8'
         }
       >
-        {!isSidebar && !isStudio && (
+        {!isSidebar && !isStudio && variant !== 'page' && (
           <div className="mb-6">
             <h3 className="font-[family-name:var(--font-display)] text-xl font-bold tracking-tight text-teal-900 dark:text-teal-100">
               Create my pattern
@@ -297,13 +302,13 @@ export function PatternCreatePanel({
                 className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2.5 text-sm"
               />
 
+              {!drawSaveMode && detectMode !== 'draw' && (
               <fieldset className="space-y-2 border-t border-[var(--color-border)] pt-4">
                 <legend className="text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">
                   How to detect
                 </legend>
                 {(
                   [
-                    ['draw', 'Draw on chart (TradingView-style tools)'],
                     ['rules', 'My conditions (RSI, RVOL, MAs…)'],
                     ['script', SCANSCRIPT_NAME + ' (text rules)'],
                     ['candle', 'Candle shape builder'],
@@ -322,55 +327,48 @@ export function PatternCreatePanel({
                   </label>
                 ))}
               </fieldset>
+              )}
 
-              {detectMode === 'draw' && (
+              {(drawSaveMode || detectMode === 'draw') && (
                 <div className="space-y-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-                  <p className="text-xs text-[var(--color-ink-soft)]">
-                    Open Draw on the chart, then place levels, trend lines, rays, and zones.
-                  </p>
-                  <label className="text-xs font-semibold text-[var(--color-ink-soft)]">
-                    Scan timeframe
-                    <select
-                      value={drawTimeframe}
-                      onChange={(e) =>
-                        onDrawTimeframeChange(e.target.value === 'weekly' ? 'weekly' : 'daily')
-                      }
-                      className="ml-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-sm"
-                    >
-                      <option value="daily">Daily bars</option>
-                      <option value="weekly">Weekly bars</option>
-                    </select>
-                  </label>
+                  {drawSaveMode ? (
+                    <p className="text-xs text-[var(--color-ink-soft)]">
+                      Chart drawings ({drawTools.length} tool{drawTools.length === 1 ? '' : 's'})
+                    </p>
+                  ) : (
+                    <p className="text-xs text-[var(--color-ink-soft)]">
+                      Drawn pattern — open the stock chart to edit lines on the chart.
+                    </p>
+                  )}
+                  {!drawSaveMode && (
+                    <label className="text-xs font-semibold text-[var(--color-ink-soft)]">
+                      Scan timeframe
+                      <select
+                        value={drawTimeframe}
+                        onChange={(e) =>
+                          onDrawTimeframeChange(e.target.value === 'weekly' ? 'weekly' : 'daily')
+                        }
+                        className="ml-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-sm"
+                      >
+                        <option value="daily">Daily bars</option>
+                        <option value="weekly">Weekly bars</option>
+                      </select>
+                    </label>
+                  )}
                   {drawTools.length > 0 && (
                     <>
                       <p className="text-xs text-[var(--color-ink-soft)]">
                         {describeDrawnSpec({ timeframe: drawTimeframe, tools: drawTools })}
                       </p>
-                      <ul className="space-y-1 text-xs">
-                        {drawTools.map((tool) => (
-                          <li key={tool.id} className="flex items-center justify-between gap-2">
-                            <span className="text-[var(--color-ink-soft)]">
+                      {!drawSaveMode && (
+                        <ul className="space-y-1 text-xs">
+                          {drawTools.map((tool) => (
+                            <li key={tool.id} className="text-[var(--color-ink-soft)]">
                               {describeDrawnTool(tool)}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onDrawToolsChange(drawTools.filter((t) => t.id !== tool.id))
-                              }
-                              className="text-rose-600 hover:underline"
-                            >
-                              Remove
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                      <button
-                        type="button"
-                        onClick={() => onDrawToolsChange([])}
-                        className="text-xs font-semibold text-rose-600 hover:underline"
-                      >
-                        Clear all drawings
-                      </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </>
                   )}
                 </div>
@@ -742,7 +740,7 @@ export function PatternCreatePanel({
                 Cancel edit
               </button>
             )}
-            {onCancel && (
+            {onCancel && !drawSaveMode && (
               <button
                 type="button"
                 onClick={onCancel}

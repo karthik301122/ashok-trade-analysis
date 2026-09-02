@@ -15,6 +15,7 @@ import {
   SCANSCRIPT_NAME,
 } from '../../lib/patterns'
 import { usePatternPrefs } from './usePatternPrefs'
+import { useAppNav } from '../../lib/appPage'
 import { ChartIntervalDropdown } from './ChartIntervalDropdown'
 import type { ChartIntervalPref } from '../../lib/chartInterval'
 import { chartIntervalLabel, resolveChartInterval } from '../../lib/chartInterval'
@@ -33,7 +34,6 @@ type Props = {
   selectedPatternId: string | null
   onSelectCategory: (id: PatternCategoryId | null) => void
   onSelectPattern: (hit: PatternHit) => void
-  onOpenCreateTab?: () => void
 }
 
 function biasClass(bias: string) {
@@ -77,9 +77,9 @@ export function PatternPanel({
   selectedPatternId,
   onSelectCategory,
   onSelectPattern,
-  onOpenCreateTab,
 }: Props) {
   const { isStarred, toggleStar, deleteCustom, customPatterns } = usePatternPrefs()
+  const { setPage } = useAppNav()
 
   const active = categories.find((c) => c.id === activeCategory) ?? null
   const totalHits = categories
@@ -183,12 +183,13 @@ export function PatternPanel({
                     Create my pattern
                   </p>
                   <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
-                    Opens a dedicated builder for draw, rules, candle shapes, or scan script.
+                    Rules, candle shapes, or scan script. Open the Create pattern tab — or draw on a
+                    chart and save from there.
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => onOpenCreateTab?.()}
+                  onClick={() => setPage('create-pattern')}
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-teal-600 bg-teal-50 px-3 py-2 text-sm font-bold text-teal-900 dark:bg-teal-950/50 dark:text-teal-100"
                 >
                   <Plus size={16} />

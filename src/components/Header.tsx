@@ -1,22 +1,22 @@
 import { LogOut, Moon, Sun, User } from 'lucide-react'
 import { APP_NAME, APP_TAGLINE } from '../lib/brand'
-
-type Page = 'sector' | 'breadth' | 'alerts' | 'special-patterns'
+import type { AppPage } from '../lib/appPage'
 
 type Props = {
   dark: boolean
   onToggleDark: () => void
-  page: Page
-  onPage: (p: Page) => void
+  page: AppPage
+  onPage: (p: AppPage) => void
   authRequired?: boolean
   user?: string | null
   onLogout?: () => void
 }
 
-const NAV: { id: Page; label: string }[] = [
+const NAV: { id: AppPage; label: string }[] = [
   { id: 'sector', label: 'Markets' },
   { id: 'breadth', label: 'Breadth' },
   { id: 'special-patterns', label: 'Patterns' },
+  { id: 'create-pattern', label: 'Create pattern' },
   { id: 'alerts', label: 'Alerts' },
 ]
 

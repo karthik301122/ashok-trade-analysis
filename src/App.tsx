@@ -14,13 +14,14 @@ import { MaintenancePage } from './components/MaintenancePage'
 import { PatternPrefsProvider } from './components/patterns/PatternPrefsContext'
 import { WatchPatternAlertScan } from './components/patterns/WatchPatternAlertScan'
 import { PanelErrorBoundary } from './components/PanelErrorBoundary'
+import { AppNavContext, type AppPage } from './lib/appPage'
 
 export default function App() {
   const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark')
   const [authChecking, setAuthChecking] = useState(true)
   const [authRequired, setAuthRequired] = useState(false)
   const [user, setUser] = useState<string | null>(null)
-  const [page, setPage] = useState<'sector' | 'breadth' | 'alerts' | 'special-patterns'>('sector')
+  const [page, setPage] = useState<AppPage>('sector')
   const [view, setView] = useState<ViewId>('sector-table')
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
@@ -304,6 +305,7 @@ export default function App() {
 
   return (
     <PatternPrefsProvider user={user}>
+    <AppNavContext.Provider value={{ page, setPage }}>
     <div className="min-h-screen bg-[var(--color-muted)] text-[var(--color-ink)]">
       <Header
         dark={dark}
@@ -468,6 +470,7 @@ export default function App() {
         ) : null}
       </main>
     </div>
+    </AppNavContext.Provider>
     </PatternPrefsProvider>
   )
 }

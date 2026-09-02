@@ -4,12 +4,12 @@ import { AlertsPanel } from './AlertsPanel'
 import { BreadthAnalysis } from './BreadthAnalysis'
 import { SpecialPatternsPanel } from './SpecialPatternsPanel'
 import { SectorMarketsSection } from './SectorMarketsSection'
+import { PatternCreatePage } from './patterns/PatternCreatePage'
 import type { ViewId } from './ViewTabs'
-
-type Page = 'sector' | 'breadth' | 'alerts' | 'special-patterns'
+import type { AppPage } from '../lib/appPage'
 
 type Props = {
-  page: Page
+  page: AppPage
   snapshot: MarketSnapshot
   view: ViewId
   onViewChange: (id: ViewId) => void
@@ -19,8 +19,8 @@ type Props = {
 
 function mainPagePanelsPropsEqual(prev: Props, next: Props): boolean {
   if (prev.page !== next.page) return false
-  // Alerts does not use snapshot — ignore live desk updates while on that tab.
-  if (next.page === 'alerts') return true
+  // Alerts and create-pattern do not use live snapshot updates while active.
+  if (next.page === 'alerts' || next.page === 'create-pattern') return true
   return (
     prev.snapshot === next.snapshot &&
     prev.view === next.view &&
@@ -41,6 +41,8 @@ function MainPagePanelsInner({
   switch (page) {
     case 'alerts':
       return <AlertsPanel />
+    case 'create-pattern':
+      return <PatternCreatePage />
     case 'breadth':
       return <BreadthAnalysis snapshot={snapshot} active />
     case 'special-patterns':

@@ -30,6 +30,8 @@ import { PatternCreateModal } from './patterns/PatternCreateModal'
 import { AnnotatedPatternChart } from './patterns/AnnotatedPatternChart'
 import { TradingViewChart } from './TradingViewChart'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
+import type { DrawnTool } from '../lib/patterns/drawnPattern'
+import { useAppNav } from '../lib/appPage'
 
 /** Open chart zoomed/annotated to a special (or other) pattern hit. */
 export type ChartPatternFocus = {
@@ -92,6 +94,7 @@ function barsAroundHit(all: OhlcBar[], hit: PatternHit, intraday = false): OhlcB
 export function StockChartModal({ ticker, name, onClose, initialFocus = null }: Props) {
   const symbol = toTradingViewSymbol(ticker)
   const tvUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(symbol)}`
+  const { page } = useAppNav()
   const { prefs, rememberHits, setScanWindow, chartInterval, setChartInterval } = usePatternPrefs()
 
   const [dailyBars, setDailyBars] = useState<OhlcBar[] | null>(null)
@@ -104,7 +107,9 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
   const [error, setError] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<PatternCategoryId | null>(null)
   const [selected, setSelected] = useState<PatternHit | null>(null)
-  const [createOpen, setCreateOpen] = useState(false)
+  const [saveDrawOpen, setSaveDrawOpen] = useState(false)
+  const [drawTools, setDrawTools] = useState<DrawnTool[]>([])
+  const [drawTimeframe, setDrawTimeframe] = useState<'daily' | 'weekly'>('daily')
   const [intradayLoading, setIntradayLoading] = useState(false)
   const intradayFetchGen = useRef(0)
   const [fund, setFund] = useState<{
@@ -113,6 +118,10 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
     dividendYield: number | null
     marketCap: number | null
   } | null>(null)
+
+  useEffect(() => {
+    if (page === 'create-pattern') onClose()
+  }, [page, onClose])
 
   useEffect(() => {
     let cancelled = false
@@ -140,6 +149,8 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
     setChartBarInterval('1d')
     setChartView('desk')
     setDeskFallbackNote(null)
+    setDrawTools([])
+    setDrawTimeframe('daily')
     const focusSnapshot = initialFocus
       ? {
           name: initialFocus.name,
@@ -328,6 +339,8 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
         ? `${chartIntervalShort(chartBarInterval as '5m' | '30m' | '1h' | '1d')} desk OHLC`
         : 'daily desk OHLC'
 
+  const drawBias: PatternBias = selected?.bias ?? 'bullish'
+
   useEffect(() => {
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -336,14 +349,17 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
     }
   }, [])
 
-  if (createOpen) {
+  if (saveDrawOpen && drawTools.length > 0) {
     return (
       <PatternCreateModal
         ticker={ticker}
         name={name}
-        onClose={() => setCreateOpen(false)}
+        mode="draw-save"
+        initialDraw={{ tools: drawTools, timeframe: drawTimeframe }}
+        onClose={() => setSaveDrawOpen(false)}
         onSaved={(category) => {
-          setCreateOpen(false)
+          setSaveDrawOpen(false)
+          setDrawTools([])
           setActiveCategory(category)
         }}
       />
@@ -423,6 +439,30 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
               TV
             </button>
           </div>
+          {!showTradingView && drawTools.length > 0 && (
+            <>
+              <label className="flex items-center gap-1.5 text-[10px] font-semibold text-[var(--color-ink-soft)]">
+                Scan
+                <select
+                  value={drawTimeframe}
+                  onChange={(e) =>
+                    setDrawTimeframe(e.target.value === 'weekly' ? 'weekly' : 'daily')
+                  }
+                  className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-1 text-[10px] font-bold"
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => setSaveDrawOpen(true)}
+                className="rounded-lg border border-teal-600 bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-900 dark:bg-teal-950/50 dark:text-teal-100"
+              >
+                Save drawing as pattern
+              </button>
+            </>
+          )}
           {selected && (
             <button
               type="button"
@@ -480,6 +520,10 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
               bars={chartBars!}
               selected={selected}
               intraday={isIntradayDeskInterval(effectiveInterval)}
+              drawEnabled
+              drawTools={drawTools}
+              onDrawToolsChange={setDrawTools}
+              drawBias={drawBias}
             />
           )}
         </div>
@@ -500,7 +544,6 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
             selectedPatternId={selected?.id ?? null}
             onSelectCategory={setActiveCategory}
             onSelectPattern={onSelectPattern}
-            onOpenCreateTab={() => setCreateOpen(true)}
           />
         </div>
       </div>
