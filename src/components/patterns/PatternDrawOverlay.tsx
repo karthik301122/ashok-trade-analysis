@@ -334,7 +334,7 @@ export function PatternDrawOverlay({
   return (
     <>
       <div
-        className="absolute left-2 top-2 z-20 flex items-start gap-1"
+        className="pointer-events-auto absolute bottom-2 left-2 top-2 z-20 flex max-h-full items-start gap-1"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <PatternDrawToolbar
