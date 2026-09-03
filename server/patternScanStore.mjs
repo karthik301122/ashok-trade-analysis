@@ -31,11 +31,16 @@ export async function upsertPatternScanBatch(entries) {
 export async function queryPatternScanState(opts = {}) {
   const minScore = Number(opts.minScore ?? 0)
   const patternId = opts.patternId ? String(opts.patternId) : null
+  const ticker = opts.ticker ? String(opts.ticker).trim().toUpperCase() : null
   const confirmed = opts.confirmed
 
   let sql = `SELECT ticker, pattern_id AS "patternId", score, confirmed, updated_at AS "updatedAt"
              FROM pattern_scan_state WHERE score >= ?`
   const params = [minScore]
+  if (ticker) {
+    sql += ' AND ticker = ?'
+    params.push(ticker)
+  }
   if (patternId) {
     sql += ' AND pattern_id = ?'
     params.push(patternId)

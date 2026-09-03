@@ -25,9 +25,19 @@ import {
   listAlertEvents,
   listAlertRules,
 } from './alerts.mjs'
-import { upsertPatternScanBatch } from './patternScanStore.mjs'
+import { queryPatternScanState, upsertPatternScanBatch } from './patternScanStore.mjs'
 import { alertEmailConfigured } from './alertEmail.mjs'
-import { getAlertEmailOptIn, getPatternAlertIds, getPatternAlertWatches, isEmailLogin, setAlertEmailOptIn, setPatternAlertIds, setPatternAlertWatches } from './userPrefs.mjs'
+import {
+  getAlertEmailMinScore,
+  getAlertEmailOptIn,
+  getPatternAlertIds,
+  getPatternAlertWatches,
+  isEmailLogin,
+  setAlertEmailMinScore,
+  setAlertEmailOptIn,
+  setPatternAlertIds,
+  setPatternAlertWatches,
+} from './userPrefs.mjs'
 import { getFundamentals } from './fundamentals.mjs'
 import { checkRateLimit, clientKey, log, pruneRateLimitBuckets } from './log.mjs'
 import { seriesProviderName, isIntradayInterval } from './fetchSeries.mjs'
@@ -463,6 +473,24 @@ export async function handleConnectApi(req, res, send) {
     return true
   }
 
+  if (url.pathname === '/api/pattern-scan/state' && req.method === 'GET') {
+    if (requireAuthConnect(req, send)) return true
+    const ticker = String(url.searchParams.get('ticker') || '')
+      .trim()
+      .toUpperCase()
+    if (!ticker || !/^[A-Z0-9]{1,6}$/.test(ticker)) {
+      send(400, { error: 'Invalid ticker' })
+      return true
+    }
+    const minScore = Number(url.searchParams.get('minScore') ?? 0)
+    const rows = await queryPatternScanState({
+      ticker,
+      minScore: Number.isFinite(minScore) ? minScore : 0,
+    })
+    send(200, { ticker, rows })
+    return true
+  }
+
   if (url.pathname === '/api/alerts/events' && req.method === 'GET') {
     if (requireAuthConnect(req, send)) return true
     const user = getUserFromRequest(req)
@@ -567,6 +595,7 @@ export function mountExpressApi(app) {
     if (!user) return res.status(401).json({ user: null, authRequired: true })
     const canReceiveAlertEmail = isEmailLogin(user)
     const alertEmailOptIn = canReceiveAlertEmail ? await getAlertEmailOptIn(user) : false
+    const alertEmailMinScore = canReceiveAlertEmail ? await getAlertEmailMinScore(user) : 80
     const patternAlertIds = await getPatternAlertIds(user)
     const patternAlertWatches = await getPatternAlertWatches(user)
     return res.json({
@@ -574,6 +603,7 @@ export function mountExpressApi(app) {
       authRequired: true,
       canReceiveAlertEmail,
       alertEmailOptIn,
+      alertEmailMinScore,
       patternAlertIds,
       patternAlertWatches,
     })
@@ -590,9 +620,22 @@ export function mountExpressApi(app) {
         error: 'Alert email requires logging in with an email address (not a username only).',
       })
     }
-    const optIn = Boolean(req.body?.optIn)
-    await setAlertEmailOptIn(user, optIn)
-    return res.json({ ok: true, alertEmailOptIn: optIn, canReceiveAlertEmail: true })
+    if (req.body?.optIn != null) {
+      await setAlertEmailOptIn(user, Boolean(req.body.optIn))
+    }
+    let alertEmailMinScore = await getAlertEmailMinScore(user)
+    if (req.body?.minScore != null || req.body?.alertEmailMinScore != null) {
+      alertEmailMinScore = await setAlertEmailMinScore(
+        user,
+        req.body.minScore ?? req.body.alertEmailMinScore,
+      )
+    }
+    return res.json({
+      ok: true,
+      alertEmailOptIn: await getAlertEmailOptIn(user),
+      alertEmailMinScore,
+      canReceiveAlertEmail: true,
+    })
   })
 
   app.get('/api/auth/pattern-alert-prefs', async (req, res) => {
@@ -975,6 +1018,24 @@ export function mountExpressApi(app) {
     const upserted = await upsertPatternScanBatch(req.body?.rows)
     const alerts = await evaluateAlerts()
     return res.json({ upserted, fired: alerts.fired?.length ?? 0, alerts })
+  })
+
+  app.get('/api/pattern-scan/state', async (req, res) => {
+    if (authEnabled() && !getUserFromRequest(req)) {
+      return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    }
+    const ticker = String(req.query.ticker || '')
+      .trim()
+      .toUpperCase()
+    if (!ticker || !/^[A-Z0-9]{1,6}$/.test(ticker)) {
+      return res.status(400).json({ error: 'Invalid ticker' })
+    }
+    const minScore = Number(req.query.minScore ?? 0)
+    const rows = await queryPatternScanState({
+      ticker,
+      minScore: Number.isFinite(minScore) ? minScore : 0,
+    })
+    return res.json({ ticker, rows })
   })
 
   app.get('/api/alerts/events', async (req, res) => {

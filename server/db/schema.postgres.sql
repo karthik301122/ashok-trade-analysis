@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS user_prefs (
   username TEXT PRIMARY KEY,
   alert_email_opt_in INTEGER NOT NULL DEFAULT 0,
+  alert_email_min_score INTEGER NOT NULL DEFAULT 80,
   pattern_alert_ids_json TEXT,
   updated_at BIGINT NOT NULL
 );

@@ -14,10 +14,12 @@ import {
   verifyDbCredentials,
 } from './userStore.mjs'
 import {
+  getAlertEmailMinScore,
   getAlertEmailOptIn,
   getPatternAlertIds,
   getPatternAlertWatches,
   isEmailLogin,
+  setAlertEmailMinScore,
   setAlertEmailOptIn,
   setPatternAlertIds,
   setPatternAlertWatches,
@@ -228,6 +230,7 @@ export async function handleAuthApi(req, res, send) {
     if (!user) return send(401, { user: null, authRequired: true })
     const canReceiveAlertEmail = isEmailLogin(user)
     const alertEmailOptIn = canReceiveAlertEmail ? await getAlertEmailOptIn(user) : false
+    const alertEmailMinScore = canReceiveAlertEmail ? await getAlertEmailMinScore(user) : 80
     const patternAlertIds = await getPatternAlertIds(user)
     const patternAlertWatches = await getPatternAlertWatches(user)
     return send(200, {
@@ -235,6 +238,7 @@ export async function handleAuthApi(req, res, send) {
       authRequired: true,
       canReceiveAlertEmail,
       alertEmailOptIn,
+      alertEmailMinScore,
       patternAlertIds,
       patternAlertWatches,
     })
@@ -296,9 +300,22 @@ export async function handleAuthApi(req, res, send) {
     } catch {
       return send(400, { error: 'Invalid JSON' })
     }
-    const optIn = Boolean(body?.optIn)
-    await setAlertEmailOptIn(user, optIn)
-    return send(200, { ok: true, alertEmailOptIn: optIn, canReceiveAlertEmail: true })
+    if (body?.optIn != null) {
+      await setAlertEmailOptIn(user, Boolean(body.optIn))
+    }
+    let alertEmailMinScore = await getAlertEmailMinScore(user)
+    if (body?.minScore != null || body?.alertEmailMinScore != null) {
+      alertEmailMinScore = await setAlertEmailMinScore(
+        user,
+        body.minScore ?? body.alertEmailMinScore,
+      )
+    }
+    return send(200, {
+      ok: true,
+      alertEmailOptIn: await getAlertEmailOptIn(user),
+      alertEmailMinScore,
+      canReceiveAlertEmail: true,
+    })
   }
 
   if (path === '/api/auth/config' && method === 'GET') {

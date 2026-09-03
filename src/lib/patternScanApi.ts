@@ -5,6 +5,14 @@ export type PatternScanUploadRow = {
   confirmed: boolean
 }
 
+export type PatternScanStateRow = {
+  ticker: string
+  patternId: string
+  score: number
+  confirmed: boolean
+  updatedAt: number
+}
+
 export async function postPatternScanBatch(
   rows: PatternScanUploadRow[],
 ): Promise<{ upserted: number; fired?: number }> {
@@ -29,5 +37,26 @@ export async function postPatternScanBatch(
     return { upserted, fired }
   } catch {
     return { upserted: 0 }
+  }
+}
+
+/** Latest scan scores for one ticker (UI hit % badges). */
+export async function fetchPatternScanState(
+  ticker: string,
+  minScore = 0,
+): Promise<PatternScanStateRow[]> {
+  const t = ticker.trim().toUpperCase()
+  if (!t) return []
+  try {
+    const qs = new URLSearchParams({
+      ticker: t,
+      minScore: String(minScore),
+    })
+    const res = await fetch(`/api/pattern-scan/state?${qs}`, { credentials: 'include' })
+    if (!res.ok) return []
+    const json = (await res.json()) as { rows?: PatternScanStateRow[] }
+    return Array.isArray(json.rows) ? json.rows : []
+  } catch {
+    return []
   }
 }

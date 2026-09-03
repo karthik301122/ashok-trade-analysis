@@ -8,6 +8,8 @@ export type AuthMe = {
   authRequired: boolean
   canReceiveAlertEmail?: boolean
   alertEmailOptIn?: boolean
+  /** Email only when pattern score is at or above this % (default 80). */
+  alertEmailMinScore?: number
   patternAlertIds?: string[]
   patternAlertWatches?: PatternAlertWatch[]
 }
@@ -42,11 +44,13 @@ export async function fetchAuthMe(): Promise<AuthMe> {
       const cfg = await fetchAuthConfig()
       return { user: null, authRequired: cfg.authRequired }
     }
+    const minScore = Number(json.alertEmailMinScore)
     return {
       user: json.user ?? null,
       authRequired: Boolean(json.authRequired),
       canReceiveAlertEmail: Boolean(json.canReceiveAlertEmail),
       alertEmailOptIn: Boolean(json.alertEmailOptIn),
+      alertEmailMinScore: Number.isFinite(minScore) ? Math.max(60, Math.min(100, Math.round(minScore))) : 80,
       patternAlertIds: Array.isArray(json.patternAlertIds) ? json.patternAlertIds : [],
       patternAlertWatches: Array.isArray(json.patternAlertWatches) ? json.patternAlertWatches : [],
     }
@@ -113,19 +117,52 @@ export async function setPatternAlertIds(
 
 export async function setAlertEmailOptIn(
   optIn: boolean,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+  minScore?: number,
+): Promise<
+  { ok: true; alertEmailMinScore?: number } | { ok: false; error: string }
+> {
   try {
+    const body: { optIn: boolean; minScore?: number } = { optIn }
+    if (minScore != null) body.minScore = minScore
     const res = await fetch('/api/auth/alert-email-opt-in', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ optIn }),
+      body: JSON.stringify(body),
     })
     const json = await res.json().catch(() => ({}))
     if (!res.ok) {
       return { ok: false, error: (json as { error?: string }).error || 'Could not update email preference' }
     }
-    return { ok: true }
+    const saved = Number((json as { alertEmailMinScore?: number }).alertEmailMinScore)
+    return {
+      ok: true,
+      alertEmailMinScore: Number.isFinite(saved) ? saved : minScore,
+    }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function setAlertEmailMinScore(
+  minScore: number,
+): Promise<{ ok: true; alertEmailMinScore: number } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/auth/alert-email-opt-in', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minScore }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return { ok: false, error: (json as { error?: string }).error || 'Could not update email threshold' }
+    }
+    const saved = Number((json as { alertEmailMinScore?: number }).alertEmailMinScore)
+    return {
+      ok: true,
+      alertEmailMinScore: Number.isFinite(saved) ? saved : minScore,
+    }
   } catch {
     return { ok: false, error: 'Network error' }
   }

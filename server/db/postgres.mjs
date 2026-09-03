@@ -30,6 +30,9 @@ export async function createPostgresBackend(connectionString) {
     await pool.query(
       'ALTER TABLE user_prefs ADD COLUMN IF NOT EXISTS pattern_alert_ids_json TEXT',
     )
+    await pool.query(
+      'ALTER TABLE user_prefs ADD COLUMN IF NOT EXISTS alert_email_min_score INTEGER NOT NULL DEFAULT 80',
+    )
   }
 
   async function sqlOne(sql, params = []) {

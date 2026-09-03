@@ -120,6 +120,7 @@ function openSqlite() {
     CREATE TABLE IF NOT EXISTS user_prefs (
       username TEXT PRIMARY KEY,
       alert_email_opt_in INTEGER NOT NULL DEFAULT 0,
+      alert_email_min_score INTEGER NOT NULL DEFAULT 80,
       pattern_alert_ids_json TEXT,
       updated_at INTEGER NOT NULL
     );
@@ -152,6 +153,9 @@ function migrateUserPrefsColumns(db) {
   )
   if (!existing.has('pattern_alert_ids_json')) {
     db.exec('ALTER TABLE user_prefs ADD COLUMN pattern_alert_ids_json TEXT')
+  }
+  if (!existing.has('alert_email_min_score')) {
+    db.exec('ALTER TABLE user_prefs ADD COLUMN alert_email_min_score INTEGER NOT NULL DEFAULT 80')
   }
 }
 

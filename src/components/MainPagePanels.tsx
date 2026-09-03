@@ -47,7 +47,10 @@ function MainPagePanelsInner({
   const overlayPage = page === 'alerts' || page === 'create-pattern'
 
   return (
-    <UnifiedSpecialScansProvider snapshot={snapshot} enabled={!overlayPage}>
+    <UnifiedSpecialScansProvider
+      snapshot={snapshot}
+      enabled={page !== 'create-pattern'}
+    >
       <div hidden={overlayPage} aria-hidden={overlayPage}>
         <SectorMarketsSection
           snapshot={snapshot}

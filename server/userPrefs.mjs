@@ -136,13 +136,26 @@ export async function userSubscribedToPatternAlert(username, ticker, patternId) 
   return prefs.watches.some((w) => w.ticker === t && w.patternIds.includes(pid))
 }
 
-export async function filterPatternAlertItemsForUser(username, items) {
+export const DEFAULT_ALERT_EMAIL_MIN_SCORE = 80
+export const UI_PATTERN_HIT_MIN_SCORE = 60
+
+export function clampAlertEmailMinScore(n) {
+  const v = Number(n)
+  if (!Number.isFinite(v)) return DEFAULT_ALERT_EMAIL_MIN_SCORE
+  return Math.max(60, Math.min(100, Math.round(v)))
+}
+
+export async function filterPatternAlertItemsForUser(username, items, minScore) {
   const prefs = await getPatternAlertPrefs(username)
   const legacy = new Set(prefs.legacyPatternIds || [])
   const watchMap = new Map(prefs.watches.map((w) => [w.ticker, new Set(w.patternIds)]))
+  const threshold =
+    minScore != null ? clampAlertEmailMinScore(minScore) : await getAlertEmailMinScore(username)
   return items.filter((item) => {
     if (!item.patternId) return true
     const pid = String(item.patternId)
+    const score = Number(item.score)
+    if (Number.isFinite(score) && score < threshold) return false
     if (legacy.has(pid)) return true
     const t = normalizeTicker(item.ticker)
     const patterns = watchMap.get(t)
@@ -172,6 +185,29 @@ export async function getAlertEmailOptIn(username) {
   return Boolean(row?.alert_email_opt_in)
 }
 
+export async function getAlertEmailMinScore(username) {
+  const row = await sqlOne('SELECT alert_email_min_score FROM user_prefs WHERE username = ?', [
+    normalizeUsername(username),
+  ])
+  if (row?.alert_email_min_score == null) return DEFAULT_ALERT_EMAIL_MIN_SCORE
+  return clampAlertEmailMinScore(row.alert_email_min_score)
+}
+
+export async function setAlertEmailMinScore(username, minScore) {
+  const u = normalizeUsername(username)
+  const score = clampAlertEmailMinScore(minScore)
+  const now = Date.now()
+  await sqlRun(
+    `INSERT INTO user_prefs (username, alert_email_min_score, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(username) DO UPDATE SET
+       alert_email_min_score = excluded.alert_email_min_score,
+       updated_at = excluded.updated_at`,
+    [u, score, now],
+  )
+  return score
+}
+
 export async function setAlertEmailOptIn(username, optIn) {
   const u = normalizeUsername(username)
   const now = Date.now()
@@ -184,6 +220,24 @@ export async function setAlertEmailOptIn(username, optIn) {
     [u, optIn ? 1 : 0, now],
   )
   return optIn
+}
+
+/** Opt-in users with their email min-score threshold. */
+export async function listAlertEmailOptInUserPrefs() {
+  const rows = await sqlAll(
+    `SELECT username, alert_email_min_score FROM user_prefs
+     WHERE alert_email_opt_in = 1 ORDER BY username`,
+  )
+  const out = []
+  for (const row of rows) {
+    const u = normalizeUsername(row.username)
+    if (!isEmailLogin(u)) continue
+    out.push({
+      username: u,
+      minScore: clampAlertEmailMinScore(row.alert_email_min_score ?? DEFAULT_ALERT_EMAIL_MIN_SCORE),
+    })
+  }
+  return out
 }
 
 /** Logins with opt-in whose username is a deliverable email address. */

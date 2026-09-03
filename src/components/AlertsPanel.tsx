@@ -6,12 +6,20 @@ import type { PatternAlertWatch } from '../lib/patterns/patternAlertWatches'
 import { normalizePatternAlertWatches } from '../lib/patterns/patternAlertWatches'
 import {
   fetchAuthMe,
+  setAlertEmailMinScore,
   setAlertEmailOptIn,
   setPatternAlertWatches,
   type PatternAlertWatch as AuthPatternAlertWatch,
 } from '../lib/auth'
 import { fetchDeskServerConfig } from '../lib/deskConfig'
+import {
+  fetchPatternScanState,
+  type PatternScanStateRow,
+} from '../lib/patternScanApi'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
+
+/** Show hit % in the Alerts UI at or above this (email uses a separate user threshold). */
+const UI_HIT_MIN_SCORE = 60
 
 type Rule = {
   id: number
@@ -65,6 +73,35 @@ function patternLabel(id: string, options: ReturnType<typeof buildPatternAlertOp
   return options.find((o) => o.id === id)?.label ?? id
 }
 
+function scoreMapFromRows(rows: PatternScanStateRow[]): Map<string, PatternScanStateRow> {
+  const m = new Map<string, PatternScanStateRow>()
+  for (const r of rows) m.set(r.patternId, r)
+  return m
+}
+
+function shouldShowHitBadge(row: PatternScanStateRow | undefined): boolean {
+  if (!row) return false
+  return row.confirmed || row.score >= UI_HIT_MIN_SCORE
+}
+
+function HitBadge({ row }: { row: PatternScanStateRow }) {
+  const pct = Math.round(row.score)
+  const confirmed = row.confirmed || pct >= 85
+  return (
+    <span
+      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${
+        confirmed
+          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'
+          : 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-100'
+      }`}
+      title={confirmed ? 'Confirmed / hit' : 'Forming'}
+    >
+      {confirmed && pct < 100 ? 'Hit · ' : ''}
+      {pct}%
+    </span>
+  )
+}
+
 export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }: Props) {
   const { prefs } = usePatternPrefs()
   const patternAlertOptions = useMemo(() => buildPatternAlertOptions(prefs), [prefs])
@@ -85,8 +122,12 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
   const [emailEnabled, setEmailEnabled] = useState(false)
   const [canReceiveAlertEmail, setCanReceiveAlertEmail] = useState(false)
   const [alertEmailOptIn, setAlertEmailOptInState] = useState(false)
+  const [alertEmailMinScore, setAlertEmailMinScoreState] = useState(80)
   const [optInBusy, setOptInBusy] = useState(false)
   const [saveBusy, setSaveBusy] = useState(false)
+  const [pickScores, setPickScores] = useState<Map<string, PatternScanStateRow>>(new Map())
+  const [watchScores, setWatchScores] = useState<Record<string, Map<string, PatternScanStateRow>>>({})
+  const [scoresBusy, setScoresBusy] = useState(false)
 
   useEffect(() => {
     if (watchesProp) setWatches(watchesProp)
@@ -104,10 +145,50 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
     setEmailEnabled(Boolean(cfg.alertEmailEnabled))
     setCanReceiveAlertEmail(Boolean(me.canReceiveAlertEmail))
     setAlertEmailOptInState(Boolean(me.alertEmailOptIn))
+    setAlertEmailMinScoreState(me.alertEmailMinScore ?? 80)
     const loaded = me.patternAlertWatches ?? []
     setWatches(loaded)
     onWatchesChange?.(loaded)
   }, [onWatchesChange])
+
+  useEffect(() => {
+    if (!pickTicker) {
+      setPickScores(new Map())
+      return
+    }
+    let cancelled = false
+    setScoresBusy(true)
+    void fetchPatternScanState(pickTicker, 0).then((rows) => {
+      if (cancelled) return
+      setPickScores(scoreMapFromRows(rows))
+      setScoresBusy(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [pickTicker])
+
+  useEffect(() => {
+    if (!watches.length) {
+      setWatchScores({})
+      return
+    }
+    let cancelled = false
+    void Promise.all(
+      watches.map(async (w) => {
+        const rows = await fetchPatternScanState(w.ticker, 0)
+        return [w.ticker, scoreMapFromRows(rows)] as const
+      }),
+    ).then((entries) => {
+      if (cancelled) return
+      const next: Record<string, Map<string, PatternScanStateRow>> = {}
+      for (const [ticker, map] of entries) next[ticker] = map
+      setWatchScores(next)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [watches])
 
   const visibleRules = useMemo(
     () => rules.filter((r) => !r.params?.auto),
@@ -266,10 +347,30 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
   const toggleEmailOptIn = async (optIn: boolean) => {
     setOptInBusy(true)
     setMsg(null)
-    const res = await setAlertEmailOptIn(optIn)
+    const res = await setAlertEmailOptIn(optIn, alertEmailMinScore)
     if (res.ok) {
       setAlertEmailOptInState(optIn)
-      setMsg(optIn ? 'You will receive pattern alert emails at your login address.' : 'Pattern alert emails turned off.')
+      if (res.alertEmailMinScore != null) setAlertEmailMinScoreState(res.alertEmailMinScore)
+      setMsg(
+        optIn
+          ? `Email on — one mail per stock/pattern when score ≥ ${alertEmailMinScore}%.`
+          : 'Pattern alert emails turned off.',
+      )
+    } else {
+      setMsg(res.error)
+    }
+    setOptInBusy(false)
+  }
+
+  const saveEmailMinScore = async (raw: number) => {
+    const next = Math.max(60, Math.min(100, Math.round(raw)))
+    setAlertEmailMinScoreState(next)
+    setOptInBusy(true)
+    setMsg(null)
+    const res = await setAlertEmailMinScore(next)
+    if (res.ok) {
+      setAlertEmailMinScoreState(res.alertEmailMinScore)
+      setMsg(`Email threshold saved: ≥ ${res.alertEmailMinScore}% (one email per qualifying hit).`)
     } else {
       setMsg(res.error)
     }
@@ -286,11 +387,10 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
             <Bell size={22} /> Alerts
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-[var(--color-ink-soft)]">
-            Pick a stock, choose which patterns to watch on it, and add more stocks as needed.
-            Alerts fire when a pattern is forming (60%+) or confirmed (85%+) on that ticker only.
-            {emailEnabled
-              ? ' Opted-in users receive email for their stock watches.'
-              : ' Email delivery needs SMTP on the server — events still show here.'}
+            Pick a stock and choose patterns to watch. The UI shows hit % when a pattern is ≥{UI_HIT_MIN_SCORE}%
+            or already hit. Emails use your separate threshold (default 80%) — one email per stock/pattern
+            that crosses it, not a once-a-day digest.
+            {!emailEnabled && ' SMTP is not set up yet; events still show here.'}
           </p>
         </div>
         <button
@@ -334,14 +434,18 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
                   <div>
                     <div className="font-mono text-sm font-bold">{w.ticker}</div>
                     <div className="mt-1 flex flex-wrap gap-1">
-                      {w.patternIds.map((pid) => (
-                        <span
-                          key={pid}
-                          className="rounded border border-teal-500/40 bg-teal-50/80 px-2 py-0.5 text-[10px] font-semibold text-teal-900 dark:bg-teal-950/40 dark:text-teal-100"
-                        >
-                          {patternLabel(pid, patternAlertOptions)}
-                        </span>
-                      ))}
+                      {w.patternIds.map((pid) => {
+                        const row = watchScores[w.ticker]?.get(pid)
+                        return (
+                          <span
+                            key={pid}
+                            className="inline-flex items-center gap-1 rounded border border-teal-500/40 bg-teal-50/80 px-2 py-0.5 text-[10px] font-semibold text-teal-900 dark:bg-teal-950/40 dark:text-teal-100"
+                          >
+                            {patternLabel(pid, patternAlertOptions)}
+                            {shouldShowHitBadge(row) && row ? <HitBadge row={row} /> : null}
+                          </span>
+                        )
+                      })}
                     </div>
                   </div>
                   <button
@@ -398,6 +502,13 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
             <>
               <p className="mt-3 text-xs font-semibold">
                 Patterns for <span className="font-mono">{pickTicker}</span>
+                {scoresBusy ? (
+                  <span className="ml-2 font-normal text-[var(--color-ink-soft)]">Loading hit %…</span>
+                ) : (
+                  <span className="ml-2 font-normal text-[var(--color-ink-soft)]">
+                    Hit % shown when ≥{UI_HIT_MIN_SCORE}% or already hit (UI only)
+                  </span>
+                )}
               </p>
               {!patternAlertOptions.length ? (
                 <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
@@ -407,13 +518,17 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
                 <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {patternAlertOptions.map((p) => {
                     const checked = draftPatternIds.includes(p.id)
+                    const row = pickScores.get(p.id)
+                    const showHit = shouldShowHitBadge(row)
                     return (
                       <label
                         key={p.id}
                         className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
                           checked
                             ? 'border-teal-600 bg-teal-50/60 dark:bg-teal-950/30'
-                            : 'border-[var(--color-border)]'
+                            : showHit
+                              ? 'border-amber-500/50 bg-amber-50/40 dark:bg-amber-950/20'
+                              : 'border-[var(--color-border)]'
                         }`}
                       >
                         <input
@@ -422,7 +537,10 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
                           checked={checked}
                           onChange={() => toggleDraftPattern(p.id)}
                         />
-                        <span className="font-medium leading-snug">{p.label}</span>
+                        <span className="flex min-w-0 flex-1 items-start justify-between gap-2">
+                          <span className="font-medium leading-snug">{p.label}</span>
+                          {showHit && row ? <HitBadge row={row} /> : null}
+                        </span>
                       </label>
                     )
                   })}
@@ -450,7 +568,8 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
                 <Mail size={16} /> Pattern alert emails
               </h2>
               <p className="mt-1 max-w-2xl text-xs text-[var(--color-ink-soft)]">
-                Get an email when your stock pattern alerts fire. We use your login email.
+                One email per stock/pattern when its score reaches your threshold (not a daily digest).
+                We use your login email. UI hit % (≥{UI_HIT_MIN_SCORE}%) is separate from this email cutoff.
                 {!emailEnabled && ' Server SMTP is not set up yet; preference is saved for when it is.'}
               </p>
             </div>
@@ -464,6 +583,32 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
               />
               Email me when alerts fire
             </label>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-3">
+            <label className="text-xs font-semibold text-[var(--color-ink-soft)]" htmlFor="alert-email-min">
+              Email when score ≥
+            </label>
+            <input
+              id="alert-email-min"
+              type="number"
+              min={60}
+              max={100}
+              step={1}
+              value={alertEmailMinScore}
+              disabled={optInBusy}
+              onChange={(e) => setAlertEmailMinScoreState(Number(e.target.value))}
+              onBlur={(e) => void saveEmailMinScore(Number(e.target.value))}
+              className="w-20 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-sm font-bold tabular-nums"
+            />
+            <span className="text-xs text-[var(--color-ink-soft)]">% (default 80, min 60)</span>
+            <button
+              type="button"
+              disabled={optInBusy}
+              onClick={() => void saveEmailMinScore(alertEmailMinScore)}
+              className="rounded-md border border-[var(--color-border)] px-2 py-1 text-xs font-bold hover:bg-[var(--color-muted)] disabled:opacity-50"
+            >
+              Save threshold
+            </button>
           </div>
         </div>
       )}

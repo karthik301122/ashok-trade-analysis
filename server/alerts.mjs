@@ -2,8 +2,13 @@ import { sqlAll, sqlOne, sqlRun } from './db.mjs'
 import { readMarketSnapshotRow } from './snapshotJob.mjs'
 import { matchAlertRule } from './alertMatch.mjs'
 import { queryPatternScanState } from './patternScanStore.mjs'
-import { alertEmailConfigured, sendAlertEmailDigest } from './alertEmail.mjs'
-import { listAlertEmailOptInUsers, filterPatternAlertEventsForUser, filterPatternAlertItemsForUser } from './userPrefs.mjs'
+import { alertEmailConfigured, sendAlertEmail } from './alertEmail.mjs'
+import {
+  listAlertEmailOptInUserPrefs,
+  listAlertEmailOptInUsers,
+  filterPatternAlertEventsForUser,
+  filterPatternAlertItemsForUser,
+} from './userPrefs.mjs'
 import { log } from './log.mjs'
 
 /**
@@ -163,6 +168,7 @@ export async function evaluateAlerts() {
           ticker: m.ticker,
           message: m.message,
           patternId: m.payload?.patternId ? String(m.payload.patternId) : null,
+          score: Number.isFinite(Number(m.payload?.score)) ? Number(m.payload.score) : null,
           delivered,
         })
       }
@@ -177,26 +183,24 @@ export async function evaluateAlerts() {
   }
 
   if (emailQueue.length && alertEmailConfigured()) {
-    const optInUsers = await listAlertEmailOptInUsers()
+    const optInUsers = await listAlertEmailOptInUserPrefs()
     let sentCount = 0
-    for (const username of optInUsers) {
-      const items = await filterPatternAlertItemsForUser(username, emailQueue)
-      if (!items.length) continue
-      const emailOk = await sendAlertEmailDigest(items, [username])
-      if (emailOk) {
+    for (const { username, minScore } of optInUsers) {
+      const items = await filterPatternAlertItemsForUser(username, emailQueue, minScore)
+      for (const item of items) {
+        const emailOk = await sendAlertEmail(item, username)
+        if (!emailOk) continue
         sentCount++
-        for (const item of items) {
-          if (!item.delivered) {
-            await sqlRun('UPDATE alert_events SET delivered = 1 WHERE id = ?', [item.eventId])
-          }
-          const row = fired.find(
-            (f) =>
-              f.ruleName === item.ruleName &&
-              f.ticker === item.ticker &&
-              f.message === item.message,
-          )
-          if (row) row.delivered = true
+        if (!item.delivered) {
+          await sqlRun('UPDATE alert_events SET delivered = 1 WHERE id = ?', [item.eventId])
         }
+        const row = fired.find(
+          (f) =>
+            f.ruleName === item.ruleName &&
+            f.ticker === item.ticker &&
+            f.message === item.message,
+        )
+        if (row) row.delivered = true
       }
     }
     log('info', 'alerts.email', { optInUsers: optInUsers.length, sentCount })
@@ -221,8 +225,28 @@ export async function evaluateAlerts() {
 }
 
 async function recordEvent(ruleId, ticker, message, payload) {
-  const dayStart = Date.now() - 24 * 60 * 60 * 1000
-  if (ticker) {
+  const patternId = payload?.patternId ? String(payload.patternId) : null
+  const score = Number(payload?.score)
+  // Pattern hits: allow one email per (rule, ticker, score) so N stocks/patterns
+  // each get their own mail. Suppress only an identical score within 6h to avoid scan spam.
+  // Non-pattern rules keep a 24h ticker dedupe.
+  if (ticker && patternId && Number.isFinite(score)) {
+    const windowStart = Date.now() - 6 * 60 * 60 * 1000
+    const recent = await sqlAll(
+      `SELECT id, payload_json FROM alert_events
+       WHERE rule_id = ? AND ticker = ? AND created_at > ?
+       ORDER BY id DESC LIMIT 20`,
+      [ruleId, ticker, windowStart],
+    )
+    const rounded = Math.round(score)
+    for (const row of recent) {
+      const p = safeJson(row.payload_json) || {}
+      if (String(p.patternId || '') === patternId && Math.round(Number(p.score)) === rounded) {
+        return { id: Number(row.id), isNew: false }
+      }
+    }
+  } else if (ticker) {
+    const dayStart = Date.now() - 24 * 60 * 60 * 1000
     const dup = await sqlOne(
       `SELECT id FROM alert_events WHERE rule_id = ? AND ticker = ? AND created_at > ? LIMIT 1`,
       [ruleId, ticker, dayStart],
@@ -263,7 +287,7 @@ async function matchPatternAlertRule(rule) {
       payload: { patternId: r.patternId, score: r.score, confirmed: r.confirmed },
     })
   }
-  return out.slice(0, 25)
+  return out.slice(0, 200)
 }
 
 function patternAlertLabel(patternId) {
