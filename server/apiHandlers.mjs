@@ -478,16 +478,27 @@ export async function handleConnectApi(req, res, send) {
     const ticker = String(url.searchParams.get('ticker') || '')
       .trim()
       .toUpperCase()
-    if (!ticker || !/^[A-Z0-9]{1,6}$/.test(ticker)) {
-      send(400, { error: 'Invalid ticker' })
+    const patternId = String(url.searchParams.get('patternId') || '').trim()
+    const minScore = Number(url.searchParams.get('minScore') ?? 0)
+    const score = Number.isFinite(minScore) ? minScore : 0
+
+    if (ticker) {
+      if (!/^[A-Z0-9]{1,6}$/.test(ticker)) {
+        send(400, { error: 'Invalid ticker' })
+        return true
+      }
+      const rows = await queryPatternScanState({ ticker, patternId: patternId || null, minScore: score })
+      send(200, { ticker, patternId: patternId || null, rows })
       return true
     }
-    const minScore = Number(url.searchParams.get('minScore') ?? 0)
-    const rows = await queryPatternScanState({
-      ticker,
-      minScore: Number.isFinite(minScore) ? minScore : 0,
-    })
-    send(200, { ticker, rows })
+
+    if (patternId) {
+      const rows = await queryPatternScanState({ patternId, minScore: score })
+      send(200, { ticker: null, patternId, rows })
+      return true
+    }
+
+    send(400, { error: 'Provide ticker or patternId' })
     return true
   }
 
@@ -1027,15 +1038,28 @@ export function mountExpressApi(app) {
     const ticker = String(req.query.ticker || '')
       .trim()
       .toUpperCase()
-    if (!ticker || !/^[A-Z0-9]{1,6}$/.test(ticker)) {
-      return res.status(400).json({ error: 'Invalid ticker' })
-    }
+    const patternId = String(req.query.patternId || '').trim()
     const minScore = Number(req.query.minScore ?? 0)
-    const rows = await queryPatternScanState({
-      ticker,
-      minScore: Number.isFinite(minScore) ? minScore : 0,
-    })
-    return res.json({ ticker, rows })
+    const score = Number.isFinite(minScore) ? minScore : 0
+
+    if (ticker) {
+      if (!/^[A-Z0-9]{1,6}$/.test(ticker)) {
+        return res.status(400).json({ error: 'Invalid ticker' })
+      }
+      const rows = await queryPatternScanState({
+        ticker,
+        patternId: patternId || null,
+        minScore: score,
+      })
+      return res.json({ ticker, patternId: patternId || null, rows })
+    }
+
+    if (patternId) {
+      const rows = await queryPatternScanState({ patternId, minScore: score })
+      return res.json({ ticker: null, patternId, rows })
+    }
+
+    return res.status(400).json({ error: 'Provide ticker or patternId' })
   })
 
   app.get('/api/alerts/events', async (req, res) => {

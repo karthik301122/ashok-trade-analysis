@@ -60,3 +60,24 @@ export async function fetchPatternScanState(
     return []
   }
 }
+
+/** All tickers currently scoring at/above minScore for one pattern. */
+export async function fetchPatternScanByPattern(
+  patternId: string,
+  minScore = 60,
+): Promise<PatternScanStateRow[]> {
+  const pid = patternId.trim()
+  if (!pid) return []
+  try {
+    const qs = new URLSearchParams({
+      patternId: pid,
+      minScore: String(minScore),
+    })
+    const res = await fetch(`/api/pattern-scan/state?${qs}`, { credentials: 'include' })
+    if (!res.ok) return []
+    const json = (await res.json()) as { rows?: PatternScanStateRow[] }
+    return Array.isArray(json.rows) ? json.rows : []
+  } catch {
+    return []
+  }
+}

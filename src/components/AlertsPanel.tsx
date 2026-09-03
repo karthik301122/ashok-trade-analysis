@@ -13,6 +13,7 @@ import {
 } from '../lib/auth'
 import { fetchDeskServerConfig } from '../lib/deskConfig'
 import {
+  fetchPatternScanByPattern,
   fetchPatternScanState,
   type PatternScanStateRow,
 } from '../lib/patternScanApi'
@@ -111,6 +112,12 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
   const [stockQuery, setStockQuery] = useState('')
   const [pickTicker, setPickTicker] = useState<string | null>(null)
   const [draftPatternIds, setDraftPatternIds] = useState<string[]>([])
+  const [browseMode, setBrowseMode] = useState<'stock' | 'pattern'>('stock')
+  const [patternQuery, setPatternQuery] = useState('')
+  const [pickPatternId, setPickPatternId] = useState<string | null>(null)
+  const [patternHitRows, setPatternHitRows] = useState<PatternScanStateRow[]>([])
+  const [patternHitsBusy, setPatternHitsBusy] = useState(false)
+  const [draftHitTickers, setDraftHitTickers] = useState<string[]>([])
   const [name, setName] = useState('High RS leaders')
   const [type, setType] = useState('rs_min')
   const [paramKey, setParamKey] = useState('minRs')
@@ -190,6 +197,26 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
     }
   }, [watches])
 
+  useEffect(() => {
+    if (!pickPatternId) {
+      setPatternHitRows([])
+      setDraftHitTickers([])
+      return
+    }
+    let cancelled = false
+    setPatternHitsBusy(true)
+    void fetchPatternScanByPattern(pickPatternId, UI_HIT_MIN_SCORE).then((rows) => {
+      if (cancelled) return
+      const sorted = [...rows].sort((a, b) => b.score - a.score)
+      setPatternHitRows(sorted)
+      setDraftHitTickers(sorted.map((r) => r.ticker))
+      setPatternHitsBusy(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [pickPatternId])
+
   const visibleRules = useMemo(
     () => rules.filter((r) => !r.params?.auto),
     [rules],
@@ -207,6 +234,20 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
       .slice(0, 12)
   }, [snapshot.stocks, stockQuery])
 
+  const patternMatches = useMemo(() => {
+    const q = patternQuery.trim().toLowerCase()
+    if (!q) return []
+    return patternAlertOptions
+      .filter((p) => p.label.toLowerCase().includes(q) || p.id.toLowerCase().includes(q))
+      .slice(0, 12)
+  }, [patternAlertOptions, patternQuery])
+
+  const stockNameByTicker = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const s of snapshot.stocks) m.set(s.ticker.toUpperCase(), s.name)
+    return m
+  }, [snapshot.stocks])
+
   const pickStock = (ticker: string) => {
     const t = ticker.toUpperCase()
     setPickTicker(t)
@@ -215,9 +256,21 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
     setDraftPatternIds(existing?.patternIds ?? [])
   }
 
+  const pickPattern = (id: string) => {
+    setPickPatternId(id)
+    setPatternQuery(patternLabel(id, patternAlertOptions))
+  }
+
   const toggleDraftPattern = (id: string) => {
     setDraftPatternIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+  }
+
+  const toggleDraftHitTicker = (ticker: string) => {
+    const t = ticker.toUpperCase()
+    setDraftHitTickers((prev) =>
+      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
     )
   }
 
@@ -230,6 +283,28 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
     ])
     setWatches(next)
     setMsg(null)
+  }
+
+  const addWatchesFromPatternHits = () => {
+    if (!pickPatternId || !draftHitTickers.length) return
+    const pid = pickPatternId
+    const byTicker = new Map(watches.map((w) => [w.ticker, new Set(w.patternIds)]))
+    for (const ticker of draftHitTickers) {
+      const t = ticker.toUpperCase()
+      const set = byTicker.get(t) ?? new Set<string>()
+      set.add(pid)
+      byTicker.set(t, set)
+    }
+    const next = normalizePatternAlertWatches(
+      [...byTicker.entries()].map(([ticker, ids]) => ({
+        ticker,
+        patternIds: [...ids],
+      })),
+    )
+    setWatches(next)
+    setMsg(
+      `Added ${draftHitTickers.length} stock${draftHitTickers.length === 1 ? '' : 's'} for ${patternLabel(pid, patternAlertOptions)}. Click Save alerts.`,
+    )
   }
 
   const removeWatch = (ticker: string) => {
@@ -387,9 +462,9 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
             <Bell size={22} /> Alerts
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-[var(--color-ink-soft)]">
-            Pick a stock and choose patterns to watch. The UI shows hit % when a pattern is ≥{UI_HIT_MIN_SCORE}%
-            or already hit. Emails use your separate threshold (default 80%) — one email per stock/pattern
-            that crosses it, not a once-a-day digest.
+            Browse by stock or by pattern. Pattern search lists every stock with ≥{UI_HIT_MIN_SCORE}% hit
+            score. Emails use your separate threshold (default 80%) — one email per stock/pattern that
+            crosses it.
             {!emailEnabled && ' SMTP is not set up yet; events still show here.'}
           </p>
         </div>
@@ -463,98 +538,271 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
         )}
 
         <div className="mt-4 rounded-xl border border-dashed border-[var(--color-border)] p-4">
-          <h3 className="text-xs font-bold uppercase tracking-wide text-[var(--color-ink-soft)]">
-            Add stock alert
-          </h3>
-          <div className="mt-2 relative">
-            <Search
-              size={14}
-              className="pointer-events-none absolute left-2.5 top-2.5 text-[var(--color-ink-soft)]"
-            />
-            <input
-              value={stockQuery}
-              onChange={(e) => {
-                setStockQuery(e.target.value)
-                if (!e.target.value.trim()) setPickTicker(null)
-              }}
-              placeholder="Search ticker or company name…"
-              className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] py-2 pl-8 pr-3 text-sm"
-            />
-            {stockQuery.trim() && stockMatches.length > 0 && !pickTicker && (
-              <ul className="absolute z-10 mt-1 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg">
-                {stockMatches.map((s) => (
-                  <li key={s.ticker}>
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--color-muted)]"
-                      onClick={() => pickStock(s.ticker)}
-                    >
-                      <span className="font-mono font-bold">{s.ticker}</span>
-                      <span className="truncate text-xs text-[var(--color-ink-soft)]">{s.name}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {pickTicker && (
-            <>
-              <p className="mt-3 text-xs font-semibold">
-                Patterns for <span className="font-mono">{pickTicker}</span>
-                {scoresBusy ? (
-                  <span className="ml-2 font-normal text-[var(--color-ink-soft)]">Loading hit %…</span>
-                ) : (
-                  <span className="ml-2 font-normal text-[var(--color-ink-soft)]">
-                    Hit % shown when ≥{UI_HIT_MIN_SCORE}% or already hit (UI only)
-                  </span>
-                )}
-              </p>
-              {!patternAlertOptions.length ? (
-                <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
-                  No patterns available — star chart patterns or add My Patterns on Markets.
-                </p>
-              ) : (
-                <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {patternAlertOptions.map((p) => {
-                    const checked = draftPatternIds.includes(p.id)
-                    const row = pickScores.get(p.id)
-                    const showHit = shouldShowHitBadge(row)
-                    return (
-                      <label
-                        key={p.id}
-                        className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
-                          checked
-                            ? 'border-teal-600 bg-teal-50/60 dark:bg-teal-950/30'
-                            : showHit
-                              ? 'border-amber-500/50 bg-amber-50/40 dark:bg-amber-950/20'
-                              : 'border-[var(--color-border)]'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          className="mt-0.5 h-4 w-4 shrink-0"
-                          checked={checked}
-                          onChange={() => toggleDraftPattern(p.id)}
-                        />
-                        <span className="flex min-w-0 flex-1 items-start justify-between gap-2">
-                          <span className="font-medium leading-snug">{p.label}</span>
-                          {showHit && row ? <HitBadge row={row} /> : null}
-                        </span>
-                      </label>
-                    )
-                  })}
-                </div>
-              )}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-[var(--color-ink-soft)]">
+              Add alerts
+            </h3>
+            <div className="flex rounded-lg border border-[var(--color-border)] text-[10px] font-bold">
               <button
                 type="button"
-                disabled={!draftPatternIds.length}
-                onClick={addOrUpdateWatch}
-                className="mt-3 inline-flex items-center gap-1 rounded-md border border-teal-600 bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-900 disabled:opacity-50 dark:bg-teal-950/40 dark:text-teal-100"
+                onClick={() => {
+                  setBrowseMode('stock')
+                  setPickPatternId(null)
+                  setPatternQuery('')
+                }}
+                className={`rounded-l-lg px-2.5 py-1.5 ${
+                  browseMode === 'stock'
+                    ? 'bg-teal-700 text-white'
+                    : 'bg-[var(--color-bg)] text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]'
+                }`}
               >
-                <Plus size={14} />
-                {watches.some((w) => w.ticker === pickTicker) ? 'Update' : 'Add'} {pickTicker} to list
+                By stock
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setBrowseMode('pattern')
+                  setPickTicker(null)
+                  setStockQuery('')
+                }}
+                className={`rounded-r-lg px-2.5 py-1.5 ${
+                  browseMode === 'pattern'
+                    ? 'bg-teal-700 text-white'
+                    : 'bg-[var(--color-bg)] text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]'
+                }`}
+              >
+                By pattern
+              </button>
+            </div>
+          </div>
+
+          {browseMode === 'stock' ? (
+            <>
+              <div className="mt-2 relative">
+                <Search
+                  size={14}
+                  className="pointer-events-none absolute left-2.5 top-2.5 text-[var(--color-ink-soft)]"
+                />
+                <input
+                  value={stockQuery}
+                  onChange={(e) => {
+                    setStockQuery(e.target.value)
+                    if (!e.target.value.trim()) setPickTicker(null)
+                  }}
+                  placeholder="Search ticker or company name…"
+                  className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] py-2 pl-8 pr-3 text-sm"
+                />
+                {stockQuery.trim() && stockMatches.length > 0 && !pickTicker && (
+                  <ul className="absolute z-10 mt-1 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg">
+                    {stockMatches.map((s) => (
+                      <li key={s.ticker}>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--color-muted)]"
+                          onClick={() => pickStock(s.ticker)}
+                        >
+                          <span className="font-mono font-bold">{s.ticker}</span>
+                          <span className="truncate text-xs text-[var(--color-ink-soft)]">{s.name}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {pickTicker && (
+                <>
+                  <p className="mt-3 text-xs font-semibold">
+                    Patterns for <span className="font-mono">{pickTicker}</span>
+                    {scoresBusy ? (
+                      <span className="ml-2 font-normal text-[var(--color-ink-soft)]">Loading hit %…</span>
+                    ) : (
+                      <span className="ml-2 font-normal text-[var(--color-ink-soft)]">
+                        Hit % shown when ≥{UI_HIT_MIN_SCORE}% or already hit (UI only)
+                      </span>
+                    )}
+                  </p>
+                  {!patternAlertOptions.length ? (
+                    <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
+                      No patterns available — star chart patterns or add My Patterns on Markets.
+                    </p>
+                  ) : (
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {patternAlertOptions.map((p) => {
+                        const checked = draftPatternIds.includes(p.id)
+                        const row = pickScores.get(p.id)
+                        const showHit = shouldShowHitBadge(row)
+                        return (
+                          <label
+                            key={p.id}
+                            className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
+                              checked
+                                ? 'border-teal-600 bg-teal-50/60 dark:bg-teal-950/30'
+                                : showHit
+                                  ? 'border-amber-500/50 bg-amber-50/40 dark:bg-amber-950/20'
+                                  : 'border-[var(--color-border)]'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 h-4 w-4 shrink-0"
+                              checked={checked}
+                              onChange={() => toggleDraftPattern(p.id)}
+                            />
+                            <span className="flex min-w-0 flex-1 items-start justify-between gap-2">
+                              <span className="font-medium leading-snug">{p.label}</span>
+                              {showHit && row ? <HitBadge row={row} /> : null}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={!draftPatternIds.length}
+                    onClick={addOrUpdateWatch}
+                    className="mt-3 inline-flex items-center gap-1 rounded-md border border-teal-600 bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-900 disabled:opacity-50 dark:bg-teal-950/40 dark:text-teal-100"
+                  >
+                    <Plus size={14} />
+                    {watches.some((w) => w.ticker === pickTicker) ? 'Update' : 'Add'} {pickTicker} to list
+                  </button>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="mt-2 relative">
+                <Search
+                  size={14}
+                  className="pointer-events-none absolute left-2.5 top-2.5 text-[var(--color-ink-soft)]"
+                />
+                <input
+                  value={patternQuery}
+                  onChange={(e) => {
+                    setPatternQuery(e.target.value)
+                    setPickPatternId(null)
+                  }}
+                  placeholder="Search pattern name…"
+                  className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] py-2 pl-8 pr-3 text-sm"
+                />
+                {!pickPatternId && patternQuery.trim() && patternMatches.length > 0 && (
+                  <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg">
+                    {patternMatches.map((p) => (
+                      <li key={p.id}>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--color-muted)]"
+                          onClick={() => pickPattern(p.id)}
+                        >
+                          <span className="font-medium">{p.label}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {pickPatternId && (
+                <>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold">
+                      Stocks with{' '}
+                      <span className="text-teal-800 dark:text-teal-200">
+                        {patternLabel(pickPatternId, patternAlertOptions)}
+                      </span>{' '}
+                      ≥{UI_HIT_MIN_SCORE}%
+                      {patternHitsBusy && (
+                        <span className="ml-2 font-normal text-[var(--color-ink-soft)]">Loading…</span>
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      className="text-[10px] font-bold text-[var(--color-ink-soft)] hover:underline"
+                      onClick={() => {
+                        setPickPatternId(null)
+                        setPatternQuery('')
+                      }}
+                    >
+                      Change pattern
+                    </button>
+                  </div>
+
+                  {!patternHitsBusy && patternHitRows.length === 0 ? (
+                    <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
+                      No stocks at ≥{UI_HIT_MIN_SCORE}% yet for this pattern. Scores appear after market
+                      scans run (Markets / Patterns / Alerts).
+                    </p>
+                  ) : (
+                    <>
+                      <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+                        <button
+                          type="button"
+                          className="rounded border border-[var(--color-border)] px-2 py-1 font-semibold hover:bg-[var(--color-muted)]"
+                          onClick={() => setDraftHitTickers(patternHitRows.map((r) => r.ticker))}
+                        >
+                          Select all ({patternHitRows.length})
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded border border-[var(--color-border)] px-2 py-1 font-semibold hover:bg-[var(--color-muted)]"
+                          onClick={() => setDraftHitTickers([])}
+                        >
+                          Clear selection
+                        </button>
+                      </div>
+                      <div className="mt-2 max-h-64 overflow-auto rounded-lg border border-[var(--color-border)]">
+                        <table className="w-full text-left text-xs">
+                          <thead className="sticky top-0 bg-[var(--color-muted)] text-[10px] uppercase tracking-wide text-[var(--color-ink-soft)]">
+                            <tr>
+                              <th className="px-3 py-2 w-8" />
+                              <th className="px-3 py-2">Ticker</th>
+                              <th className="px-3 py-2">Name</th>
+                              <th className="px-3 py-2 text-right">Hit %</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {patternHitRows.map((row) => {
+                              const checked = draftHitTickers.includes(row.ticker)
+                              return (
+                                <tr
+                                  key={row.ticker}
+                                  className="border-t border-[var(--color-border)] hover:bg-[var(--color-muted)]/50"
+                                >
+                                  <td className="px-3 py-2">
+                                    <input
+                                      type="checkbox"
+                                      className="h-4 w-4"
+                                      checked={checked}
+                                      onChange={() => toggleDraftHitTicker(row.ticker)}
+                                    />
+                                  </td>
+                                  <td className="px-3 py-2 font-mono font-bold">{row.ticker}</td>
+                                  <td className="px-3 py-2 text-[var(--color-ink-soft)] truncate max-w-[12rem]">
+                                    {stockNameByTicker.get(row.ticker) ?? '—'}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    <HitBadge row={row} />
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={!draftHitTickers.length}
+                        onClick={addWatchesFromPatternHits}
+                        className="mt-3 inline-flex items-center gap-1 rounded-md border border-teal-600 bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-900 disabled:opacity-50 dark:bg-teal-950/40 dark:text-teal-100"
+                      >
+                        <Plus size={14} />
+                        Add {draftHitTickers.length || ''} selected to alert list
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
             </>
           )}
         </div>
