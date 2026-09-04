@@ -2,8 +2,6 @@ import { sqlAll, sqlOne, sqlRun } from './db.mjs'
 import { eodhdCodeToAppTicker } from './eodhd.mjs'
 
 export const LIVE_QUOTE_FRESH_MS = 25 * 60 * 1000
-/** After the bell, keep applying the last session's delayed quotes so Price isn't stuck on older EOD cache. */
-export const LIVE_QUOTE_AFTER_HOURS_MS = 18 * 60 * 60 * 1000
 
 function round1(n) {
   return Math.round(n * 10) / 10
@@ -31,17 +29,17 @@ export async function getLiveQuotesMeta(now = Date.now()) {
   const count = Number(row?.n) || 0
   const updatedAt = Number(row?.updated_at) || 0
   const age = updatedAt > 0 ? now - updatedAt : Number.POSITIVE_INFINITY
+  const marketOpen = isAsxMarketSession(now)
   const fresh = count > 0 && age < LIVE_QUOTE_FRESH_MS
-  const usable =
-    count > 0 &&
-    updatedAt > 0 &&
-    (fresh || (!isAsxMarketSession(now) && age < LIVE_QUOTE_AFTER_HOURS_MS))
+  // Only overlay during the cash session. After the bell, delayed live ticks can
+  // disagree with the official EOD close (charts use EOD — Markets must match).
+  const usable = marketOpen && fresh
   return {
     count,
     updatedAt,
     fresh,
     usable,
-    marketOpen: isAsxMarketSession(now),
+    marketOpen,
     delayedMinutes: 15,
   }
 }

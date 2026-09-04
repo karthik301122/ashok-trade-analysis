@@ -300,7 +300,11 @@ export default function App() {
       const cfg = await fetchDeskServerConfig()
       setDeskConfig(cfg)
       const liveAt = cfg.liveQuotes?.updatedAt ?? 0
-      if ((cfg.liveQuotes?.usable || cfg.liveQuotes?.fresh) && liveAt > lastLiveAt) {
+      if (
+        cfg.liveQuotes?.marketOpen &&
+        (cfg.liveQuotes?.usable || cfg.liveQuotes?.fresh) &&
+        liveAt > lastLiveAt
+      ) {
         lastLiveAt = liveAt
         await load(false)
       }
@@ -545,7 +549,8 @@ export default function App() {
                 view={view}
                 onViewChange={setView}
                 livePricesActive={Boolean(
-                  deskConfig?.liveQuotes?.usable ?? deskConfig?.liveQuotes?.fresh,
+                  deskConfig?.liveQuotes?.marketOpen &&
+                    (deskConfig?.liveQuotes?.usable || deskConfig?.liveQuotes?.fresh),
                 )}
                 backfilling={backfilling}
                 patternAlertWatches={patternAlertWatches}
