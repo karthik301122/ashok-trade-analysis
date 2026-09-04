@@ -218,14 +218,33 @@ export const LAUNCHPAD_PATTERNS: SpecialPatternDef[] = [
     kind: 'scan',
     bias: 'bullish',
     formula:
-      'ATR(20) < ATR(20)[20]\n' +
-      'sum(high−low, 10) < sum(high−low, 10)[10]\n' +
-      'inside bars (5d) ≥ 2\n' +
-      'RS(20) vs index > 0  AND  RS(5) vs index > RS(20) vs index\n' +
-      'ROC(20) > 0  AND  ROC(60) < 8%\n' +
-      'close > SMA(20)  AND  close < resistance(20) × 1.03',
+      'ATR(20) < ATR(20)[20] × 0.90\n' +
+      'sum(high−low, 10) < sum(high−low, 10)[10] × 0.85\n' +
+      'inside bars (7d) ≥ 2\n' +
+      'RS(20) vs index > 0  AND  RS(5) > RS(20)\n' +
+      'ROC(5) > 0  AND  0 < ROC(20) < 15%  AND  ROC(60) < 25%\n' +
+      'close > SMA20 > SMA50 > SMA200\n' +
+      'close ≥ SMA20  AND  close < highest(high,20) × 1.05\n' +
+      'volume > SMA(volume,20) × 0.80\n' +
+      '(highest(high,10) − lowest(low,10)) / close < 12%',
     description:
-      'Pre-breakout launchpad: volatility and range contraction, nested inside bars, improving RS vs ASX200, positive 1-month ROC with capped 3-month ROC, price coiled under 20-day resistance.',
+      'Pre-breakout launchpad: ATR/range contraction, nested inside bars, improving RS vs ASX200, positive but capped momentum, SMA trend stack, coiled under 20-day resistance with supportive volume and tight 10-day range.',
+  },
+  {
+    id: 'launchpad-score',
+    name: 'Launchpad Score',
+    category: 'structure',
+    kind: 'scan',
+    bias: 'bullish',
+    formula:
+      'Weighted score (max 100), fire when ≥ 70:\n' +
+      'ATR contract ×0.90 → 15 · range contract ×0.85 → 15 · inside bars (7) ≥2 → 10\n' +
+      'RS20 > 0 → 10 · RS5 > RS20 → 15\n' +
+      'ROC5 > 0 → 5 · 0 < ROC20 < 15 → 10 · 0 < ROC60 < 25 → 5\n' +
+      'close > SMA20 > SMA50 → 5 · close > SMA50 > SMA200 → 5\n' +
+      'close ≥ SMA20 and close < highest(20) × 1.05 → 5',
+    description:
+      'Softer launchpad: same coil factors as a weighted score (no volume/tightness gates). Confirmed at score ≥ 70.',
   },
 ]
 

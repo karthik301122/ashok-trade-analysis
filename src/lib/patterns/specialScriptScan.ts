@@ -3,10 +3,16 @@ import type { PatternHit } from './types'
 import type { SpecialPatternDef } from './specialCatalog'
 import { detectCustomRule, ruleSetProgress, ruleSetPasses } from './customRules'
 import type { LaunchpadScanContext } from './launchpadDetect'
-import { launchpadFormingScore, launchpadPasses } from './launchpadDetect'
+import {
+  detectLaunchpad,
+  detectLaunchpadScore,
+  launchpadFormingScore,
+  launchpadPasses,
+  launchpadScorePasses,
+  launchpadScorePoints,
+} from './launchpadDetect'
 import { landscapeFormingScore, landscapePasses } from './landscapeDetect'
 import { rulesFromCustom } from './scanScript'
-import { detectLaunchpad } from './launchpadDetect'
 import { detectLandscape } from './landscapeDetect'
 import { detectVcpBreakout, detectVcpSetup, vcpBreakoutPasses } from './vcpDetect'
 
@@ -32,6 +38,11 @@ export function scoreSpecialScanPattern(
     const score = launchpadFormingScore(bars, i, ctx?.launchpad)
     const confirmed = launchpadPasses(bars, i, ctx?.launchpad)
     return { score: confirmed ? 100 : score, confirmed }
+  }
+  if (pattern.id === 'launchpad-score') {
+    const score = launchpadScorePoints(bars, i, ctx?.launchpad)
+    const confirmed = launchpadScorePasses(bars, i, ctx?.launchpad)
+    return { score, confirmed }
   }
   if (pattern.id === 'landscape') {
     const score = landscapeFormingScore(bars, i, ctx?.landscape)
@@ -101,6 +112,9 @@ export function evaluateSpecialScanPattern(
   }
   if (pattern.id === 'launchpad') {
     return detectLaunchpad(bars, pattern, ctx?.launchpad)
+  }
+  if (pattern.id === 'launchpad-score') {
+    return detectLaunchpadScore(bars, pattern, ctx?.launchpad)
   }
   if (pattern.id === 'landscape') {
     return detectLandscape(bars, pattern, ctx?.landscape)

@@ -5,7 +5,8 @@ import { atr } from './livermoreScores'
 import { scoreFromFlags } from './patternFormingScore'
 
 const LOOKBACK_BARS = 10
-const MIN_BARS = 61
+/** Need SMA(200) + ATR lookback. */
+const MIN_BARS = 221
 
 /** Index returns for RS vs benchmark; optional full index bars for historical alignment. */
 export type LaunchpadScanContext = {
@@ -92,50 +93,167 @@ function countInsideBars(bars: OhlcBar[], lookback: number, endIdx: number): num
   return count
 }
 
-/** Max high over the prior 20 sessions (resistance), excluding the signal bar. */
-function resistance20(bars: OhlcBar[], endIdx: number): number | null {
-  if (endIdx < 20) return null
-  const window = bars.slice(endIdx - 20, endIdx)
-  return Math.max(...window.map((b) => b.h))
+/** highest(high, period) inclusive of the signal bar. */
+function highestHigh(bars: OhlcBar[], period: number, endIdx: number): number | null {
+  const start = endIdx - period + 1
+  if (start < 0) return null
+  let hi = -Infinity
+  for (let i = start; i <= endIdx; i++) hi = Math.max(hi, bars[i].h)
+  return Number.isFinite(hi) ? hi : null
 }
 
-/** Exposed for tests — which launchpad clauses pass at bar index i. */
+/** lowest(low, period) inclusive of the signal bar. */
+function lowestLow(bars: OhlcBar[], period: number, endIdx: number): number | null {
+  const start = endIdx - period + 1
+  if (start < 0) return null
+  let lo = Infinity
+  for (let i = start; i <= endIdx; i++) lo = Math.min(lo, bars[i].l)
+  return Number.isFinite(lo) ? lo : null
+}
+
+function smaVolume(bars: OhlcBar[], period: number, endIdx: number): number | null {
+  const start = endIdx - period + 1
+  if (start < 0) return null
+  let sum = 0
+  for (let i = start; i <= endIdx; i++) sum += bars[i].v ?? 0
+  return sum / period
+}
+
+/**
+ * Spec (source launchpad script):
+ * atr20 < atr20[20] * 0.90
+ * range10 < range10[10] * 0.85
+ * inside bars (7) ≥ 2
+ * RS20 > 0 AND RS5 > RS20
+ * ROC5 > 0 AND ROC20 > 0 AND ROC20 < 15 AND ROC60 < 25
+ * close > SMA20 > SMA50 > SMA200
+ * close ≥ SMA20 AND close < highest(high,20) * 1.05
+ * volume > SMA(volume,20) * 0.80
+ * (highest(high,10) − lowest(low,10)) / close < 0.12
+ */
 export function launchpadCheckDetails(bars: OhlcBar[], i: number, ctx?: LaunchpadScanContext) {
   const atr20 = atrAt(bars, 20, i)
   const atr20Prev = atrAt(bars, 20, i - 20)
   const range10 = sumRange(bars, 10, i)
   const range10Prev = sumRange(bars, 10, i - 10)
-  const inside = countInsideBars(bars, 5, i)
+  const inside = countInsideBars(bars, 7, i)
   const rs20 = relativeReturn(bars, i, 20, ctx)
   const rs5 = relativeReturn(bars, i, 5, ctx)
+  const roc5 = returnOver(bars, 5, i)
   const roc20 = returnOver(bars, 20, i)
   const roc60 = returnOver(bars, 60, i)
   const closes = bars.slice(0, i + 1).map((b) => b.c)
   const ma20 = sma(closes, 20)
-  const res = resistance20(bars, i)
+  const ma50 = sma(closes, 50)
+  const ma200 = sma(closes, 200)
+  const res = highestHigh(bars, 20, i)
+  const hi10 = highestHigh(bars, 10, i)
+  const lo10 = lowestLow(bars, 10, i)
+  const volSma20 = smaVolume(bars, 20, i)
   const close = bars[i].c
+  const volume = bars[i].v ?? 0
+
+  const atrContraction =
+    atr20 != null && atr20Prev != null && atr20 < atr20Prev * 0.9
+  const rangeContraction =
+    range10 != null && range10Prev != null && range10 < range10Prev * 0.85
+  const insideCondition = inside >= 2
+  const rsCondition = rs20 != null && rs5 != null && rs20 > 0 && rs5 > rs20
+  const momentumCondition =
+    roc5 != null &&
+    roc20 != null &&
+    roc60 != null &&
+    roc5 > 0 &&
+    roc20 > 0 &&
+    roc20 < 15 &&
+    roc60 < 25
+  const trendCondition =
+    ma20 != null &&
+    ma50 != null &&
+    ma200 != null &&
+    close > ma20 &&
+    ma20 > ma50 &&
+    ma50 > ma200
+  const pivotCondition =
+    ma20 != null && res != null && close >= ma20 && close < res * 1.05
+  const volumeCondition = volSma20 != null && volume > volSma20 * 0.8
+  const tightnessCondition =
+    hi10 != null && lo10 != null && close > 0 && (hi10 - lo10) / close < 0.12
+
   return {
-    atrContraction: atr20 != null && atr20Prev != null && atr20 < atr20Prev,
-    rangeContraction: range10 != null && range10Prev != null && range10 < range10Prev,
+    atrContraction,
+    rangeContraction,
     insideBars: inside,
-    insideCondition: inside >= 2,
+    insideCondition,
     rs20VsIndex: rs20,
     rs5VsIndex: rs5,
-    rsCondition: rs20 != null && rs5 != null && rs20 > 0 && rs5 > rs20,
+    rsCondition,
+    roc5,
     roc20,
     roc60,
-    momentumCondition: roc20 != null && roc60 != null && roc20 > 0 && roc60 < 8,
+    momentumCondition,
     ma20,
+    ma50,
+    ma200,
     resistance: res,
     close,
-    pivotCondition:
-      ma20 != null && res != null && close > ma20 && close < res * 1.03,
+    trendCondition,
+    pivotCondition,
+    volumeCondition,
+    tightnessCondition,
   }
 }
 
 /**
- * Launchpad — volatility + range contraction, inside bars, RS vs index improving,
- * positive ROC(20) with capped ROC(60), price above 20 SMA but within 3% of 20d resistance.
+ * Weighted Launchpad Score (max 100). Confirmed when score ≥ 70.
+ * Does not use volume/tightness — softer than the all-AND Launchpad.
+ */
+export function launchpadScorePoints(
+  bars: OhlcBar[],
+  i: number,
+  ctx?: LaunchpadScanContext,
+): number {
+  if (bars.length < MIN_BARS || i < MIN_BARS - 1) return 0
+  const d = launchpadCheckDetails(bars, i, ctx)
+  let score = 0
+  if (d.atrContraction) score += 15
+  if (d.rangeContraction) score += 15
+  if (d.insideCondition) score += 10
+  if (d.rs20VsIndex != null && d.rs20VsIndex > 0) score += 10
+  if (
+    d.rs20VsIndex != null &&
+    d.rs5VsIndex != null &&
+    d.rs5VsIndex > d.rs20VsIndex
+  ) {
+    score += 15
+  }
+  if (d.roc5 != null && d.roc5 > 0) score += 5
+  if (d.roc20 != null && d.roc20 > 0 && d.roc20 < 15) score += 10
+  if (d.roc60 != null && d.roc60 > 0 && d.roc60 < 25) score += 5
+  if (d.ma20 != null && d.ma50 != null && d.close > d.ma20 && d.ma20 > d.ma50) score += 5
+  if (
+    d.ma50 != null &&
+    d.ma200 != null &&
+    d.close > d.ma50 &&
+    d.ma50 > d.ma200
+  ) {
+    score += 5
+  }
+  if (d.pivotCondition) score += 5
+  return score
+}
+
+export function launchpadScorePasses(
+  bars: OhlcBar[],
+  i: number,
+  ctx?: LaunchpadScanContext,
+  threshold = 70,
+): boolean {
+  return launchpadScorePoints(bars, i, ctx) >= threshold
+}
+
+/**
+ * Launchpad — full multi-factor coil (matches all-AND source script).
  */
 export function launchpadPasses(
   bars: OhlcBar[],
@@ -143,34 +261,18 @@ export function launchpadPasses(
   ctx?: LaunchpadScanContext,
 ): boolean {
   if (bars.length < MIN_BARS || i < MIN_BARS - 1) return false
-
-  const atr20 = atrAt(bars, 20, i)
-  const atr20Prev = atrAt(bars, 20, i - 20)
-  if (atr20 == null || atr20Prev == null || atr20 >= atr20Prev) return false
-
-  const range10 = sumRange(bars, 10, i)
-  const range10Prev = sumRange(bars, 10, i - 10)
-  if (range10 == null || range10Prev == null || range10 >= range10Prev) return false
-
-  if (countInsideBars(bars, 5, i) < 2) return false
-
-  const rs20 = relativeReturn(bars, i, 20, ctx)
-  const rs5 = relativeReturn(bars, i, 5, ctx)
-  if (rs20 == null || rs5 == null || rs20 <= 0 || rs5 <= rs20) return false
-
-  const roc20 = returnOver(bars, 20, i)
-  const roc60 = returnOver(bars, 60, i)
-  if (roc20 == null || roc60 == null || roc20 <= 0 || roc60 >= 8) return false
-
-  const closes = bars.slice(0, i + 1).map((b) => b.c)
-  const ma20 = sma(closes, 20)
-  const res = resistance20(bars, i)
-  if (ma20 == null || res == null) return false
-
-  const close = bars[i].c
-  if (close <= ma20 || close >= res * 1.03) return false
-
-  return true
+  const d = launchpadCheckDetails(bars, i, ctx)
+  return (
+    d.atrContraction &&
+    d.rangeContraction &&
+    d.insideCondition &&
+    d.rsCondition &&
+    d.momentumCondition &&
+    d.trendCondition &&
+    d.pivotCondition &&
+    d.volumeCondition &&
+    d.tightnessCondition
+  )
 }
 
 export function launchpadFormingScore(
@@ -186,8 +288,10 @@ export function launchpadFormingScore(
     d.insideCondition,
     d.rsCondition,
     d.momentumCondition,
-    Boolean(d.ma20 != null && d.close > d.ma20),
+    d.trendCondition,
     d.pivotCondition,
+    d.volumeCondition,
+    d.tightnessCondition,
   ])
 }
 
@@ -215,6 +319,40 @@ export function detectLaunchpad(
     points: [{ time: bar.t, price: bar.c }],
     note:
       pattern.description?.trim() ||
-      'ATR + range contraction, inside bars, RS vs index improving, ROC capped, under 20d resistance',
+      'Launchpad coil: ATR/range contraction, inside bars, RS accel, trend stack, under 20d resistance',
+  }
+}
+
+export function detectLaunchpadScore(
+  bars: OhlcBar[],
+  pattern: { id: string; name: string; bias: PatternBias; description?: string },
+  ctx?: LaunchpadScanContext,
+  threshold = 70,
+): PatternHit | null {
+  if (bars.length < MIN_BARS) return null
+  const from = Math.max(MIN_BARS - 1, bars.length - LOOKBACK_BARS)
+  let bestI = -1
+  let bestScore = 0
+  for (let idx = from; idx < bars.length; idx++) {
+    const s = launchpadScorePoints(bars, idx, ctx)
+    if (s >= threshold && s >= bestScore) {
+      bestScore = s
+      bestI = idx
+    }
+  }
+  if (bestI < 0) return null
+  const bar = bars[bestI]
+  return {
+    id: `launchpad-score-${pattern.id}-${bar.t}`,
+    category: 'custom',
+    name: pattern.name,
+    bias: pattern.bias,
+    startT: bar.t,
+    endT: bar.t,
+    confidence: Math.min(0.95, 0.55 + bestScore / 200),
+    points: [{ time: bar.t, price: bar.c }],
+    note:
+      pattern.description?.trim() ||
+      `Launchpad score ${bestScore}/100 (threshold ${threshold})`,
   }
 }
