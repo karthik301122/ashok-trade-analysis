@@ -268,11 +268,11 @@ async function persistSnapshot(stocks, indexPerf, loaded, failed) {
 }
 
 async function loadSeriesForSnapshot(ticker, from2y, forceRefresh = false) {
-  let series = await getCachedSeries(ticker, from2y, { forceRefresh: false, staleOk: true })
-  if (!series?.closes?.length && forceRefresh) {
-    series = await getCachedSeries(ticker, from2y, { forceRefresh: true })
+  if (forceRefresh) {
+    return getCachedSeries(ticker, from2y, { forceRefresh: true })
   }
-  return series
+  // Prefer cached bars, but re-pull from EODHD when the last bar is multi-day stale.
+  return getCachedSeries(ticker, from2y, { staleOk: false })
 }
 
 /**
@@ -588,19 +588,22 @@ export function runRebuildSnapshotFromCache() {
     await setJob('running', {
       started_at: started,
       finished_at: null,
-      message: 'Scanning OHLC cache',
+      message: 'Refreshing stale OHLC then rebuilding snapshot',
       loaded: 0,
       failed: 0,
       total,
     })
 
     try {
-      const indexPerf = await loadIndexPerf(from5y, { staleOk: true })
+      const indexPerf = await loadIndexPerf(from5y, { staleOk: false })
 
       const stocks = {}
+      let eodLimited = false
       for (let i = 0; i < allTickers.length; i++) {
         const ticker = allTickers[i]
-        const series = await getCachedSeries(ticker, from2y, { staleOk: true })
+        if (!eodLimited && isEodhdDailyLimitExceeded()) eodLimited = true
+        // Refresh EODHD when last bar is stale; fall back to cache-only if daily limit hit.
+        const series = await getCachedSeries(ticker, from2y, { staleOk: eodLimited })
         if (series?.closes?.length) {
           stocks[ticker] = seriesToCachedPerf(series, indexPerf.m3)
         }
@@ -608,7 +611,9 @@ export function runRebuildSnapshotFromCache() {
           const loaded = Object.keys(stocks).length
           await setJob('running', {
             started_at: started,
-            message: `Cache scan ${i + 1}/${total}`,
+            message: eodLimited
+              ? `Cache scan ${i + 1}/${total} (EODHD daily limit — using stale bars)`
+              : `Cache scan ${i + 1}/${total}`,
             loaded,
             failed: total - loaded,
             total,
@@ -622,13 +627,20 @@ export function runRebuildSnapshotFromCache() {
       await setJob('done', {
         started_at: started,
         finished_at: builtAt,
-        message: failed ? `ok · ${failed} not in cache` : 'ok · from cache',
+        message: eodLimited
+          ? `ok · EOD limit hit · ${failed} missing`
+          : failed
+            ? `ok · ${failed} not in cache`
+            : 'ok · from cache',
         loaded,
         failed,
         total,
       })
-      console.log(`[snapshot] cache rebuild · loaded=${loaded} failed=${failed} total=${total}`)
-      return { loaded, failed, builtAt, skipped: false }
+      console.log(
+        `[snapshot] cache rebuild · loaded=${loaded} failed=${failed} total=${total}` +
+          (eodLimited ? ' · eodhd-daily-limit' : ''),
+      )
+      return { loaded, failed, builtAt, skipped: false, eodLimited }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       await setJob('error', {

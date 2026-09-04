@@ -6,6 +6,7 @@ import {
   mergeBars,
   recomputeHigh52,
   isSeriesFresh,
+  isLastBarAcceptable,
   isoFromUnix,
   isoMinusDays,
 } from './seriesStore.mjs'
@@ -41,20 +42,24 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
 
   const cached = forceRefresh ? null : await readSeriesCache(seriesSymbol)
 
-  if (cached && (staleOk || isSeriesFresh(cached.updatedAt))) {
+  if (cached) {
     const closes = cached.closes.filter((b) => b.t >= fromTs)
     if (closes.length >= 15) {
-      return {
-        symbol: cached.symbol,
-        closes,
-        last: closes[closes.length - 1].c,
-        high52: recomputeHigh52(closes),
-        meta: {
-          ...(cached.meta || {}),
-          cache: staleOk && !isSeriesFresh(cached.updatedAt) ? 'stale-ok' : 'hit',
-          store,
-        },
+      const barsOk = isLastBarAcceptable(cached.closes)
+      if (staleOk || barsOk) {
+        return {
+          symbol: cached.symbol,
+          closes,
+          last: closes[closes.length - 1].c,
+          high52: recomputeHigh52(closes),
+          meta: {
+            ...(cached.meta || {}),
+            cache: !barsOk || (staleOk && !isSeriesFresh(cached.updatedAt)) ? 'stale-ok' : 'hit',
+            store,
+          },
+        }
       }
+      // Last bar too old and caller wants fresh data — fall through to EODHD.
     }
   }
 

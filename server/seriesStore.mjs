@@ -2,6 +2,9 @@ import { sqlAll, sqlOne, withTransaction } from './db.mjs'
 
 export const SERIES_FRESH_MS = 18 * 60 * 60 * 1000
 
+/** Extra trading sessions of lag allowed (ASX holidays / late EOD publish). */
+export const LAST_BAR_SLACK_SESSIONS = 1
+
 export function isSeriesFresh(updatedAt, now = Date.now()) {
   return Number.isFinite(updatedAt) && now - updatedAt < SERIES_FRESH_MS
 }
@@ -14,6 +17,55 @@ export function isoMinusDays(iso, days) {
   const d = new Date(`${iso}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() - days)
   return d.toISOString().slice(0, 10)
+}
+
+function utcYmd(d) {
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+}
+
+function shiftWeekdays(utcMidnightMs, sessions) {
+  let d = new Date(utcMidnightMs)
+  let left = sessions
+  while (left > 0) {
+    d.setUTCDate(d.getUTCDate() - 1)
+    const dow = d.getUTCDay()
+    if (dow !== 0 && dow !== 6) left -= 1
+  }
+  return utcYmd(d)
+}
+
+/**
+ * Expected latest ASX/EOD session date (UTC midnight ms).
+ * Before ~08:00 UTC (~18:00 AEST) we only expect the previous weekday's bar.
+ */
+export function expectedLastSessionUtcMs(now = Date.now()) {
+  const d = new Date(now)
+  let day = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+  const dow = day.getUTCDay()
+  if (dow === 0) day.setUTCDate(day.getUTCDate() - 2)
+  else if (dow === 6) day.setUTCDate(day.getUTCDate() - 1)
+  else if (d.getUTCHours() < 8) {
+    day.setUTCDate(day.getUTCDate() - 1)
+    while (day.getUTCDay() === 0 || day.getUTCDay() === 6) {
+      day.setUTCDate(day.getUTCDate() - 1)
+    }
+  }
+  return utcYmd(day)
+}
+
+/**
+ * True when the newest bar is recent enough vs the expected last session.
+ * Used so write-time cache freshness alone cannot pin multi-day-old OHLC.
+ */
+export function isLastBarAcceptable(closes, now = Date.now(), slackSessions = LAST_BAR_SLACK_SESSIONS) {
+  if (!closes?.length) return false
+  const lastT = Number(closes[closes.length - 1]?.t)
+  if (!Number.isFinite(lastT)) return false
+  const lastMs = lastT < 1e12 ? lastT * 1000 : lastT
+  const lastDay = utcYmd(new Date(lastMs))
+  const expected = expectedLastSessionUtcMs(now)
+  const minOk = shiftWeekdays(expected, Math.max(0, slackSessions))
+  return lastDay >= minOk
 }
 
 export function recomputeHigh52(closes) {
