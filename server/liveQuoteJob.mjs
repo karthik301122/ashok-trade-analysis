@@ -41,29 +41,34 @@ function liveQuoteIntervalMs() {
   return isProductionMode() ? 30 * 60 * 1000 : 15 * 60 * 1000
 }
 
-export async function runLiveQuoteRefresh() {
+export async function runLiveQuoteRefresh(opts = {}) {
+  const force = Boolean(opts.force)
   if (!eodhdEnabled()) return { skipped: true, reason: 'eodhd_disabled' }
   if (isEodhdDailyLimitExceeded()) return { skipped: true, reason: 'eodhd_daily_limit' }
   if (maintenanceEnabled()) return { skipped: true, reason: 'maintenance' }
-  const snapJob = await getSnapshotJobStatus()
-  if (snapJob.status === 'running') return { skipped: true, reason: 'snapshot_build' }
+  if (!force) {
+    const snapJob = await getSnapshotJobStatus()
+    if (snapJob.status === 'running') return { skipped: true, reason: 'snapshot_build' }
 
-  const snap = await readMarketSnapshotDbRow()
-  const readiness = readinessFromSnapshot(
-    snap ? { loaded: snap.loaded, failed: snap.failed, fresh: true } : null,
-    universeTotal(),
-  )
-  if (!readiness.snapshotAcceptable) return { skipped: true, reason: 'snapshot_not_ready' }
-
-  if (!isAsxMarketSession()) return { skipped: true, reason: 'market_closed' }
+    const snap = await readMarketSnapshotDbRow()
+    const readiness = readinessFromSnapshot(
+      snap ? { loaded: snap.loaded, failed: snap.failed, fresh: true } : null,
+      universeTotal(),
+    )
+    if (!readiness.snapshotAcceptable) return { skipped: true, reason: 'snapshot_not_ready' }
+    if (!isAsxMarketSession()) return { skipped: true, reason: 'market_closed' }
+  }
   if (runningJob) return runningJob
 
   runningJob = (async () => {
-    const tickers = await loadLiveQuoteTickers()
+    const tickers = Array.isArray(opts.tickers) && opts.tickers.length
+      ? opts.tickers
+      : await loadLiveQuoteTickers()
     const seriesSymbols = tickers.map((t) => resolveSeriesSymbol(t))
     const started = Date.now()
     console.log(
-      `[live] refresh · ${tickers.length} tickers (~${tickers.length} API calls)`,
+      `[live] refresh · ${tickers.length} tickers (~${tickers.length} API calls)` +
+        (force ? ' · force' : ''),
     )
     const quotes = await fetchEodhdLiveQuotes(seriesSymbols)
     const updated = await upsertLiveQuotesFromEodhd(quotes)

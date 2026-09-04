@@ -11,6 +11,7 @@ export type DeskServerConfig = {
   maintenanceMessage?: string
   liveQuotes?: {
     fresh: boolean
+    usable?: boolean
     marketOpen: boolean
     updatedAt: number
     count: number

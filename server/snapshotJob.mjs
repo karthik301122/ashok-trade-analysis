@@ -822,6 +822,18 @@ export async function runAsx200ForceRefresh() {
       const loaded = Object.keys(stocks).length
       const failed = total - loaded
       const { builtAt, asOf } = await persistSnapshot(stocks, indexPerf, loaded, failed)
+
+      // Pull delayed live quotes onto Markets Price (works after hours too).
+      try {
+        const { runLiveQuoteRefresh } = await import('./liveQuoteJob.mjs')
+        await runLiveQuoteRefresh({ force: true, tickers: asx200 })
+      } catch (err) {
+        console.warn(
+          '[snapshot] live quote refresh after desk pull failed:',
+          err instanceof Error ? err.message : String(err),
+        )
+      }
+
       await setJob('done', {
         started_at: started,
         finished_at: builtAt,

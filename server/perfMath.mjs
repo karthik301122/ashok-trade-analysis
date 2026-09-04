@@ -107,7 +107,8 @@ export function seriesToCachedPerf(series, indexM3) {
     avgVolume20: Math.round(avgVolume20),
     relativeVolume: round1(relativeVolume),
     dollarVolume: Math.round(dollarVolume),
-    lastPrice: round1(last),
+    // Keep cent-level precision for the Markets Price column (not 1dp).
+    lastPrice: Math.round(last * 10000) / 10000,
     rsi: rsi(closes, 14) ?? 50,
   }
 }

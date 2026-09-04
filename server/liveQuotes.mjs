@@ -2,6 +2,8 @@ import { sqlAll, sqlOne, sqlRun } from './db.mjs'
 import { eodhdCodeToAppTicker } from './eodhd.mjs'
 
 export const LIVE_QUOTE_FRESH_MS = 25 * 60 * 1000
+/** After the bell, keep applying the last session's delayed quotes so Price isn't stuck on older EOD cache. */
+export const LIVE_QUOTE_AFTER_HOURS_MS = 18 * 60 * 60 * 1000
 
 function round1(n) {
   return Math.round(n * 10) / 10
@@ -28,11 +30,17 @@ export async function getLiveQuotesMeta(now = Date.now()) {
   const row = await sqlOne('SELECT COUNT(*) AS n, MAX(updated_at) AS updated_at FROM live_quotes')
   const count = Number(row?.n) || 0
   const updatedAt = Number(row?.updated_at) || 0
-  const fresh = count > 0 && updatedAt > 0 && now - updatedAt < LIVE_QUOTE_FRESH_MS
+  const age = updatedAt > 0 ? now - updatedAt : Number.POSITIVE_INFINITY
+  const fresh = count > 0 && age < LIVE_QUOTE_FRESH_MS
+  const usable =
+    count > 0 &&
+    updatedAt > 0 &&
+    (fresh || (!isAsxMarketSession(now) && age < LIVE_QUOTE_AFTER_HOURS_MS))
   return {
     count,
     updatedAt,
     fresh,
+    usable,
     marketOpen: isAsxMarketSession(now),
     delayedMinutes: 15,
   }
@@ -41,7 +49,7 @@ export async function getLiveQuotesMeta(now = Date.now()) {
 /** @returns {Promise<Map<string, { close: number, change_p: number, volume: number, updated_at: number }>>} */
 export async function readLiveQuotesMap(now = Date.now()) {
   const meta = await getLiveQuotesMeta(now)
-  if (!meta.fresh) return new Map()
+  if (!meta.usable) return new Map()
   const rows = await sqlAll('SELECT ticker, close, change_p, volume, updated_at FROM live_quotes')
   const map = new Map()
   for (const row of rows) {
@@ -101,7 +109,7 @@ export function applyLiveToCachedPerf(perf, live) {
   const relVol = avgVol > 0 && vol > 0 ? vol / avgVol : perf.relativeVolume
   return {
     ...perf,
-    lastPrice: round1(close),
+    lastPrice: Math.round(close * 10000) / 10000,
     d1: Number.isFinite(live.change_p) ? round1(live.change_p) : perf.d1,
     volume: vol,
     relativeVolume: round1(relVol ?? 0),

@@ -280,7 +280,7 @@ function seriesToCachedPerf(series: SeriesResult, indexM3: number): CachedPerf {
     avgVolume20: Math.round(avgVolume20),
     relativeVolume: round1(relativeVolume),
     dollarVolume: Math.round(dollarVolume),
-    lastPrice: round1(last),
+    lastPrice: Math.round(last * 10000) / 10000,
     rsi: rsi(closes, 14) ?? 50,
   }
 }
