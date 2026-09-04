@@ -33,6 +33,7 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [backfilling, setBackfilling] = useState(false)
+  const [refreshStatus, setRefreshStatus] = useState<string | null>(null)
   const [progress, setProgress] = useState<LiveLoadProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [meta, setMeta] = useState<{
@@ -156,39 +157,56 @@ export default function App() {
   const loadRef = useRef(load)
   loadRef.current = load
 
-  const waitForSnapshotJob = useCallback(async (startedAfter = 0) => {
-    for (let i = 0; i < 600; i++) {
-      try {
-        const res = await fetch(`/api/snapshot/refresh?_=${Date.now()}`, {
-          credentials: 'include',
-          cache: 'no-store',
-        })
-        if (res.status === 502 || res.status === 503 || res.status === 504) {
+  const waitForSnapshotJob = useCallback(
+    async (
+      startedAfter = 0,
+      opts?: { readyOn?: 'asx200' | 'desk'; onStatus?: (message: string) => void },
+    ) => {
+      const readyOn = opts?.readyOn ?? 'asx200'
+      for (let i = 0; i < 600; i++) {
+        try {
+          const res = await fetch(`/api/snapshot/refresh?_=${Date.now()}`, {
+            credentials: 'include',
+            cache: 'no-store',
+          })
+          if (res.status === 502 || res.status === 503 || res.status === 504) {
+            await new Promise((r) => setTimeout(r, 3000))
+            continue
+          }
+          if (!res.ok) return null
+          const json = (await res.json()) as {
+            job?: {
+              status?: string
+              message?: string
+              startedAt?: number
+              finishedAt?: number
+              loaded?: number
+              total?: number
+            }
+          }
+          const job = json.job
+          const startedAt = Number(job?.startedAt || 0)
+          // Ignore stale status from a previous job until this refresh has started.
+          if (startedAfter > 0 && startedAt > 0 && startedAt < startedAfter - 2000) {
+            await new Promise((r) => setTimeout(r, 1000))
+            continue
+          }
+          const msg = job?.message || ''
+          if (msg) opts?.onStatus?.(msg)
+          // Markets can reload as soon as ASX200 is done; mid/small continue in background.
+          if (readyOn === 'asx200' && msg.includes('asx200-ready')) return job
+          if (msg.includes('desk-ready')) return job
+          if (job?.status !== 'running') return job
+        } catch {
           await new Promise((r) => setTimeout(r, 3000))
           continue
         }
-        if (!res.ok) return null
-        const json = (await res.json()) as {
-          job?: { status?: string; message?: string; startedAt?: number; finishedAt?: number }
-        }
-        const job = json.job
-        const startedAt = Number(job?.startedAt || 0)
-        // Ignore stale status from a previous job until this refresh has started.
-        if (startedAfter > 0 && startedAt > 0 && startedAt < startedAfter - 2000) {
-          await new Promise((r) => setTimeout(r, 1000))
-          continue
-        }
-        const msg = job?.message || ''
-        if (msg.includes('desk-ready')) return job
-        if (job?.status !== 'running') return job
-      } catch {
-        await new Promise((r) => setTimeout(r, 3000))
-        continue
+        await new Promise((r) => setTimeout(r, 2000))
       }
-      await new Promise((r) => setTimeout(r, 2000))
-    }
-    return null
-  }, [])
+      return null
+    },
+    [],
+  )
 
   const startAsx200ForceRefresh = useCallback(async () => {
     const startedAfter = Date.now()
@@ -204,28 +222,39 @@ export default function App() {
           : `Refresh failed (${res.status}) — admin access required in production`,
       )
     }
-    await waitForSnapshotJob(startedAfter)
+    // Unblock UI after ASX200 (~2–4 min). Mid/small keep running server-side.
+    await waitForSnapshotJob(startedAfter, {
+      readyOn: 'asx200',
+      onStatus: setRefreshStatus,
+    })
+    return startedAfter
   }, [waitForSnapshotJob])
 
   const retryFailedLoads = useCallback(async () => {
     setRetryingFailed(true)
     setError(null)
+    setRefreshStatus(null)
     try {
       clearPerfCache()
-      await startAsx200ForceRefresh()
+      const startedAfter = await startAsx200ForceRefresh()
       await load(false)
+      void waitForSnapshotJob(startedAfter, { readyOn: 'desk' }).then(async (job) => {
+        if (job) await loadRef.current(false)
+        setRefreshStatus(null)
+      })
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Retry failed'
       setError(msg)
     } finally {
       setRetryingFailed(false)
     }
-  }, [load, startAsx200ForceRefresh])
+  }, [load, startAsx200ForceRefresh, waitForSnapshotJob])
 
   const refreshLive = useCallback(async () => {
     const config = deskConfig ?? await fetchDeskServerConfig()
     if (!deskConfig) setDeskConfig(config)
     setError(null)
+    setRefreshStatus(null)
     clearPerfCache()
     if (config.productionMode) {
       if (!config.isAdmin) {
@@ -235,18 +264,27 @@ export default function App() {
       }
       setBackfilling(true)
       try {
-        await startAsx200ForceRefresh()
+        const startedAfter = await startAsx200ForceRefresh()
         await load(false)
+        setBackfilling(false)
+        setRefreshStatus('ASX200 ready · finishing mid/small in background…')
+        void waitForSnapshotJob(startedAfter, {
+          readyOn: 'desk',
+          onStatus: setRefreshStatus,
+        }).then(async (job) => {
+          if (job) await loadRef.current(false)
+          setRefreshStatus(null)
+        })
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Refresh failed'
         setError(msg)
-      } finally {
         setBackfilling(false)
+        setRefreshStatus(null)
       }
       return
     }
     await load(true)
-  }, [deskConfig, load, startAsx200ForceRefresh])
+  }, [deskConfig, load, startAsx200ForceRefresh, waitForSnapshotJob])
 
   const canUseApp = !authChecking && (!authRequired || Boolean(user))
 
@@ -444,6 +482,11 @@ export default function App() {
                     : `${meta.loaded.toLocaleString()} loaded`}
                   {meta.failed > 0 ? ` · ${meta.failed} failed` : ''}
                   {statusLine}
+                </span>
+              )}
+              {refreshStatus && (
+                <span className="max-w-md truncate text-sky-700 dark:text-sky-300" title={refreshStatus}>
+                  {refreshStatus}
                 </span>
               )}
               <button
