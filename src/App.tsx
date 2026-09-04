@@ -176,7 +176,7 @@ export default function App() {
           continue
         }
         const msg = job?.message || ''
-        if (msg.includes('asx200-ready')) return job
+        if (msg.includes('desk-ready')) return job
         if (job?.status !== 'running') return job
       } catch {
         await new Promise((r) => setTimeout(r, 3000))
@@ -189,7 +189,7 @@ export default function App() {
 
   const startAsx200ForceRefresh = useCallback(async () => {
     const startedAfter = Date.now()
-    const res = await fetch('/api/snapshot/refresh?force=1&priority=asx200', {
+    const res = await fetch('/api/snapshot/refresh?force=1&priority=desk', {
       method: 'POST',
       credentials: 'include',
     })

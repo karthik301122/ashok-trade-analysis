@@ -59,13 +59,32 @@ export async function recoverStaleSnapshotJob() {
 }
 
 function loadAsx200Tickers() {
-  const fromMembers = tickersForUniverseId('asx200')
+  return loadUniverseSlice('asx200')
+}
+
+function loadUniverseSlice(universeId) {
+  const fromMembers = tickersForUniverseId(universeId)
   if (fromMembers.length >= 50) return fromMembers
-  return loadUniverse()
+  const ranked = loadUniverse()
     .slice()
     .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
-    .slice(0, 200)
-    .map((u) => u.ticker)
+  if (universeId === 'asx200') return ranked.slice(0, 200).map((u) => u.ticker)
+  if (universeId === 'mid') return ranked.slice(200, 500).map((u) => u.ticker)
+  return ranked.slice(500).map((u) => u.ticker)
+}
+
+/** ASX200 + mid + small membership (deduped, ASX200 first). */
+function loadDeskBreadthTickers() {
+  const seen = new Set()
+  const out = []
+  for (const id of ['asx200', 'mid', 'small']) {
+    for (const t of loadUniverseSlice(id)) {
+      if (seen.has(t)) continue
+      seen.add(t)
+      out.push(t)
+    }
+  }
+  return out
 }
 
 function snapshotNeedsMoreWork(existing) {
@@ -696,22 +715,31 @@ export function runRetryFailedSnapshot() {
 }
 
 /**
- * Fast desk refresh: force-pull ASX200 (+ index) from EODHD, merge into snapshot, persist.
+ * Desk refresh: force-pull ASX200 + mid + small (+ breadth indices) from EODHD.
  * Supersedes any in-flight job so Refresh/Retry cannot stay stuck forever.
+ * Kept name for API compatibility; covers all breadth universes.
  */
 export async function runAsx200ForceRefresh() {
   await recoverStaleSnapshotJob()
   if (runningJob) {
     jobEpoch += 1
     runningJob = null
-    console.warn('[snapshot] superseding in-flight job for ASX200 force refresh')
+    console.warn('[snapshot] superseding in-flight job for desk universe force refresh')
   }
 
   const myEpoch = jobEpoch
   runningJob = (async () => {
     const universe = loadUniverse()
     const total = universe.length
-    const priorityTickers = loadAsx200Tickers()
+    const asx200 = loadUniverseSlice('asx200')
+    const mid = loadUniverseSlice('mid')
+    const small = loadUniverseSlice('small')
+    const phases = [
+      { id: 'asx200', label: 'ASX200', tickers: asx200 },
+      { id: 'mid', label: 'Mid', tickers: mid },
+      { id: 'small', label: 'Small', tickers: small },
+    ]
+    const priorityTickers = loadDeskBreadthTickers()
     const started = Date.now()
     const from2y = from2yIso()
     const from5y = from5yIso()
@@ -722,47 +750,72 @@ export async function runAsx200ForceRefresh() {
     await setJob('running', {
       started_at: started,
       finished_at: null,
-      message: `Force-refreshing ASX200 (${priorityTickers.length} names)`,
+      message: `Force-refreshing ASX200+mid+small (${priorityTickers.length} names)`,
       loaded: Object.keys(stocks).length,
       failed: Math.max(0, total - Object.keys(stocks).length),
       total,
     })
 
     try {
+      // Bench + breadth chart indices
       const indexPerf = await loadIndexPerf(from5y, { forceRefresh: true, staleOk: false })
-      const failedTickers = []
+      for (const idx of ['^AORD', '^AXSO']) {
+        if (myEpoch !== jobEpoch) break
+        await loadSeriesForSnapshot(idx, from5y, true)
+      }
 
-      await mapPool(
-        priorityTickers,
-        pacing.concurrency,
-        async (ticker) => {
-          if (myEpoch !== jobEpoch) return ticker
-          const series = await loadSeriesForSnapshot(ticker, from2y, true)
-          if (series?.closes?.length) {
-            stocks[ticker] = seriesToCachedPerf(series, indexPerf.m3)
-          } else {
-            failedTickers.push(ticker)
-          }
-          return ticker
-        },
-        async (done) => {
-          if (myEpoch !== jobEpoch) return
-          if (done % 20 === 0 || done === priorityTickers.length) {
-            const loaded = Object.keys(stocks).length
-            await setJob('running', {
-              started_at: started,
-              message: `ASX200 ${done}/${priorityTickers.length}`,
-              loaded,
-              failed: total - loaded,
-              total,
-            })
-            if (done % 40 === 0) {
-              await persistSnapshot(stocks, indexPerf, loaded, total - loaded)
+      const failedTickers = []
+      let doneAll = 0
+
+      for (const phase of phases) {
+        if (myEpoch !== jobEpoch) return { aborted: true }
+        await mapPool(
+          phase.tickers,
+          pacing.concurrency,
+          async (ticker) => {
+            if (myEpoch !== jobEpoch) return ticker
+            const series = await loadSeriesForSnapshot(ticker, from2y, true)
+            if (series?.closes?.length) {
+              stocks[ticker] = seriesToCachedPerf(series, indexPerf.m3)
+            } else {
+              failedTickers.push(ticker)
             }
-          }
-        },
-        pacing.delayMs,
-      )
+            return ticker
+          },
+          async (done) => {
+            if (myEpoch !== jobEpoch) return
+            doneAll = phases
+              .slice(0, phases.findIndex((p) => p.id === phase.id))
+              .reduce((n, p) => n + p.tickers.length, 0) + done
+            if (done % 20 === 0 || done === phase.tickers.length) {
+              const loaded = Object.keys(stocks).length
+              await setJob('running', {
+                started_at: started,
+                message: `${phase.label} ${done}/${phase.tickers.length} · ${doneAll}/${priorityTickers.length}`,
+                loaded,
+                failed: total - loaded,
+                total,
+              })
+              if (done % 40 === 0 || done === phase.tickers.length) {
+                await persistSnapshot(stocks, indexPerf, loaded, total - loaded)
+              }
+            }
+          },
+          pacing.delayMs,
+        )
+
+        if (phase.id === 'asx200') {
+          const loaded = Object.keys(stocks).length
+          await persistSnapshot(stocks, indexPerf, loaded, total - loaded)
+          await setJob('running', {
+            started_at: started,
+            message: `asx200-ready · continuing mid/small`,
+            loaded,
+            failed: total - loaded,
+            total,
+          })
+        }
+      }
 
       if (myEpoch !== jobEpoch) return { aborted: true }
 
@@ -774,17 +827,17 @@ export async function runAsx200ForceRefresh() {
         finished_at: builtAt,
         message:
           failedTickers.length > 0
-            ? `asx200-ready · ${failedTickers.length} ASX200 names failed`
-            : 'asx200-ready · ASX200 refreshed from EODHD',
+            ? `desk-ready · ${failedTickers.length} names failed`
+            : 'desk-ready · ASX200+mid+small refreshed from EODHD',
         loaded,
         failed,
         total,
       })
       console.log(
-        `[snapshot] ASX200 force refresh · updated=${priorityTickers.length - failedTickers.length}/${priorityTickers.length} · snapshot loaded=${loaded}`,
+        `[snapshot] desk force refresh · updated=${priorityTickers.length - failedTickers.length}/${priorityTickers.length} · snapshot loaded=${loaded}`,
       )
 
-      return { loaded, failed, builtAt, asOf, priority: 'asx200', failedTickers }
+      return { loaded, failed, builtAt, asOf, priority: 'desk', failedTickers }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       await setJob('error', {

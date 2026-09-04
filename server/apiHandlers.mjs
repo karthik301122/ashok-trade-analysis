@@ -263,14 +263,15 @@ export async function handleConnectApi(req, res, send) {
       if (await requireAdminOrSend(req, send)) return true
       const force = url.searchParams.get('force') === '1'
       const priority = url.searchParams.get('priority')
+      const deskPriority = priority === 'asx200' || priority === 'desk'
       const status = await getSnapshotJobStatus()
-      if (status.status === 'running' && priority !== 'asx200' && !force) {
+      if (status.status === 'running' && !deskPriority && !force) {
         log('info', 'snapshot.refresh', { alreadyRunning: true, force, priority })
         send(202, { ok: true, job: status })
         return true
       }
       log('info', 'snapshot.refresh', { started: true, force, priority })
-      if (priority === 'asx200') {
+      if (deskPriority) {
         void runAsx200ForceRefresh().catch((err) => {
           log('error', 'snapshot.refresh.error', {
             message: err instanceof Error ? err.message : String(err),
@@ -908,13 +909,14 @@ export function mountExpressApi(app) {
     }
     const force = req.query.force === '1'
     const priority = typeof req.query.priority === 'string' ? req.query.priority : ''
+    const deskPriority = priority === 'asx200' || priority === 'desk'
     const status = await getSnapshotJobStatus()
-    if (status.status === 'running' && priority !== 'asx200' && !force) {
+    if (status.status === 'running' && !deskPriority && !force) {
       log('info', 'snapshot.refresh', { alreadyRunning: true, force, priority })
       return res.status(202).json({ ok: true, job: status })
     }
     log('info', 'snapshot.refresh', { started: true, force, priority })
-    if (priority === 'asx200') {
+    if (deskPriority) {
       void runAsx200ForceRefresh().catch((err) => {
         log('error', 'snapshot.refresh.error', {
           message: err instanceof Error ? err.message : String(err),
