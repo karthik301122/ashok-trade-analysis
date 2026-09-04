@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useDeferredValue } from 'react'
 import { createPortal } from 'react-dom'
 import { ExternalLink, X } from 'lucide-react'
 import { toTradingViewSymbol } from '../lib/tradingview'
-import { fetchDeskIntraday, fetchYahooOhlc } from '../lib/yahoo'
+import { fetchDeskIntraday, fetchDeskOhlc } from '../lib/deskSeries'
 import { fetchDeskServerConfig } from '../lib/deskConfig'
 import {
   chartIntervalShort,
@@ -32,6 +32,7 @@ import { TradingViewChart } from './TradingViewChart'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
 import type { DrawnTool } from '../lib/patterns/drawnPattern'
 import { useAppNav } from '../lib/appPage'
+import { DirectorFilingsPanel } from './DirectorFilingsPanel'
 
 /** Open chart zoomed/annotated to a special (or other) pattern hit. */
 export type ChartPatternFocus = {
@@ -128,7 +129,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
     void fetchDeskServerConfig().then((cfg) => {
       if (cancelled) return
       const p = cfg?.provider
-      setDataProvider(p === 'yahoo-finance2' ? 'yahoo-finance2' : p === 'eodhd' ? 'eodhd' : 'eodhd')
+      setDataProvider(p === 'eodhd' ? 'eodhd' : 'unknown')
     })
     return () => {
       cancelled = true
@@ -161,7 +162,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
       : null
     ;(async () => {
       const [ohlc, fundRes] = await Promise.all([
-        fetchYahooOhlc(ticker),
+        fetchDeskOhlc(ticker),
         fetch(`/api/fundamentals/${encodeURIComponent(ticker)}`, { credentials: 'include' })
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
@@ -233,7 +234,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
       if (intraday?.bars.length) {
         setDisplayBars(intraday.bars)
         const prov = intraday.meta.provider
-        if (prov === 'yahoo-finance2' || prov === 'eodhd') {
+        if (prov === 'eodhd') {
           setDataProvider(prov)
         }
         setChartBarInterval(intraday.meta.interval || interval)
@@ -409,6 +410,7 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
               </span>
             </p>
           )}
+          <DirectorFilingsPanel ticker={ticker} />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-lg border border-[var(--color-border)] text-[10px] font-bold">

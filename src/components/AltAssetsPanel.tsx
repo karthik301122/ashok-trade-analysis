@@ -3,7 +3,7 @@ import { Copy, Search } from 'lucide-react'
 import type { AltAsset } from '../data/altAssets'
 import { classifyCycle, classifyMood, CYCLE_LABEL, MOOD_LABEL, round1 } from '../lib/market'
 import { formatPct, perfCellClass } from '../lib/format'
-import { fetchYahooSeries, returnOver, sma, ema, type SeriesResult } from '../lib/yahoo'
+import { fetchDeskSeries, returnOver, sma, ema, type SeriesResult } from '../lib/deskSeries'
 import { Sparkline } from './Sparkline'
 
 type Row = AltAsset & {
@@ -25,7 +25,8 @@ type Props = {
   title: string
   subtitle: string
   assets: AltAsset[]
-  benchmarkYahoo?: string
+  /** EODHD symbol used as relative-strength benchmark */
+  benchmarkSymbol?: string
 }
 
 function toRow(asset: AltAsset, series: SeriesResult, benchM3: number): Row {
@@ -74,7 +75,7 @@ function toRow(asset: AltAsset, series: SeriesResult, benchM3: number): Row {
   }
 }
 
-export function AltAssetsPanel({ title, subtitle, assets, benchmarkYahoo = 'BTC-USD' }: Props) {
+export function AltAssetsPanel({ title, subtitle, assets, benchmarkSymbol = 'BTC-USD.CC' }: Props) {
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
@@ -88,12 +89,12 @@ export function AltAssetsPanel({ title, subtitle, assets, benchmarkYahoo = 'BTC-
       setLoading(true)
       setError(null)
       try {
-        const bench = await fetchYahooSeries(benchmarkYahoo)
+        const bench = await fetchDeskSeries(benchmarkSymbol)
         const benchM3 = bench ? returnOver(bench.closes, 63) ?? 0 : 0
         const out: Row[] = []
         for (const asset of assets) {
           if (cancelled) return
-          const series = await fetchYahooSeries(asset.yahoo)
+          const series = await fetchDeskSeries(asset.eodhd)
           if (series) out.push(toRow(asset, series, benchM3))
         }
         if (!cancelled) {
@@ -109,7 +110,7 @@ export function AltAssetsPanel({ title, subtitle, assets, benchmarkYahoo = 'BTC-
     return () => {
       cancelled = true
     }
-  }, [assets, benchmarkYahoo])
+  }, [assets, benchmarkSymbol])
 
   const groups = useMemo(() => [...new Set(assets.map((a) => a.group))], [assets])
 
@@ -210,7 +211,7 @@ export function AltAssetsPanel({ title, subtitle, assets, benchmarkYahoo = 'BTC-
                   <td className="px-2 py-2">
                     <div className="font-semibold">{r.name}</div>
                     <div className="text-[10px] text-[var(--color-ink-soft)]">
-                      {r.symbol} · {r.yahoo}
+                      {r.symbol}
                     </div>
                   </td>
                   <td className="px-2">{r.group}</td>

@@ -12,23 +12,14 @@ describe('fetchSeries provider', () => {
     process.env = prev
   })
 
-  it('uses eodhd when EODHD_ONLY', () => {
-    process.env.EODHD_ONLY = 'true'
-    process.env.EODHD_API_TOKEN = 'tok'
-    expect(seriesProviderName()).toBe('eodhd')
-  })
-
-  it('uses eodhd when Yahoo fallback disabled', () => {
-    delete process.env.EODHD_ONLY
-    process.env.EODHD_API_TOKEN = 'tok'
-    process.env.EODHD_YAHOO_FALLBACK = 'false'
-    expect(seriesProviderName()).toBe('eodhd')
-  })
-
-  it('uses yahoo when no token and not eodhd-only', () => {
+  it('always reports eodhd (Yahoo removed)', () => {
     delete process.env.EODHD_API_TOKEN
-    delete process.env.EODHD_ONLY
     delete process.env.DATA_PROVIDER
-    expect(seriesProviderName()).toBe('yahoo-finance2')
+    expect(seriesProviderName()).toBe('eodhd')
+  })
+
+  it('reports eodhd when token set', () => {
+    process.env.EODHD_API_TOKEN = 'tok'
+    expect(seriesProviderName()).toBe('eodhd')
   })
 })

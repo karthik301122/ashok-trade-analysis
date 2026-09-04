@@ -1,4 +1,4 @@
-import type { OhlcBar } from '../yahoo'
+import type { OhlcBar } from '../deskSeries'
 
 export type PatternBias = 'bullish' | 'bearish' | 'neutral'
 

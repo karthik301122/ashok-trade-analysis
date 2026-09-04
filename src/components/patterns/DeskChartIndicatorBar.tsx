@@ -105,7 +105,7 @@ export function DeskChartIndicatorBar({ active, onToggle, onAllOn, onAllOff }: P
             })}
           </div>
           <p className="border-t border-[var(--color-border)] px-2 py-1.5 text-[9px] leading-snug text-[var(--color-ink-soft)]">
-            Computed locally from EODHD OHLC — no extra API calls. Turn on only what you need;
+            Computed locally from desk OHLC — no extra API calls. Turn on only what you need;
             many panes shrink the price chart.
           </p>
         </div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { StockMetrics } from '../../data/types'
-import { fetchYahooOhlcForPatternScan } from '../../lib/yahoo'
+import { fetchDeskOhlcForPatternScan } from '../../lib/deskSeries'
 import { karthikPatternHit, type KarthikPatternId } from '../../lib/patterns/karthikWeekly'
 import { KARTHIK_WEEKLY_PATTERNS, SPECIAL_PATTERN_CATALOG } from '../../lib/patterns/specialCatalog'
 import {
@@ -106,9 +106,9 @@ export function useUnifiedSpecialScans(
 
       let indexReturn20 = 0
       let indexReturn5 = 0
-      let indexOhlc: Awaited<ReturnType<typeof fetchYahooOhlcForPatternScan>> = null
+      let indexOhlc: Awaited<ReturnType<typeof fetchDeskOhlcForPatternScan>> = null
       try {
-        indexOhlc = await fetchYahooOhlcForPatternScan(INDEX_SYMBOL)
+        indexOhlc = await fetchDeskOhlcForPatternScan(INDEX_SYMBOL)
         const idxCloses = indexOhlc ?? []
         if (!cancelled && g === gen.current && idxCloses.length > 21) {
           const a = idxCloses[idxCloses.length - 1].c
@@ -191,7 +191,7 @@ export function useUnifiedSpecialScans(
           const needScript = isStale(getTickerScriptScan(key)?.updatedAt, now)
 
           try {
-            const ohlc = await fetchYahooOhlcForPatternScan(ticker)
+            const ohlc = await fetchDeskOhlcForPatternScan(ticker)
             if (cancelled || g !== gen.current) return
             if (!ohlc?.length) continue
 

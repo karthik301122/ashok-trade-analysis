@@ -3,7 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { fetchEodhdLiveQuotes, eodhdEnabled } from './eodhd.mjs'
 import { isEodhdDailyLimitExceeded } from './eodhdLimit.mjs'
-import { resolveYahooSymbol } from './getSeries.mjs'
+import { resolveSeriesSymbol } from './getSeries.mjs'
 import { isAsxMarketSession, upsertLiveQuotesFromEodhd } from './liveQuotes.mjs'
 import { maintenanceEnabled } from './maintenance.mjs'
 import { getSnapshotJobStatus, readMarketSnapshotDbRow } from './snapshotJob.mjs'
@@ -60,12 +60,12 @@ export async function runLiveQuoteRefresh() {
 
   runningJob = (async () => {
     const tickers = await loadLiveQuoteTickers()
-    const yahooSymbols = tickers.map((t) => resolveYahooSymbol(t))
+    const seriesSymbols = tickers.map((t) => resolveSeriesSymbol(t))
     const started = Date.now()
     console.log(
       `[live] refresh · ${tickers.length} tickers (~${tickers.length} API calls)`,
     )
-    const quotes = await fetchEodhdLiveQuotes(yahooSymbols)
+    const quotes = await fetchEodhdLiveQuotes(seriesSymbols)
     const updated = await upsertLiveQuotesFromEodhd(quotes)
     const ms = Date.now() - started
     console.log(

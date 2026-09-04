@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, type FormEvent } from 'react'
-import { Pencil, Trash2 } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react'
 import type {
   OhlcBar,
   PatternBias,
@@ -19,6 +19,7 @@ import {
   describeCandleShape,
   newCondition,
   SCANSCRIPT_EXAMPLE,
+  SCANSCRIPT_GUIDE,
   SCANSCRIPT_NAME,
   validateScanScript,
   describeScanScript,
@@ -78,6 +79,7 @@ export function PatternCreatePanel({
   const [candleShape, setCandleShape] = useState<CandleShapeSpec>(() => defaultCandleShape('hammer'))
   const [cScanScript, setCScanScript] = useState(SCANSCRIPT_EXAMPLE)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [scriptGuideOpen, setScriptGuideOpen] = useState(true)
 
   const scriptErrors = useMemo(
     () => (detectMode === 'script' ? validateScanScript(cScanScript) : []),
@@ -576,13 +578,105 @@ export function PatternCreatePanel({
 
               {detectMode === 'script' && (
                 <div className="space-y-3">
-                  <h4 className="text-sm font-bold">{SCANSCRIPT_NAME}</h4>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="text-sm font-bold">{SCANSCRIPT_NAME}</h4>
+                    <button
+                      type="button"
+                      onClick={() => setCScanScript(SCANSCRIPT_EXAMPLE)}
+                      className="text-[11px] font-semibold text-teal-700 hover:underline dark:text-teal-300"
+                    >
+                      Load example
+                    </button>
+                  </div>
+
+                  <div className="overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40">
+                    <button
+                      type="button"
+                      onClick={() => setScriptGuideOpen((o) => !o)}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]"
+                    >
+                      <BookOpen size={14} className="shrink-0 text-teal-700 dark:text-teal-300" />
+                      Rules guide
+                      {scriptGuideOpen ? (
+                        <ChevronDown size={14} className="ml-auto" />
+                      ) : (
+                        <ChevronRight size={14} className="ml-auto" />
+                      )}
+                    </button>
+                    {scriptGuideOpen && (
+                      <div className="space-y-3 border-t border-[var(--color-border)] px-3 py-3 text-[11px] leading-relaxed text-[var(--color-ink)]">
+                        <p className="text-[var(--color-ink-soft)]">{SCANSCRIPT_GUIDE.summary}</p>
+
+                        <div>
+                          <p className="mb-1 font-bold text-[var(--color-ink-soft)]">Headers</p>
+                          <ul className="space-y-1">
+                            {SCANSCRIPT_GUIDE.headers.map((row) => (
+                              <li key={row.code}>
+                                <code className="rounded bg-[var(--color-bg)] px-1 py-0.5 font-mono text-[10px]">
+                                  {row.code}
+                                </code>
+                                <span className="text-[var(--color-ink-soft)]"> — {row.meaning}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div>
+                          <p className="mb-1 font-bold text-[var(--color-ink-soft)]">Metrics</p>
+                          <ul className="space-y-1">
+                            {SCANSCRIPT_GUIDE.metrics.map((row) => (
+                              <li key={row.code}>
+                                <code className="rounded bg-[var(--color-bg)] px-1 py-0.5 font-mono text-[10px]">
+                                  {row.code}
+                                </code>
+                                <span className="text-[var(--color-ink-soft)]"> — {row.meaning}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div>
+                          <p className="mb-1 font-bold text-[var(--color-ink-soft)]">Tips</p>
+                          <ul className="list-inside list-disc space-y-0.5 text-[var(--color-ink-soft)]">
+                            {SCANSCRIPT_GUIDE.tips.map((tip) => (
+                              <li key={tip}>{tip}</li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div className="space-y-2">
+                          <p className="font-bold text-[var(--color-ink-soft)]">Examples</p>
+                          {SCANSCRIPT_GUIDE.examples.map((ex) => (
+                            <div
+                              key={ex.title}
+                              className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-2"
+                            >
+                              <div className="mb-1 flex items-center justify-between gap-2">
+                                <span className="font-semibold">{ex.title}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setCScanScript(ex.script)}
+                                  className="text-[10px] font-bold text-teal-700 hover:underline dark:text-teal-300"
+                                >
+                                  Use
+                                </button>
+                              </div>
+                              <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10px] leading-snug text-[var(--color-ink-soft)]">
+                                {ex.script}
+                              </pre>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <textarea
                     value={cScanScript}
                     onChange={(e) => setCScanScript(e.target.value)}
-                    rows={18}
+                    rows={14}
                     spellCheck={false}
-                    className="min-h-[360px] w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-sm leading-relaxed"
+                    className="min-h-[280px] w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-sm leading-relaxed"
                   />
                   {scriptErrors.length > 0 && (
                     <ul className="space-y-1 text-sm text-rose-600">
@@ -596,11 +690,6 @@ export function PatternCreatePanel({
                       Compiles to: {scriptPreview}
                     </p>
                   )}
-                  <p className="text-xs text-[var(--color-ink-soft)]">
-                    Headers: <code>match all</code>, <code>bias bullish</code>. Conditions:{' '}
-                    <code>rsi(14) &lt;= 35</code>, <code>rvol &gt;= 1.5</code>,{' '}
-                    <code>above_sma(50)</code>, <code>pct_chg(5) &gt;= 3</code>.
-                  </p>
                 </div>
               )}
 

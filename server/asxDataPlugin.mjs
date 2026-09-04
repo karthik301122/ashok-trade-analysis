@@ -1,11 +1,12 @@
 /**
- * Vite middleware: ASX prices via EODHD (or Yahoo fallback) + SQLite cache/snapshot.
+ * Vite middleware: ASX prices via EODHD + SQLite cache/snapshot.
  */
 import { handleConnectApi } from './apiHandlers.mjs'
 import { assertAuthConfigured } from './auth.mjs'
 import { loadEnvFile } from './loadEnv.mjs'
 import { initDb } from './db.mjs'
 import { maybeStartBackgroundSnapshot } from './snapshotJob.mjs'
+import { maybeStartAsxFilingsScheduler } from './asxFilingsJob.mjs'
 
 loadEnvFile()
 
@@ -23,7 +24,10 @@ export function asxDataPlugin() {
     name: 'asx-data-api',
     configureServer(server) {
       assertAuthConfigured()
-      void initDb().then(() => maybeStartBackgroundSnapshot())
+      void initDb().then(() => {
+        maybeStartBackgroundSnapshot()
+        maybeStartAsxFilingsScheduler()
+      })
       server.middlewares.use(async (req, res, next) => {
         try {
           const send = (status, body, headers) => sendJson(res, status, body, headers)

@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import type { MarketSnapshot } from '../data/types'
 import { APP_NAME } from '../lib/brand'
 import { useDeferredPanelActive } from '../lib/useDeferredPanelActive'
@@ -12,6 +12,8 @@ import { IndustryAnalytics } from './IndustryAnalytics'
 import { VolumeScan } from './VolumeScan'
 import { AltAssetsPanel } from './AltAssetsPanel'
 import { COMMODITIES, CRYPTO } from '../data/altAssets'
+import { DisclosedBuysStrip } from './DisclosedBuysStrip'
+import { StockChartModal } from './StockChartModal'
 
 type Props = {
   snapshot: MarketSnapshot
@@ -32,6 +34,7 @@ function SectorMarketsSectionBody({
 }: Props & { paused: boolean }) {
   const active = !paused
   const contentReady = useDeferredPanelActive(active, true)
+  const [filingChartTicker, setFilingChartTicker] = useState<string | null>(null)
   return (
     <div className="space-y-4" aria-hidden={paused}>
       <div>
@@ -43,6 +46,10 @@ function SectorMarketsSectionBody({
           {backfilling ? ' · updating…' : ''}
         </p>
       </div>
+
+      {contentReady && (
+        <DisclosedBuysStrip onOpenTicker={(t) => setFilingChartTicker(t)} />
+      )}
 
       <ViewTabs active={view} onChange={onViewChange} mood={snapshot.moodCounts} />
 
@@ -60,7 +67,7 @@ function SectorMarketsSectionBody({
             title="Commodities Desk"
             subtitle="Live futures / spot proxies — gold, silver, copper, oil, ags, AUD"
             assets={COMMODITIES}
-            benchmarkYahoo="GC=F"
+            benchmarkSymbol="XAUUSD.FOREX"
           />
         )}
         {contentReady && view === 'crypto' && (
@@ -68,10 +75,14 @@ function SectorMarketsSectionBody({
             title="Crypto Desk"
             subtitle="Major coins with mood / cycle / returns vs BTC"
             assets={CRYPTO}
-            benchmarkYahoo="BTC-USD"
+            benchmarkSymbol="BTC-USD.CC"
           />
         )}
       </div>
+
+      {filingChartTicker && (
+        <StockChartModal ticker={filingChartTicker} onClose={() => setFilingChartTicker(null)} />
+      )}
     </div>
   )
 }

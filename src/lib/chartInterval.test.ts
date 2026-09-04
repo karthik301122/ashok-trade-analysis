@@ -17,18 +17,14 @@ describe('chartInterval', () => {
     expect(parseChartIntervalPref(undefined)).toBe('auto')
   })
 
-  it('uses 30m for short windows on Yahoo', () => {
-    expect(chartIntervalForWindow('1m', 'yahoo-finance2')).toBe('30m')
-    expect(chartIntervalForWindow('1w', 'yahoo-finance2')).toBe('30m')
-  })
-
   it('uses 5m for short windows on EODHD', () => {
     expect(chartIntervalForWindow('1m', 'eodhd')).toBe('5m')
+    expect(chartIntervalForWindow('1w', 'eodhd')).toBe('5m')
   })
 
   it('uses 1h for long windows', () => {
     expect(chartIntervalForWindow('3m', 'eodhd')).toBe('1h')
-    expect(resolveChartInterval('auto', 'all', 'yahoo-finance2')).toBe('1h')
+    expect(resolveChartInterval('auto', 'all', 'eodhd')).toBe('1h')
   })
 
   it('resolveChartInterval respects explicit daily', () => {

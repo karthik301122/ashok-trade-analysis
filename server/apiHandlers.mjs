@@ -39,6 +39,7 @@ import {
   setPatternAlertWatches,
 } from './userPrefs.mjs'
 import { getFundamentals } from './fundamentals.mjs'
+import { getFilingsForTicker, getLargestDisclosedBuys } from './asxFilings.mjs'
 import { checkRateLimit, clientKey, log, pruneRateLimitBuckets } from './log.mjs'
 import { seriesProviderName, isIntradayInterval } from './fetchSeries.mjs'
 import { eodhdOnlyMode } from './eodhd.mjs'
@@ -530,6 +531,24 @@ export async function handleConnectApi(req, res, send) {
       return true
     }
     send(200, data)
+    return true
+  }
+
+  if (url.pathname === '/api/filings/buys') {
+    if (requireAuthConnect(req, send)) return true
+    const window = url.searchParams.get('window') === 'today' ? 'today' : 'week'
+    send(200, await getLargestDisclosedBuys(window))
+    return true
+  }
+
+  if (url.pathname.startsWith('/api/filings/')) {
+    if (requireAuthConnect(req, send)) return true
+    const ticker = decodeURIComponent(url.pathname.replace('/api/filings/', '')).toUpperCase()
+    if (!ticker || !/^[A-Z0-9]{1,6}$/.test(ticker)) {
+      send(400, { error: 'Invalid ticker' })
+      return true
+    }
+    send(200, await getFilingsForTicker(ticker, { forceRefresh: url.searchParams.get('refresh') === '1' }))
     return true
   }
 
@@ -1089,6 +1108,27 @@ export function mountExpressApi(app) {
     const data = await getFundamentals(ticker, { forceRefresh: req.query.refresh === '1' })
     if (!data) return res.status(404).json({ error: 'No fundamentals', ticker })
     return res.json(data)
+  })
+
+  app.get('/api/filings/buys', async (req, res) => {
+    if (authEnabled() && !getUserFromRequest(req)) {
+      return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    }
+    const window = req.query.window === 'today' ? 'today' : 'week'
+    return res.json(await getLargestDisclosedBuys(window))
+  })
+
+  app.get('/api/filings/:ticker', async (req, res) => {
+    if (authEnabled() && !getUserFromRequest(req)) {
+      return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    }
+    const ticker = decodeURIComponent(req.params.ticker).toUpperCase()
+    if (!ticker || !/^[A-Z0-9]{1,6}$/.test(ticker)) {
+      return res.status(400).json({ error: 'Invalid ticker' })
+    }
+    return res.json(
+      await getFilingsForTicker(ticker, { forceRefresh: req.query.refresh === '1' }),
+    )
   })
 }
 

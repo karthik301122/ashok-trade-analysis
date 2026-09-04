@@ -39,14 +39,10 @@ export function eodhdEnabled() {
 }
 
 /**
- * EODHD-only desk: no Yahoo fallback for OHLC/series, no browser universe crawl.
- * Set EODHD_ONLY=true or EODHD_YAHOO_FALLBACK=false (with token configured).
+ * Yahoo has been removed — desk is always EODHD-only.
  */
 export function eodhdOnlyMode() {
-  if (envBool('EODHD_ONLY')) return true
-  if (!eodhdEnabled()) return false
-  const fb = process.env.EODHD_YAHOO_FALLBACK?.trim().toLowerCase()
-  return fb === '0' || fb === 'false' || fb === 'no'
+  return true
 }
 
 export function getEodhdToken() {
@@ -54,18 +50,27 @@ export function getEodhdToken() {
 }
 
 /**
- * Map app / Yahoo cache symbol to EODHD CODE.EXCHANGE.
- * @param {string} symbol e.g. CBA.AX, ^AXJO, CBA
+ * Map app / cache symbol to EODHD CODE.EXCHANGE.
+ * @param {string} symbol e.g. CBA.AX, ^AXJO, BTC-USD, XAUUSD.FOREX, CMDTY:WTI
  */
 export function toEodhdSymbol(symbol) {
-  const t = String(symbol).toUpperCase()
+  const raw = String(symbol).trim()
+  if (raw.toUpperCase().startsWith('CMDTY:')) return raw.slice(6).toUpperCase()
+  const t = raw.toUpperCase()
   if (t === '^AXJO' || t === 'XJO' || t === 'ASX200' || t === 'AXJO.INDX') return 'AXJO.INDX'
   if (t === '^AORD' || t === 'AORD' || t === 'XAO' || t === 'AORD.INDX') return 'AORD.INDX'
   if (t === '^AXSO' || t === 'AXSO' || t === 'AXSO.INDX') return 'AXSO.INDX'
-  if (t.endsWith('.AU')) return t
+  if (t.endsWith('.AU') || t.endsWith('.CC') || t.endsWith('.FOREX') || t.endsWith('.INDX')) return t
   if (t.endsWith('.AX')) return `${t.slice(0, -3)}.AU`
+  // Crypto pairs → CC exchange
+  if (/^[A-Z0-9]+-[A-Z0-9]+$/.test(t)) return `${t}.CC`
   if (t.includes('.') || t.includes('^') || t.includes('=')) return t
   return `${t}.AU`
+}
+
+/** FRED commodity series (prefix CMDTY: in app symbols). */
+export function isCommoditySymbol(symbol) {
+  return String(symbol).toUpperCase().startsWith('CMDTY:')
 }
 
 function parseEodDate(dateStr) {
@@ -103,7 +108,7 @@ function rowsToBars(rows) {
 }
 
 /**
- * @param {string} symbol Yahoo/cache symbol (CBA.AX, ^AXJO)
+ * @param {string} symbol Cache symbol (CBA.AX, ^AXJO)
  * @param {string} [period1] ISO from date
  * @param {{ attempts?: number, baseDelayMs?: number }} [opts]
  */
@@ -306,27 +311,95 @@ async function fetchEodhdIntradayInner(symbol, interval, fromTs, toTs, opts, tok
   return null
 }
 
+const COMMODITY_BASE = 'https://eodhd.com/api/commodities/historical'
+
+/**
+ * FRED commodity series (CMDTY:WTI). Returns synthetic OHLC from value.
+ * @param {string} symbol e.g. CMDTY:WTI
+ * @param {string} [period1]
+ * @param {{ interval?: string }} [opts]
+ */
+export async function fetchEodhdCommodity(symbol, period1 = '2020-01-01', opts = {}) {
+  const token = getEodhdToken()
+  if (!token || isEodhdDailyLimitExceeded() || !isCommoditySymbol(symbol)) return null
+  return withEodhdThrottle(() => fetchEodhdCommodityInner(symbol, period1, opts, token))
+}
+
+async function fetchEodhdCommodityInner(symbol, period1, opts, token) {
+  const code = toEodhdSymbol(symbol)
+  const interval = String(opts.interval || 'daily').toLowerCase()
+  const url = new URL(`${COMMODITY_BASE}/${encodeURIComponent(code)}`)
+  url.searchParams.set('api_token', token)
+  url.searchParams.set('interval', interval)
+  url.searchParams.set('fmt', 'json')
+
+  const res = await fetch(url, { signal: AbortSignal.timeout(45000) })
+  if (res.status === 404) return null
+  if (maybeMarkEodhdDailyLimit(res.status)) return null
+  if (!res.ok) {
+    const text = await res.text()
+    console.warn(`[eodhd] commodity ${code}: ${res.status} ${text.slice(0, 100)}`)
+    return null
+  }
+  clearEodhdDailyLimitOnSuccess()
+  const json = await res.json()
+  const rows = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : null
+  if (!rows?.length) return null
+
+  const fromTs = Math.floor(new Date(`${period1}T00:00:00Z`).getTime() / 1000)
+  const closes = []
+  for (const row of rows) {
+    if (!row || typeof row.date !== 'string') continue
+    const v = Number(row.value ?? row.close)
+    if (!Number.isFinite(v)) continue
+    const t = parseEodDate(row.date)
+    if (t < fromTs) continue
+    closes.push({ t, o: v, h: v, l: v, c: v, v: 0 })
+  }
+  closes.sort((a, b) => a.t - b.t)
+  if (closes.length < 5) return null
+  const last = closes[closes.length - 1].c
+  const yearAgo = closes[closes.length - 1].t - 365 * 24 * 3600
+  const lastYear = closes.filter((b) => b.t >= yearAgo)
+  const high52 = Math.max(...lastYear.map((b) => b.h ?? b.c), last)
+  return {
+    symbol,
+    closes,
+    last,
+    high52,
+    meta: {
+      provider: 'eodhd',
+      eodSymbol: code,
+      exchange: 'CMDTY',
+      commodity: true,
+      interval,
+      unit: json?.meta?.unit ?? null,
+      name: json?.meta?.name ?? null,
+    },
+  }
+}
+
 const REALTIME_BASE = 'https://eodhd.com/api/real-time'
 
 /**
  * EODHD live (delayed ~15–20 min) quote batch — up to ~20 symbols per call.
- * @param {string[]} yahooSymbols e.g. BHP.AX, ^AXJO
+ * @param {string[]} seriesSymbols e.g. BHP.AX, ^AXJO
  */
-export async function fetchEodhdLiveQuotes(yahooSymbols) {
+export async function fetchEodhdLiveQuotes(seriesSymbols) {
   const token = getEodhdToken()
-  if (!token || !yahooSymbols?.length || isEodhdDailyLimitExceeded()) return []
+  if (!token || !seriesSymbols?.length || isEodhdDailyLimitExceeded()) return []
   const BATCH = 20
   const out = []
-  for (let i = 0; i < yahooSymbols.length; i += BATCH) {
-    const batch = yahooSymbols.slice(i, i + BATCH)
+  for (let i = 0; i < seriesSymbols.length; i += BATCH) {
+    const batch = seriesSymbols.slice(i, i + BATCH)
     const chunk = await withEodhdThrottle(() => fetchEodhdLiveQuotesBatch(batch, token))
     if (chunk?.length) out.push(...chunk)
   }
   return out
 }
 
-async function fetchEodhdLiveQuotesBatch(yahooSymbols, token) {
-  const eodSymbols = yahooSymbols.map((s) => toEodhdSymbol(s))
+async function fetchEodhdLiveQuotesBatch(seriesSymbols, token) {
+  const eodSymbols = seriesSymbols.map((s) => toEodhdSymbol(s))
   const primary = eodSymbols[0]
   if (!primary) return []
   const url = new URL(`${REALTIME_BASE}/${encodeURIComponent(primary)}`)

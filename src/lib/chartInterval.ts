@@ -1,13 +1,13 @@
 import type { PatternScanWindow } from './patterns/scanWindow'
 import { windowStartTs } from './patterns/scanWindow'
 
-/** Desk chart bar intervals (EODHD: 1m/5m/1h; Yahoo also supports 30m). */
+/** Desk chart bar intervals (EODHD: 1m/5m/1h; 15m/30m aggregated from 5m). */
 export type DeskChartInterval = '1m' | '5m' | '15m' | '30m' | '1h' | '1d'
 
 /** User chart interval preference — auto picks by scan window. */
 export type ChartIntervalPref = 'auto' | DeskChartInterval
 
-export type DeskDataProvider = 'eodhd' | 'yahoo-finance2' | 'unknown'
+export type DeskDataProvider = 'eodhd' | 'unknown'
 
 export const CHART_INTERVAL_SECTIONS: {
   label: string
@@ -52,22 +52,21 @@ export function isIntradayDeskInterval(interval: DeskChartInterval): boolean {
 /** Pick intraday interval per scan window when pref is auto. */
 export function chartIntervalForWindow(
   window: PatternScanWindow,
-  provider: DeskDataProvider = 'eodhd',
+  _provider: DeskDataProvider = 'eodhd',
 ): DeskChartInterval {
-  const use30m = provider === 'yahoo-finance2'
+  void _provider
   switch (window) {
     case '1d':
-      return use30m ? '30m' : '5m'
     case '1w':
     case '1m':
-      return use30m ? '30m' : '5m'
+      return '5m'
     case '3m':
     case '6m':
     case '1y':
     case 'all':
       return '1h'
     default:
-      return use30m ? '30m' : '5m'
+      return '5m'
   }
 }
 

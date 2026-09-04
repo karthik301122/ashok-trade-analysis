@@ -1,4 +1,4 @@
-import { ema, type OhlcBar } from '../yahoo'
+import { ema, type OhlcBar } from '../deskSeries'
 
 export type LivermoreScores = {
   accumulation: number

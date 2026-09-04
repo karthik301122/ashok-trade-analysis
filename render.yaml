@@ -15,8 +15,6 @@ services:
         value: "true"
       - key: DATA_PROVIDER
         value: eodhd
-      - key: EODHD_YAHOO_FALLBACK
-        value: "true"
       - key: EODHD_MIN_GAP_MS
         value: "600"
       - key: EODHD_SNAPSHOT_CONCURRENCY

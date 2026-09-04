@@ -1,15 +1,18 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
-import type { LineData, Time } from 'lightweight-charts'
-import type { OhlcBar } from '../../lib/yahoo'
+  createChart,
+  LineSeries,
+  type IChartApi,
+  type IPriceLine,
+  type ISeriesApi,
+  type LineData,
+  type Time,
+  type UTCTimestamp,
+} from 'lightweight-charts'
+import type { OhlcBar } from '../../lib/deskSeries'
+import { useIsDark } from '../../lib/useIsDark'
+import type { DrawnTool } from '../../lib/patterns/drawnPattern'
+import { PatternDrawOverlay } from '../patterns/PatternDrawOverlay'
 
 /** Fixed chart stack height */
 const CHART_HEIGHT_PX = 560
@@ -27,35 +30,175 @@ type Props = {
   referenceLevels: number[]
 }
 
-function timeToDayLabel(time: Time): string {
+function timeToUnix(time: Time): number {
   if (typeof time === 'string' && time.length >= 10) {
-    const d = new Date(`${time.slice(0, 10)}T12:00:00Z`)
-    if (!Number.isNaN(d.getTime())) {
-      return d.toLocaleDateString('en-AU', { month: 'short', day: 'numeric' })
-    }
-    return time.slice(0, 10)
+    return Math.floor(new Date(`${time.slice(0, 10)}T12:00:00Z`).getTime() / 1000)
   }
-  if (typeof time === 'number' && Number.isFinite(time)) {
-    return new Date(time * 1000).toLocaleDateString('en-AU', { month: 'short', day: 'numeric' })
-  }
-  return ''
-}
-
-function timeToSortKey(time: Time): number {
-  if (typeof time === 'string' && time.length >= 10) {
-    return Date.parse(`${time.slice(0, 10)}T12:00:00Z`)
-  }
-  if (typeof time === 'number' && Number.isFinite(time)) return time * 1000
+  if (typeof time === 'number' && Number.isFinite(time)) return time
   return 0
-}
-
-function dayKeyFromUnix(t: number): string {
-  return new Date(t * 1000).toISOString().slice(0, 10)
 }
 
 function coerceBarField(v: unknown): number {
   const n = typeof v === 'number' ? v : Number(v)
   return Number.isFinite(n) ? n : NaN
+}
+
+/** Synthetic OHLC for draw snap (line charts have no real H/L). */
+function linePointsToSnapBars(points: { time: UTCTimestamp; value: number }[]): OhlcBar[] {
+  return points.map((p) => {
+    const t = Number(p.time)
+    const c = p.value
+    return { t, o: c, h: c, l: c, c, v: 0 }
+  })
+}
+
+type PaneScale = 'index' | 'percent' | 'thrust'
+
+function PaneLineChart({
+  height,
+  points,
+  color,
+  paneScale,
+  referenceLevels,
+  emptyMessage,
+  drawTools,
+  onDrawToolsChange,
+}: {
+  height: number
+  points: { time: UTCTimestamp; value: number }[]
+  color: string
+  paneScale: PaneScale
+  referenceLevels?: number[]
+  emptyMessage: string
+  drawTools: DrawnTool[]
+  onDrawToolsChange: (tools: DrawnTool[]) => void
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<IChartApi | null>(null)
+  const seriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const priceLinesRef = useRef<IPriceLine[]>([])
+  const [chartReady, setChartReady] = useState(false)
+  const dark = useIsDark()
+  const snapBars = useMemo(() => linePointsToSnapBars(points), [points])
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+
+    const priceFormat =
+      paneScale === 'percent'
+        ? ({ type: 'percent' } as const)
+        : paneScale === 'thrust'
+          ? ({ type: 'price', precision: 3, minMove: 0.001 } as const)
+          : ({ type: 'price', precision: 2, minMove: 0.01 } as const)
+
+    const chart = createChart(el, {
+      autoSize: true,
+      layout: {
+        background: { color: dark ? '#0f1419' : '#ffffff' },
+        textColor: dark ? '#c8d0d8' : '#334155',
+        attributionLogo: false,
+      },
+      grid: {
+        vertLines: { color: dark ? '#1e293b' : '#e2e8f0' },
+        horzLines: { color: dark ? '#1e293b' : '#e2e8f0' },
+      },
+      rightPriceScale: { borderVisible: false },
+      timeScale: { borderVisible: false, timeVisible: false, secondsVisible: false },
+      crosshair: { mode: 1 },
+    })
+
+    const series = chart.addSeries(LineSeries, {
+      color,
+      lineWidth: 2,
+      lastValueVisible: true,
+      priceLineVisible: false,
+      priceFormat,
+    })
+
+    const removeTvLogo = () => el.querySelector('#tv-attr-logo')?.remove()
+    removeTvLogo()
+    requestAnimationFrame(removeTvLogo)
+    setTimeout(removeTvLogo, 250)
+
+    chartRef.current = chart
+    seriesRef.current = series
+    setChartReady(true)
+
+    return () => {
+      chart.remove()
+      chartRef.current = null
+      seriesRef.current = null
+      priceLinesRef.current = []
+      setChartReady(false)
+    }
+  }, [dark, color, paneScale])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    const series = seriesRef.current
+    if (!chart || !series) return
+
+    if (points.length < 2) {
+      series.setData([])
+      return
+    }
+
+    series.setData(points)
+
+    for (const pl of priceLinesRef.current) {
+      try {
+        series.removePriceLine(pl)
+      } catch {
+        /* chart may have been remounted */
+      }
+    }
+    priceLinesRef.current = []
+
+    for (const level of referenceLevels ?? []) {
+      priceLinesRef.current.push(
+        series.createPriceLine({
+          price: level,
+          color: dark ? '#64748b' : '#94a3b8',
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: '',
+        }),
+      )
+    }
+
+    chart.timeScale().fitContent()
+  }, [points, referenceLevels, dark])
+
+  if (points.length < 2) {
+    return (
+      <div
+        className="flex items-center justify-center px-4 text-center text-xs text-[var(--color-ink-soft)]"
+        style={{ height }}
+      >
+        {emptyMessage}
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative w-full" style={{ height }}>
+      <div ref={wrapRef} className="h-full w-full" />
+      {chartReady && (
+        <PatternDrawOverlay
+          bars={snapBars}
+          tools={drawTools}
+          onToolsChange={onDrawToolsChange}
+          bias="neutral"
+          chartRef={chartRef}
+          seriesRef={seriesRef}
+          wrapRef={wrapRef}
+          chartReady={chartReady}
+        />
+      )}
+    </div>
+  )
 }
 
 export function DiffusionChart({
@@ -68,33 +211,32 @@ export function DiffusionChart({
   scale,
   referenceLevels,
 }: Props) {
-  const indexData = indexBars
-    .map((b) => {
+  const [indexDrawTools, setIndexDrawTools] = useState<DrawnTool[]>([])
+  const [breadthDrawTools, setBreadthDrawTools] = useState<DrawnTool[]>([])
+
+  const indexPoints = useMemo(() => {
+    const byDay = new Map<string, { time: UTCTimestamp; value: number }>()
+    for (const b of indexBars) {
       const t = coerceBarField(b.t)
       const c = coerceBarField(b.c)
-      if (!Number.isFinite(t) || !Number.isFinite(c)) return null
-      return {
-        key: dayKeyFromUnix(t),
-        d: new Date(t * 1000).toLocaleDateString('en-AU', { month: 'short', day: 'numeric' }),
-        index: c,
-        sort: t,
-      }
-    })
-    .filter((row): row is NonNullable<typeof row> => row != null)
-    .sort((a, b) => a.sort - b.sort)
+      if (!Number.isFinite(t) || !Number.isFinite(c)) continue
+      const day = new Date(t * 1000).toISOString().slice(0, 10)
+      const noon = Math.floor(new Date(`${day}T12:00:00Z`).getTime() / 1000) as UTCTimestamp
+      byDay.set(day, { time: noon, value: c })
+    }
+    return [...byDay.values()].sort((a, b) => Number(a.time) - Number(b.time))
+  }, [indexBars])
 
-  const breadthData = indicatorSeries
-    .filter((p) => typeof p.value === 'number' && !Number.isNaN(p.value))
-    .map((p) => ({
-      key:
-        typeof p.time === 'string'
-          ? p.time.slice(0, 10)
-          : dayKeyFromUnix(p.time as number),
-      d: timeToDayLabel(p.time),
-      v: p.value,
-      sort: timeToSortKey(p.time),
-    }))
-    .sort((a, b) => a.sort - b.sort)
+  const breadthPoints = useMemo(() => {
+    return indicatorSeries
+      .filter((p) => typeof p.value === 'number' && !Number.isNaN(p.value))
+      .map((p) => ({
+        time: timeToUnix(p.time) as UTCTimestamp,
+        value: p.value as number,
+      }))
+      .filter((p) => p.time > 0)
+      .sort((a, b) => Number(a.time) - Number(b.time))
+  }, [indicatorSeries])
 
   const valueLabel =
     scale === 'percent' ? `${currentValue.toFixed(1)}%` : currentValue.toFixed(3)
@@ -108,6 +250,7 @@ export function DiffusionChart({
         <div className="font-semibold text-[var(--color-ink-soft)]">
           {indexLabel}
           <span className="ml-2 text-[var(--color-ink)]">Daily</span>
+          <span className="ml-2 font-normal text-[var(--color-ink-soft)]">· Draw on each pane</span>
         </div>
         <div className="font-semibold text-[var(--color-ink-soft)]">
           {indicatorLabel}
@@ -121,72 +264,28 @@ export function DiffusionChart({
         className="border-b border-[var(--color-border)] bg-[var(--color-surface)]"
         style={{ height: INDEX_PANE_PX }}
       >
-        {indexData.length < 2 ? (
-          <div className="flex h-full items-center justify-center px-4 text-center text-xs text-[var(--color-ink-soft)]">
-            {indexLabel} line unavailable — breadth chart below still uses your selected universe.
-          </div>
-        ) : (
-          <div className="h-full w-full">
-            <ResponsiveContainer width="100%" height="100%" minHeight={1}>
-              <LineChart data={indexData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-              <XAxis dataKey="d" tick={{ fontSize: 10 }} minTickGap={24} />
-              <YAxis domain={['auto', 'auto']} tick={{ fontSize: 10 }} width={48} />
-              <Tooltip />
-              <Line
-                type="monotone"
-                dataKey="index"
-                name={indexLabel}
-                stroke="#f97316"
-                dot={false}
-                strokeWidth={2}
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-          </div>
-        )}
+        <PaneLineChart
+          height={INDEX_PANE_PX}
+          points={indexPoints}
+          color="#f97316"
+          paneScale="index"
+          emptyMessage={`${indexLabel} line unavailable — breadth chart below still uses your selected universe.`}
+          drawTools={indexDrawTools}
+          onDrawToolsChange={setIndexDrawTools}
+        />
       </div>
 
       <div style={{ height: BREADTH_PANE_PX }} className="bg-[var(--color-surface)]">
-        {breadthData.length < 2 ? (
-          <div className="flex h-full items-center justify-center px-4 text-center text-xs text-[var(--color-ink-soft)]">
-            Not enough breadth history to chart yet.
-          </div>
-        ) : (
-          <div className="h-full w-full">
-            <ResponsiveContainer width="100%" height="100%" minHeight={1}>
-              <LineChart data={breadthData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-              <XAxis dataKey="d" tick={{ fontSize: 10 }} minTickGap={24} />
-              <YAxis
-                domain={scale === 'percent' ? [0, 100] : ['auto', 'auto']}
-                tick={{ fontSize: 10 }}
-                width={40}
-              />
-              <Tooltip />
-              {referenceLevels.map((level) => (
-                <ReferenceLine
-                  key={level}
-                  y={level}
-                  stroke="#94a3b8"
-                  strokeDasharray="4 4"
-                  strokeWidth={1}
-                />
-              ))}
-              <Line
-                type="monotone"
-                dataKey="v"
-                name={indicatorLabel}
-                stroke={indicatorColor}
-                dot={false}
-                strokeWidth={2}
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-          </div>
-        )}
+        <PaneLineChart
+          height={BREADTH_PANE_PX}
+          points={breadthPoints}
+          color={indicatorColor}
+          paneScale={scale === 'percent' ? 'percent' : 'thrust'}
+          referenceLevels={referenceLevels}
+          emptyMessage="Not enough breadth history to chart yet."
+          drawTools={breadthDrawTools}
+          onDrawToolsChange={setBreadthDrawTools}
+        />
       </div>
     </div>
   )

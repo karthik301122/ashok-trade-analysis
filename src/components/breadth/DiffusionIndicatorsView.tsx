@@ -167,7 +167,8 @@ export function DiffusionIndicatorsView({
         <div className="border-b border-[var(--color-border)] px-3 py-2.5">
           <h2 className="text-sm font-bold tracking-tight">Diffusion Indicators</h2>
           <p className="mt-0.5 text-[10px] text-[var(--color-ink-soft)]">
-            Index + breadth overlay · dashed lines at {def.scale === 'percent' ? '10 / 20 / 80 / 90' : 'thrust zones'}
+            Index + breadth overlay · Draw on either pane · dashed refs at{' '}
+            {def.scale === 'percent' ? '10 / 20 / 80 / 90' : 'thrust zones'}
           </p>
         </div>
         <nav className="max-h-[420px] overflow-y-auto p-1.5">

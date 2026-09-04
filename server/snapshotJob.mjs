@@ -276,7 +276,7 @@ async function loadSeriesForSnapshot(ticker, from2y, forceRefresh = false) {
 }
 
 /**
- * Pull tickers with slower pacing + force refresh (transient Yahoo throttling).
+ * Pull tickers with slower pacing + force refresh (transient EODHD throttling).
  */
 async function retryFailedTickers(
   tickers,

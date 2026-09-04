@@ -27,7 +27,7 @@ type Props = {
   onToolsChange: (tools: DrawnTool[]) => void
   bias: PatternBias
   chartRef: RefObject<IChartApi | null>
-  seriesRef: RefObject<ISeriesApi<'Candlestick'> | null>
+  seriesRef: RefObject<ISeriesApi<'Candlestick'> | ISeriesApi<'Line'> | null>
   wrapRef: RefObject<HTMLDivElement | null>
   chartReady: boolean
 }

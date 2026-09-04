@@ -287,8 +287,8 @@ export default function App() {
         deskConfig?.liveQuotes?.fresh && deskConfig.liveQuotes.marketOpen
           ? ` · live (~${deskConfig.liveQuotes.delayedMinutes}m delay)`
           : ''
-      if (deskConfig?.eodhdOnly || prov === 'eodhd') return ` · EODHD snapshot${live}`
-      return ` · server SQLite snapshot${live}`
+      if (deskConfig?.eodhdOnly || prov === 'eodhd') return ` · desk snapshot${live}`
+      return ` · server snapshot${live}`
     }
     if (meta.fromCache && !backfilling) return ' · cached (6h)'
     if (backfilling) {
@@ -297,8 +297,7 @@ export default function App() {
         ? ` · downloading… ${meta.loaded.toLocaleString()}/${ASX_UNIVERSE_COUNT.toLocaleString()} (${rem} left)`
         : ` · downloading… ${meta.loaded.toLocaleString()}/${ASX_UNIVERSE_COUNT.toLocaleString()}`
     }
-    if (deskConfig?.eodhdOnly || deskConfig?.provider === 'eodhd') return ' · EODHD'
-    return ' · yahoo-finance2'
+    return ' · live desk data'
   })()
 
   if (siteMaintenance.checking) {
@@ -370,7 +369,7 @@ export default function App() {
             </h2>
             <p className="mt-2 text-sm text-[var(--color-ink-soft)]">
               Could not load the shared server snapshot. In production mode the browser does not
-              crawl Yahoo per user — retry after the server build finishes.
+              crawl prices per user — retry after the server build finishes.
             </p>
             {error && (
               <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:bg-rose-950/40 dark:text-rose-200">

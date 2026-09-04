@@ -1,5 +1,5 @@
 import type { StockMetrics } from '../../data/types'
-import type { OhlcBar } from '../yahoo'
+import type { OhlcBar } from '../deskSeries'
 import {
   KARTHIK_WEEKLY_PATTERNS,
   LAUNCHPAD_PATTERNS,

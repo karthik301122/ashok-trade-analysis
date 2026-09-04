@@ -1125,7 +1125,7 @@ function PatternDetail({
       ) : (
         <p className="mt-3 text-[10px] text-[var(--color-ink-soft)]">
           Daily OHLC vs index 20d return. RVOL, RS rating, 52W distance, ADX included. Institutional
-          ownership / earnings growth not available from Yahoo.
+          ownership / earnings growth not available from market data.
         </p>
       )}
     </div>

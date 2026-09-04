@@ -15,14 +15,14 @@ Australian-market sector intelligence desk for Ashok — same workflow as TradeG
 
 ## Data honesty
 
-- Live prices via **yahoo-finance2**. If live load fails with no cache, the UI shows an error — it does **not** invent a demo market.
+- Live prices via **EODHD**. If live load fails with no cache, the UI shows an error — it does **not** invent a demo market.
 - Status badge: `LOADING` / `PARTIAL` / `LIVE` (partial when the loaded book is incomplete).
 - RS score is `50 + (3M − index 3M) × 2.2`, not an IBD-style RS rating.
 - “This Month” breadth tab is live calendar-month returns, not multi-year seasonality.
 - **SQLite** (`data/asx.sqlite`): OHLCV bars, breadth daily points, full-market snapshot (run `npm run snapshot`).
 - Universe membership: free path is iShares **IOZ** holdings (`npm run refresh:asx200`). Optional own CSV via `INDEX_ASX200_CSV`.
 - **Alerts** page: RS / RVOL / breadth / excess-return rules + optional webhook (`POST /api/alerts/evaluate`).
-- Stock chart modal shows **fundamentals** (PE, fwd PE, yield, mcap) from Yahoo, cached in SQLite.
+- Stock chart modal shows **fundamentals** (PE, fwd PE, yield, mcap) from EODHD, cached in SQLite.
 
 ## Run
 
@@ -35,7 +35,7 @@ Open the local URL Vite prints (usually `http://localhost:5173`).
 
 ## Data
 
-Loads **live ASX prices** via **yahoo-finance2** (Vite middleware / Express).
+Loads **live ASX prices** via **EODHD** (Vite middleware / Express).
 
 - Universe: **~1,977 ASX listed companies**
 - **SQLite** (`data/asx.sqlite`): OHLCV bars, breadth daily points, full-market snapshot

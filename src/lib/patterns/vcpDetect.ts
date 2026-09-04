@@ -1,4 +1,4 @@
-import type { OhlcBar } from '../yahoo'
+import type { OhlcBar } from '../deskSeries'
 import type { PatternBias, PatternHit } from './types'
 import { ruleSetPasses } from './customRules'
 import { rulesFromCustom, VCP_SETUP_SCRIPT } from './scanScript'

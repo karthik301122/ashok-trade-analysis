@@ -29,10 +29,10 @@ describe('production mode', () => {
     expect(browserUniverseFetchEnabled()).toBe(false)
   })
 
-  it('allows override with ALLOW_BROWSER_UNIVERSE_FETCH unless EODHD_ONLY', () => {
+  it('blocks browser universe fetch override when EODHD-only (always on)', () => {
     process.env.PRODUCTION_MODE = 'true'
     process.env.ALLOW_BROWSER_UNIVERSE_FETCH = 'true'
-    expect(browserUniverseFetchEnabled()).toBe(true)
+    expect(browserUniverseFetchEnabled()).toBe(false)
   })
 
   it('disables browser fetch when EODHD_ONLY even with override', () => {

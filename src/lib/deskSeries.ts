@@ -76,7 +76,7 @@ export function rangeToFromIso(range = '2y'): string {
  * Fetch daily closes via desk /api/series (EODHD when configured, SQLite cache on server).
  * Honors `range` via ?from= (server also disk-caches + incremental refresh).
  */
-export async function fetchYahooSeries(
+export async function fetchDeskSeries(
   symbol: string,
   range = '2y',
 ): Promise<SeriesResult | null> {
@@ -124,7 +124,7 @@ export type DeskSeriesMeta = {
 }
 
 /** Daily OHLC for pattern detection / annotated charts */
-export async function fetchYahooOhlc(
+export async function fetchDeskOhlc(
   symbol: string,
   from = '2023-01-01',
   opts?: { staleOk?: boolean },
@@ -161,8 +161,8 @@ export function patternScanFromIso(): string {
   return rangeToFromIso('2y')
 }
 
-export async function fetchYahooOhlcForPatternScan(symbol: string): Promise<OhlcBar[] | null> {
-  return fetchYahooOhlc(symbol, patternScanFromIso(), { staleOk: true })
+export async function fetchDeskOhlcForPatternScan(symbol: string): Promise<OhlcBar[] | null> {
+  return fetchDeskOhlc(symbol, patternScanFromIso(), { staleOk: true })
 }
 
 const OHLC_SESSION_MS = 45 * 60 * 1000
@@ -290,13 +290,13 @@ export function loadPerfCache(): PerfCache | null {
 
 export function savePerfCache(cache: PerfCache) {
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ ...cache, provider: 'yahoo-finance2' }))
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ ...cache, provider: 'eodhd' }))
   } catch {
     try {
       for (const k of Object.keys(localStorage)) {
         if (k.startsWith('asx-live-')) localStorage.removeItem(k)
       }
-      localStorage.setItem(CACHE_KEY, JSON.stringify({ ...cache, provider: 'yahoo-finance2' }))
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ ...cache, provider: 'eodhd' }))
     } catch {
       // ignore
     }

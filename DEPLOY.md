@@ -1,6 +1,6 @@
 # Self-host (local or VPS) — SQLite backend
 
-Live ASX prices come from **EODHD** when `EODHD_API_TOKEN` is set (optional Yahoo fallback).
+Live ASX prices come from **EODHD** when `EODHD_API_TOKEN` is set (Yahoo removed).
 OHLCV bars, breadth history, and universe snapshots persist in **SQLite** (`data/asx.sqlite` by default).
 
 > Render works but needs **EODHD_API_TOKEN** and a first snapshot build. Disk is
@@ -43,7 +43,7 @@ OHLCV bars, breadth history, and universe snapshots persist in **SQLite** (`data
 ## Requirements
 
 - **Node.js 22+** (uses built-in `node:sqlite`)
-- Network access to EODHD (or Yahoo if no token / fallback)
+- Network access to EODHD (`EODHD_API_TOKEN` required)
 
 ## Quick start
 
@@ -69,10 +69,9 @@ See `.env.example`.
 
 | Variable | Purpose |
 |----------|---------|
-| `EODHD_API_TOKEN` | EODHD API key — enables primary market data provider |
-| `DATA_PROVIDER` | `auto` (default), `eodhd`, or `yahoo` |
-| `EODHD_YAHOO_FALLBACK` | `true` (default) — Yahoo when EODHD has no bar for a ticker |
-| `EODHD_ONLY` | `true` — optional strict mode: no Yahoo fallback or browser crawl |
+| `EODHD_API_TOKEN` | EODHD API key — required for market data |
+| `DATA_PROVIDER` | `eodhd` (Yahoo removed; other values ignored) |
+| `EODHD_ONLY` | always on when token set — no Yahoo fallback |
 | `PRODUCTION_MODE` | `true` — shared server snapshot only (recommended for multi-user) |
 | `ADMIN_USERS` | Comma list of usernames allowed to force snapshot rebuild |
 | `ADMIN_API_KEY` | Optional `x-admin-key` header for cron (`POST /api/snapshot/rebuild-cache`) |
@@ -145,7 +144,6 @@ Save and restart. Visitors see a maintenance page; `/api/health` and `/api/ping`
 # .env
 PRODUCTION_MODE=true
 EODHD_API_TOKEN=...
-EODHD_YAHOO_FALLBACK=true
 ADMIN_USERS=ops,admin
 ADMIN_API_KEY=long-random-secret   # for scheduled snapshot cron
 SERIES_RATE_LIMIT=600

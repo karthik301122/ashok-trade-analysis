@@ -1,4 +1,4 @@
-import { sma, type OhlcBar } from '../yahoo'
+import { sma, type OhlcBar } from '../deskSeries'
 import type { PatternBias, PatternHit } from './types'
 import { atr } from './livermoreScores'
 

@@ -120,6 +120,24 @@ CREATE TABLE IF NOT EXISTS pattern_scan_state (
   PRIMARY KEY (ticker, pattern_id)
 );
 
+CREATE TABLE IF NOT EXISTS asx_filings (
+  document_key TEXT PRIMARY KEY,
+  ticker TEXT NOT NULL,
+  headline TEXT,
+  kind TEXT,
+  director TEXT,
+  side TEXT,
+  shares DOUBLE PRECISION,
+  consideration_aud DOUBLE PRECISION,
+  announced_at BIGINT NOT NULL,
+  date_of_change TEXT,
+  pdf_url TEXT,
+  raw_json TEXT,
+  updated_at BIGINT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_bars_symbol_t ON bars (symbol, t);
 CREATE INDEX IF NOT EXISTS idx_breadth_universe_day ON breadth_daily (universe, day);
 CREATE INDEX IF NOT EXISTS idx_pattern_scan_score ON pattern_scan_state (pattern_id, score DESC);
+CREATE INDEX IF NOT EXISTS idx_asx_filings_ticker_announced ON asx_filings (ticker, announced_at DESC);
+CREATE INDEX IF NOT EXISTS idx_asx_filings_side_announced ON asx_filings (side, announced_at DESC);

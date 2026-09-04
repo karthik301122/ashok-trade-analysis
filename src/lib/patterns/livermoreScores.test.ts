@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { OhlcBar } from '../yahoo'
+import type { OhlcBar } from '../deskSeries'
 import { computeLivermoreScores, atr, adx } from './livermoreScores'
 
 function synthBars(days: number, start = 100, drift = 0.1): OhlcBar[] {

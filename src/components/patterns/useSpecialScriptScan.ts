@@ -5,7 +5,7 @@ import { scanOhlcForSpecialPatterns } from '../../lib/patterns/specialScriptScan
 import { postPatternScanBatch, type PatternScanUploadRow } from '../../lib/patternScanApi'
 import { getTickerScriptScan, setManyTickerScriptScan } from '../../lib/specialScriptCache'
 import type { ScriptScanHit } from '../../lib/specialScriptCache'
-import { fetchYahooOhlcForPatternScan } from '../../lib/yahoo'
+import { fetchDeskOhlcForPatternScan } from '../../lib/deskSeries'
 
 const CONCURRENCY = 6
 const STALE_MS = 12 * 60 * 60 * 1000
@@ -44,11 +44,11 @@ export function useSpecialScriptScan(stocks: StockMetrics[], enabled: boolean) {
     let cancelled = false
 
     void (async () => {
-      let indexOhlc: Awaited<ReturnType<typeof fetchYahooOhlcForPatternScan>> = null
+      let indexOhlc: Awaited<ReturnType<typeof fetchDeskOhlcForPatternScan>> = null
       let indexReturn5 = 0
       let indexReturn20 = 0
       try {
-        indexOhlc = await fetchYahooOhlcForPatternScan(INDEX_SYMBOL)
+        indexOhlc = await fetchDeskOhlcForPatternScan(INDEX_SYMBOL)
         const idx = indexOhlc ?? []
         if (!cancelled && g === gen.current && idx.length > 21) {
           const a = idx[idx.length - 1].c
@@ -107,7 +107,7 @@ export function useSpecialScriptScan(stocks: StockMetrics[], enabled: boolean) {
           if (i >= needFresh.length) break
           const ticker = needFresh[i]
           try {
-            const ohlc = await fetchYahooOhlcForPatternScan(ticker)
+            const ohlc = await fetchDeskOhlcForPatternScan(ticker)
             if (cancelled || g !== gen.current) return
             if (ohlc?.length) {
               const scanned = scanOhlcForSpecialPatterns(ohlc, SCAN_PATTERNS, {

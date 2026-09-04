@@ -30,7 +30,7 @@ export function membershipSet(id: UniverseId): Set<string> {
 
 export function membershipSourceLabel(): string {
   if (INDEX_MEMBERS.source === 'eodhd-fundamentals') {
-    return `EODHD index constituents · as of ${INDEX_MEMBERS.asOf}`
+    return `Index constituents · as of ${INDEX_MEMBERS.asOf}`
   }
   if (INDEX_MEMBERS.source === 'official-csv') {
     return `ASX200 from official CSV · as of ${INDEX_MEMBERS.asOf}`

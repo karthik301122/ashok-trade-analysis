@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchYahooOhlcForPatternScan } from '../../lib/yahoo'
+import { fetchDeskOhlcForPatternScan } from '../../lib/deskSeries'
 import { postPatternScanBatch, type PatternScanUploadRow } from '../../lib/patternScanApi'
 import { detectAllCustomRules, filterHitsByWindow, scanPatterns } from '../../lib/patterns'
 import {
@@ -107,7 +107,7 @@ export function useIndustryPatternScan(
         if (i >= scanList.length) break
         const ticker = scanList[i]
         try {
-          const ohlc = await fetchYahooOhlcForPatternScan(ticker)
+          const ohlc = await fetchDeskOhlcForPatternScan(ticker)
           if (cancelled || gen !== queueGen.current) return
           if (ohlc?.length) {
             const result = scanPatterns(ohlc, { window: scanWindow })

@@ -16,6 +16,52 @@ above_sma(200)
 pct_chg(5) >= 3
 `
 
+/** User-facing rules guide for Create pattern → ScanScript. */
+export const SCANSCRIPT_GUIDE = {
+  summary:
+    'Write one condition per line. Scripts compile to safe desk rules (no arbitrary code) and scan the ASX universe when saved.',
+  headers: [
+    { code: 'match all', meaning: 'Every condition must pass (AND). Default.' },
+    { code: 'match any', meaning: 'Any one condition can pass (OR).' },
+    { code: 'bias bullish', meaning: 'Optional label: bullish, bearish, or neutral.' },
+  ],
+  metrics: [
+    { code: 'rsi(14)', meaning: 'RSI(14). Compare with <= >= < > (period must be 14).' },
+    { code: 'rvol', meaning: 'Relative volume vs recent average.' },
+    { code: 'pct_chg(5)', meaning: '% change over 5 sessions (also pct_chg(20)).' },
+    { code: 'above_sma(50)', meaning: 'Close above SMA. Periods: 20, 50, 200.' },
+    { code: 'below_sma(200)', meaning: 'Close below SMA (20 / 50 / 200).' },
+    { code: 'above_ema(21)', meaning: 'Close above EMA(21) only.' },
+    { code: 'below_ema(21)', meaning: 'Close below EMA(21) only.' },
+  ],
+  tips: [
+    'Lines starting with # are comments.',
+    'Max 8 conditions per script.',
+    'Operators: > >= < <= (also ≥ ≤).',
+    'Fires if true on a recent session (same engine as My conditions).',
+  ],
+  examples: [
+    {
+      title: 'Oversold bounce watch',
+      script: `match all
+rsi(14) <= 35
+rvol >= 1.5
+above_sma(50)`,
+    },
+    {
+      title: 'Quiet pullback in uptrend',
+      script: `bias bullish
+match all
+above_sma(50)
+above_sma(200)
+pct_chg(5) <= 3
+rvol <= 0.8
+rsi(14) >= 45
+rsi(14) <= 70`,
+    },
+  ],
+} as const
+
 /** VCP Setup — Stage 2 trend, contraction, volume dry-up, healthy RSI (daily OHLC). */
 export const VCP_SETUP_SCRIPT = `bias bullish
 match all

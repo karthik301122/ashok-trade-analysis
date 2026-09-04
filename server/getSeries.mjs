@@ -11,31 +11,35 @@ import {
 } from './seriesStore.mjs'
 
 /**
+ * Normalize ticker to the symbol key used for series cache / EODHD.
  * @param {string} ticker
  */
-export function resolveYahooSymbol(ticker) {
+export function resolveSeriesSymbol(ticker) {
   const t = String(ticker).toUpperCase()
+  if (t.startsWith('CMDTY:')) return t
   if (t === '^AXJO' || t === 'XJO' || t === 'ASX200') return '^AXJO'
   if (t === '^AORD' || t === 'AORD' || t === 'XAO' || t === 'AORD.INDX') return '^AORD'
   if (t === '^AXSO' || t === 'AXSO' || t === 'AXSO.INDX') return '^AXSO'
+  if (t.endsWith('.CC') || t.endsWith('.FOREX') || t.endsWith('.AU') || t.endsWith('.INDX')) return t
+  if (/^[A-Z0-9]+-[A-Z0-9]+$/.test(t)) return `${t}.CC`
   if (t.includes('=') || t.includes('-') || t.includes('.')) return t
   return `${t}.AX`
 }
 
 /**
- * Fetch series with DB cache + incremental provider refresh (EODHD / Yahoo).
+ * Fetch series with DB cache + incremental EODHD refresh.
  * @param {string} ticker
  * @param {string} from ISO date
  * @param {{ forceRefresh?: boolean, staleOk?: boolean }} [opts]
  */
 export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
-  const yahooSymbol = resolveYahooSymbol(ticker)
+  const seriesSymbol = resolveSeriesSymbol(ticker)
   const forceRefresh = Boolean(opts.forceRefresh)
   const staleOk = Boolean(opts.staleOk)
   const fromTs = Math.floor(new Date(`${from}T00:00:00Z`).getTime() / 1000)
   const store = dbStoreLabel()
 
-  const cached = forceRefresh ? null : await readSeriesCache(yahooSymbol)
+  const cached = forceRefresh ? null : await readSeriesCache(seriesSymbol)
 
   if (cached && (staleOk || isSeriesFresh(cached.updatedAt))) {
     const closes = cached.closes.filter((b) => b.t >= fromTs)
@@ -61,7 +65,7 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
     period1 = overlap > from ? overlap : from
   }
 
-  const fresh = await fetchChartCloses(yahooSymbol, period1, {
+  const fresh = await fetchChartCloses(seriesSymbol, period1, {
     attempts: opts.forceRefresh ? 4 : 3,
     baseDelayMs: opts.forceRefresh ? 600 : 400,
   })
@@ -110,8 +114,8 @@ export async function seriesCacheFileCount() {
  */
 export async function getIntradaySeries(ticker, interval, fromTs, toTs) {
   if (!isIntradayInterval(interval)) return null
-  const yahooSymbol = resolveYahooSymbol(ticker)
-  const data = await fetchIntradayCloses(yahooSymbol, interval, fromTs, toTs)
+  const seriesSymbol = resolveSeriesSymbol(ticker)
+  const data = await fetchIntradayCloses(seriesSymbol, interval, fromTs, toTs)
   if (!data?.closes?.length) return null
   return {
     symbol: data.symbol,

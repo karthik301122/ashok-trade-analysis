@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { StockMetrics } from '../../data/types'
 import { getTickerLivermore, setManyTickerLivermore } from '../../lib/livermoreCache'
-import { fetchYahooOhlcForPatternScan, fetchYahooSeries } from '../../lib/yahoo'
+import { fetchDeskOhlcForPatternScan, fetchDeskSeries } from '../../lib/deskSeries'
 import { computeLivermoreScores } from '../../lib/patterns/livermoreScores'
 import type { LivermoreScores } from '../../lib/patterns/livermoreScores'
 
@@ -48,7 +48,7 @@ export function useLivermoreScan(stocks: StockMetrics[], enabled: boolean) {
     void (async () => {
       let indexReturn20 = 0
       try {
-        const indexSeries = await fetchYahooSeries(INDEX_SYMBOL, '6mo')
+        const indexSeries = await fetchDeskSeries(INDEX_SYMBOL, '6mo')
         if (!cancelled && g === gen.current) {
           const idxCloses = indexSeries?.closes ?? []
           if (idxCloses.length > 21) {
@@ -97,7 +97,7 @@ export function useLivermoreScan(stocks: StockMetrics[], enabled: boolean) {
           const ticker = needFresh[i]
           const meta = stockByTicker.get(ticker.toUpperCase())
           try {
-            const ohlc = await fetchYahooOhlcForPatternScan(ticker)
+            const ohlc = await fetchDeskOhlcForPatternScan(ticker)
             if (cancelled || g !== gen.current) return
             if (ohlc?.length && meta) {
               const scores = computeLivermoreScores(ohlc, {

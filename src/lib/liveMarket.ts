@@ -12,7 +12,7 @@ import { avgPerf, classifyCycle, classifyMood, round1 } from './market'
 import {
   type CachedPerf,
   ema,
-  fetchYahooSeries,
+  fetchDeskSeries,
   loadPerfCache,
   mapPool,
   returnOver,
@@ -20,7 +20,7 @@ import {
   savePerfCache,
   sma,
   type SeriesResult,
-} from './yahoo'
+} from './deskSeries'
 
 const INDEX_SYMBOL = '^AXJO'
 
@@ -116,14 +116,14 @@ async function waitForServerSnapshotJob(
     fromCache: boolean
     loaded: number
     failed: number
-    source?: 'server-sqlite' | 'browser-yahoo'
+    source?: 'server-sqlite' | 'browser-series'
   } | null>,
 ): Promise<{
   snapshot: MarketSnapshot
   fromCache: boolean
   loaded: number
   failed: number
-  source?: 'server-sqlite' | 'browser-yahoo'
+  source?: 'server-sqlite' | 'browser-series'
 } | null> {
   for (let i = 0; i < 300; i++) {
     if (signal?.aborted) throw new Error('Aborted')
@@ -470,7 +470,7 @@ export async function loadLiveMarketSnapshot(
   fromCache: boolean
   loaded: number
   failed: number
-  source?: 'server-sqlite' | 'browser-yahoo'
+  source?: 'server-sqlite' | 'browser-series'
 }> {
   const { forceRefresh = false, signal, onProgress, onPartial } = opts
   const config = opts.deskConfig ?? await fetchDeskServerConfig(signal)
@@ -589,7 +589,7 @@ export async function loadLiveMarketSnapshot(
           fromCache: true,
           loaded: stockPerfs.size,
           failed: tickers.length - stockPerfs.size,
-          source: 'browser-yahoo',
+          source: 'browser-series',
         }
       }
     }
@@ -606,7 +606,7 @@ export async function loadLiveMarketSnapshot(
   if (signal?.aborted) throw new Error('Aborted')
 
   if (!indexPerf) {
-    const indexSeries = await fetchYahooSeries(INDEX_SYMBOL, '5y')
+    const indexSeries = await fetchDeskSeries(INDEX_SYMBOL, '5y')
     if (!indexSeries) {
       throw new Error('Could not load ASX200 (^AXJO). Is the dev server running?')
     }
@@ -620,13 +620,13 @@ export async function loadLiveMarketSnapshot(
   let lastPartialAt = stockPerfs.size
   const PARTIAL_EVERY = 50
 
-  // Lower concurrency to avoid Yahoo throttling after ~100 calls
+  // Lower concurrency to avoid API throttling after ~100 calls
   await mapPool(
     missing,
     4,
     async (ticker) => {
       if (signal?.aborted) return ticker
-      const series = await fetchYahooSeries(ticker, '2y')
+      const series = await fetchDeskSeries(ticker, '2y')
       if (series) {
         stockPerfs.set(ticker, seriesToCachedPerf(series, indexM3))
       } else {
@@ -667,7 +667,7 @@ export async function loadLiveMarketSnapshot(
     fromCache: fromCache && missing.length === 0,
     loaded: stockPerfs.size,
     failed: tickers.length - stockPerfs.size,
-    source: 'browser-yahoo',
+    source: 'browser-series',
   }
 }
 

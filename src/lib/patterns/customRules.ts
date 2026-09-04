@@ -1,4 +1,4 @@
-import { ema, rsi, sma, type OhlcBar } from '../yahoo'
+import { ema, rsi, sma, type OhlcBar } from '../deskSeries'
 import type { PatternBias, PatternHit } from './types'
 import {
   detectAllCandleShapes,

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { StockMetrics } from '../../data/types'
-import { fetchYahooOhlcForPatternScan } from '../../lib/yahoo'
+import { fetchDeskOhlcForPatternScan } from '../../lib/deskSeries'
 import { karthikPatternHit, type KarthikPatternId } from '../../lib/patterns/karthikWeekly'
 import { KARTHIK_WEEKLY_PATTERNS } from '../../lib/patterns/specialCatalog'
 import {
@@ -84,7 +84,7 @@ export function useKarthikWeeklyScan(stocks: StockMetrics[], enabled: boolean) {
         const ticker = need[i]
         const meta = stockByTicker.get(ticker.toUpperCase())
         try {
-          const ohlc = await fetchYahooOhlcForPatternScan(ticker)
+          const ohlc = await fetchDeskOhlcForPatternScan(ticker)
           if (cancelled || g !== gen.current) return
           if (ohlc?.length && meta) {
             const hits: WeeklySpecialHit[] = []

@@ -1,4 +1,4 @@
-import type { OhlcBar } from '../yahoo'
+import type { OhlcBar } from '../deskSeries'
 import type { PatternHit } from './types'
 import type { SpecialPatternDef } from './specialCatalog'
 import { detectCustomRule, ruleSetProgress, ruleSetPasses } from './customRules'

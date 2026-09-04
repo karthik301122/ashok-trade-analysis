@@ -165,6 +165,7 @@ export {
 } from './drawnPattern'
 export {
   SCANSCRIPT_EXAMPLE,
+  SCANSCRIPT_GUIDE,
   SCANSCRIPT_NAME,
   compileScanScript,
   describeScanScript,
