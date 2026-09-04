@@ -190,11 +190,15 @@ export async function handleConnectApi(req, res, send) {
       })
       return true
     }
-    send(200, {
-      ...meta,
-      browserUniverseFetch: browserUniverseFetchEnabled(),
-      productionMode: isProductionMode(),
-    })
+    send(
+      200,
+      {
+        ...meta,
+        browserUniverseFetch: browserUniverseFetchEnabled(),
+        productionMode: isProductionMode(),
+      },
+      { 'Cache-Control': 'no-store, no-cache, must-revalidate', Pragma: 'no-cache' },
+    )
     return true
   }
 
@@ -207,7 +211,7 @@ export async function handleConnectApi(req, res, send) {
       send(404, { error: 'No snapshot yet', job: await getSnapshotJobStatus() })
       return true
     }
-    send(200, chunk)
+    send(200, chunk, { 'Cache-Control': 'no-store, no-cache, must-revalidate', Pragma: 'no-cache' })
     return true
   }
 
@@ -245,17 +249,21 @@ export async function handleConnectApi(req, res, send) {
   if (url.pathname === '/api/snapshot/refresh') {
     if (req.method === 'GET') {
       const row = await readMarketSnapshotRow()
-      send(200, {
-        job: await getSnapshotJobStatus(),
-        snapshot: row
-          ? {
-              builtAt: row.builtAt,
-              loaded: row.loaded,
-              failed: row.failed,
-              fresh: isSnapshotFresh(row.builtAt),
-            }
-          : null,
-      })
+      send(
+        200,
+        {
+          job: await getSnapshotJobStatus(),
+          snapshot: row
+            ? {
+                builtAt: row.builtAt,
+                loaded: row.loaded,
+                failed: row.failed,
+                fresh: isSnapshotFresh(row.builtAt),
+              }
+            : null,
+        },
+        { 'Cache-Control': 'no-store, no-cache, must-revalidate', Pragma: 'no-cache' },
+      )
       return true
     }
     if (await requireSessionOrAdmin(req, send)) return true
@@ -577,6 +585,8 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/health', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.setHeader('Pragma', 'no-cache')
     const snap = await readMarketSnapshotRow()
     const universeTotal = getUniverseCount()
     const snapMeta = snap
@@ -804,6 +814,8 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/snapshot/meta', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.setHeader('Pragma', 'no-cache')
     if (
       rateLimitOrSend(
         req,
@@ -831,6 +843,8 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/snapshot/stocks', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.setHeader('Pragma', 'no-cache')
     if (
       rateLimitOrSend(
         req,
@@ -885,6 +899,8 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/snapshot/refresh', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.setHeader('Pragma', 'no-cache')
     const row = await readMarketSnapshotRow()
     return res.json({
       job: await getSnapshotJobStatus(),

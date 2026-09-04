@@ -131,8 +131,9 @@ async function waitForServerSnapshotJob(
       const ready = await tryReady()
       if (ready) return ready
     }
-    const res = await fetch('/api/snapshot/refresh', {
+    const res = await fetch(`/api/snapshot/refresh?_=${Date.now()}`, {
       credentials: 'include',
+      cache: 'no-store',
       signal,
     })
     if (!res.ok) break

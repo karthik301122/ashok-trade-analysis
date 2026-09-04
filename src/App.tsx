@@ -159,7 +159,10 @@ export default function App() {
   const waitForSnapshotJob = useCallback(async (startedAfter = 0) => {
     for (let i = 0; i < 600; i++) {
       try {
-        const res = await fetch('/api/snapshot/refresh', { credentials: 'include' })
+        const res = await fetch(`/api/snapshot/refresh?_=${Date.now()}`, {
+          credentials: 'include',
+          cache: 'no-store',
+        })
         if (res.status === 502 || res.status === 503 || res.status === 504) {
           await new Promise((r) => setTimeout(r, 3000))
           continue
