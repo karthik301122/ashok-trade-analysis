@@ -127,25 +127,45 @@ export type DeskSeriesMeta = {
 export async function fetchDeskOhlc(
   symbol: string,
   from = '2023-01-01',
-  opts?: { staleOk?: boolean },
+  opts?: { staleOk?: boolean; refresh?: boolean },
 ): Promise<OhlcBar[] | null> {
   const ticker = /\.AX$/i.test(symbol) ? symbol.replace(/\.AX$/i, '') : symbol
   const fromTs = Math.floor(new Date(`${from}T00:00:00Z`).getTime() / 1000)
 
   const session = ohlcSessionCache.get(ticker)
-  if (session && Date.now() - session.at < OHLC_SESSION_MS && session.bars) {
+  if (
+    !opts?.refresh &&
+    session &&
+    Date.now() - session.at < OHLC_SESSION_MS &&
+    session.bars?.length
+  ) {
     const sliced = session.bars.filter((b) => b.t >= fromTs)
-    if (sliced.length >= 30) return sliced
+    if (sliced.length >= 30 && (opts?.staleOk || lastBarLooksCurrent(sliced))) {
+      return sliced
+    }
   }
 
   const params = new URLSearchParams({ from })
   if (opts?.staleOk) params.set('stale_ok', '1')
+  if (opts?.refresh) params.set('refresh', '1')
   const url = `/api/series/${encodeURIComponent(ticker)}?${params}`
   try {
     const res = await fetchSeriesQueued(url)
     if (!res.ok) return null
     const json = await res.json()
-    const bars = parseOhlcBars(json)
+    let bars = parseOhlcBars(json)
+    // If daily history is behind, force a server re-pull once (fixes stuck Sept-1 caches).
+    if (bars && !opts?.staleOk && !opts?.refresh && !lastBarLooksCurrent(bars)) {
+      const retryParams = new URLSearchParams({ from, refresh: '1' })
+      const retry = await fetchSeriesQueued(
+        `/api/series/${encodeURIComponent(ticker)}?${retryParams}`,
+      )
+      if (retry.ok) {
+        const retryJson = await retry.json()
+        const retried = parseOhlcBars(retryJson)
+        if (retried?.length) bars = retried
+      }
+    }
     if (bars && bars.length >= 30) {
       ohlcSessionCache.set(ticker, { at: Date.now(), bars })
       return bars.filter((b) => b.t >= fromTs)
@@ -154,6 +174,25 @@ export async function fetchDeskOhlc(
   } catch {
     return null
   }
+}
+
+function lastBarLooksCurrent(bars: OhlcBar[], now = Date.now()): boolean {
+  if (!bars.length) return false
+  const lastMs = bars[bars.length - 1].t * 1000
+  const last = new Date(lastMs)
+  const lastDay = Date.UTC(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate())
+  const d = new Date(now)
+  let expected = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+  const dow = expected.getUTCDay()
+  if (dow === 0) expected.setUTCDate(expected.getUTCDate() - 2)
+  else if (dow === 6) expected.setUTCDate(expected.getUTCDate() - 1)
+  else if (d.getUTCHours() < 8) {
+    expected.setUTCDate(expected.getUTCDate() - 1)
+    while (expected.getUTCDay() === 0 || expected.getUTCDay() === 6) {
+      expected.setUTCDate(expected.getUTCDate() - 1)
+    }
+  }
+  return lastDay >= Date.UTC(expected.getUTCFullYear(), expected.getUTCMonth(), expected.getUTCDate())
 }
 
 /** ~2y daily OHLC for background pattern scans (smaller payload than full history). */
@@ -167,6 +206,10 @@ export async function fetchDeskOhlcForPatternScan(symbol: string): Promise<OhlcB
 
 const OHLC_SESSION_MS = 45 * 60 * 1000
 const ohlcSessionCache = new Map<string, { at: number; bars: OhlcBar[] }>()
+
+export function clearOhlcSessionCache() {
+  ohlcSessionCache.clear()
+}
 
 /** Intraday OHLC for desk chart display (patterns still use daily). */
 export async function fetchDeskIntraday(

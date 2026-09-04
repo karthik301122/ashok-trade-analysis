@@ -36,10 +36,10 @@ describe('isLastBarAcceptable', () => {
     expect(isLastBarAcceptable([barAtIso('2026-09-01')], now)).toBe(false)
   })
 
-  it('allows one session of slack for holidays / late EOD', () => {
+  it('rejects prior session when slack is 0', () => {
     const now = Date.parse('2026-09-04T12:00:00Z')
-    // Expected Fri 4th; slack 1 → Wed 2nd still ok? Fri-1session = Thu 3rd
-    expect(isLastBarAcceptable([barAtIso('2026-09-03')], now)).toBe(true)
-    expect(isLastBarAcceptable([barAtIso('2026-09-02')], now)).toBe(false)
+    // Expected Fri 4th; slack 0 → only Fri ok
+    expect(isLastBarAcceptable([barAtIso('2026-09-03')], now)).toBe(false)
+    expect(isLastBarAcceptable([barAtIso('2026-09-04')], now)).toBe(true)
   })
 })

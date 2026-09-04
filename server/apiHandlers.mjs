@@ -146,8 +146,7 @@ export async function handleConnectApi(req, res, send) {
         send(400, { error: 'Invalid ticker' })
         return true
       }
-      const skipForce =
-        isProductionMode() && !(await isAdminRequest(req)) && url.searchParams.get('refresh') === '1'
+      const skipForce = false
       const result = await loadSeriesForTicker(ticker, url.searchParams, {
         skipForceRefresh: skipForce,
       })
@@ -787,9 +786,7 @@ export function mountExpressApi(app) {
       if (!ticker || !/^[A-Z0-9.^=-]{1,20}$/.test(ticker)) {
         return res.status(400).json({ error: 'Invalid ticker' })
       }
-      const skipForce =
-        isProductionMode() && !(await isAdminRequest(req)) && req.query.refresh === '1'
-      const result = await loadSeriesForTicker(ticker, req.query, { skipForceRefresh: skipForce })
+      const result = await loadSeriesForTicker(ticker, req.query, { skipForceRefresh: false })
       if (result.status === 404) {
         log('info', 'series.miss', { ticker, ms: Date.now() - started })
         return res.status(404).json(result.body)

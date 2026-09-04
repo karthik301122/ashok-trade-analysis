@@ -3,7 +3,7 @@ import { sqlAll, sqlOne, withTransaction } from './db.mjs'
 export const SERIES_FRESH_MS = 18 * 60 * 60 * 1000
 
 /** Extra trading sessions of lag allowed (ASX holidays / late EOD publish). */
-export const LAST_BAR_SLACK_SESSIONS = 1
+export const LAST_BAR_SLACK_SESSIONS = 0
 
 export function isSeriesFresh(updatedAt, now = Date.now()) {
   return Number.isFinite(updatedAt) && now - updatedAt < SERIES_FRESH_MS

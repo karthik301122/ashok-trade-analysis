@@ -4,7 +4,7 @@ import type { ViewId } from './components/ViewTabs'
 import { MainPagePanels } from './components/MainPagePanels'
 import { AuthPage } from './components/AuthPage'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
-import { clearPerfCache } from './lib/deskSeries'
+import { clearPerfCache, clearOhlcSessionCache } from './lib/deskSeries'
 import { fetchDeskServerConfig, type DeskServerConfig } from './lib/deskConfig'
 import { fetchAuthMe, logout as apiLogout, type PatternAlertWatch } from './lib/auth'
 import type { MarketSnapshot } from './data/types'
@@ -236,6 +236,7 @@ export default function App() {
     setRefreshStatus(null)
     try {
       clearPerfCache()
+      clearOhlcSessionCache()
       const startedAfter = await startAsx200ForceRefresh()
       await load(false)
       void waitForSnapshotJob(startedAfter, { readyOn: 'desk' }).then(async (job) => {
@@ -256,6 +257,7 @@ export default function App() {
     setError(null)
     setRefreshStatus(null)
     clearPerfCache()
+    clearOhlcSessionCache()
     if (config.productionMode) {
       if (!config.isAdmin) {
         setError('Admin access required to refresh market data in production.')

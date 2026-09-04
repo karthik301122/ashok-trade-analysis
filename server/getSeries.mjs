@@ -1,5 +1,6 @@
 import { fetchChartCloses, fetchIntradayCloses, isIntradayInterval } from './fetchSeries.mjs'
 import { seriesSymbolCount, dbStoreLabel } from './db.mjs'
+import { sqlOne, sqlRun } from './db.mjs'
 import {
   readSeriesCache,
   writeSeriesCache,
@@ -25,6 +26,36 @@ export function resolveSeriesSymbol(ticker) {
   if (/^[A-Z0-9]+-[A-Z0-9]+$/.test(t)) return `${t}.CC`
   if (t.includes('=') || t.includes('-') || t.includes('.')) return t
   return `${t}.AX`
+}
+
+function appTickerFromSeriesSymbol(symbol) {
+  const t = String(symbol).toUpperCase()
+  if (t.endsWith('.AX') || t.endsWith('.AU')) return t.slice(0, -3)
+  if (t.startsWith('^')) return t
+  return t
+}
+
+/** Keep Markets overview Price in sync when a chart/series pull advances the last close. */
+async function patchSnapshotLastPrice(seriesSymbol, lastPrice) {
+  const ticker = appTickerFromSeriesSymbol(seriesSymbol)
+  if (!ticker || !Number.isFinite(lastPrice) || lastPrice <= 0) return
+  try {
+    const row = await sqlOne('SELECT stocks_perf_json FROM market_snapshot WHERE id = 1')
+    if (!row?.stocks_perf_json) return
+    const stocks = JSON.parse(row.stocks_perf_json)
+    const perf = stocks[ticker]
+    if (!perf || typeof perf !== 'object') return
+    const next = Math.round(lastPrice * 10000) / 10000
+    if (Number(perf.lastPrice) === next) return
+    stocks[ticker] = { ...perf, lastPrice: next }
+    await sqlRun('UPDATE market_snapshot SET stocks_perf_json = ? WHERE id = 1', [
+      JSON.stringify(stocks),
+    ])
+    const { clearStocksPerfCache } = await import('./snapshotJob.mjs')
+    clearStocksPerfCache()
+  } catch {
+    /* best-effort */
+  }
 }
 
 /**
@@ -55,12 +86,17 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
           meta: {
             ...(cached.meta || {}),
             cache: !barsOk || (staleOk && !isSeriesFresh(cached.updatedAt)) ? 'stale-ok' : 'hit',
+            lastBar: isoFromUnix(closes[closes.length - 1].t),
             store,
           },
         }
       }
-      // Last bar too old and caller wants fresh data — fall through to EODHD.
     }
+  }
+
+  const fetchOpts = {
+    attempts: forceRefresh ? 4 : 3,
+    baseDelayMs: forceRefresh ? 600 : 400,
   }
 
   let period1 = from
@@ -70,35 +106,60 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
     period1 = overlap > from ? overlap : from
   }
 
-  const fresh = await fetchChartCloses(seriesSymbol, period1, {
-    attempts: opts.forceRefresh ? 4 : 3,
-    baseDelayMs: opts.forceRefresh ? 600 : 400,
-  })
-  if (!fresh && cached?.closes?.length) {
-    const closes = cached.closes.filter((b) => b.t >= fromTs)
-    if (closes.length >= 15) {
-      return {
-        symbol: cached.symbol,
-        closes,
-        last: closes[closes.length - 1].c,
-        high52: recomputeHigh52(closes),
-        meta: { ...(cached.meta || {}), cache: 'stale-fallback', store },
+  let fresh = await fetchChartCloses(seriesSymbol, period1, fetchOpts)
+  let merged = fresh
+    ? cached?.closes?.length
+      ? mergeBars(cached.closes, fresh.closes)
+      : fresh.closes
+    : null
+
+  // Incremental pull sometimes returns nothing useful while last bar is still old — retry full range.
+  if (
+    (!merged || !isLastBarAcceptable(merged)) &&
+    period1 !== from &&
+    !staleOk
+  ) {
+    const full = await fetchChartCloses(seriesSymbol, from, {
+      attempts: 4,
+      baseDelayMs: 500,
+    })
+    if (full?.closes?.length) {
+      fresh = full
+      merged = cached?.closes?.length ? mergeBars(cached.closes, full.closes) : full.closes
+    }
+  }
+
+  if (!merged?.length) {
+    if (cached?.closes?.length) {
+      const closes = cached.closes.filter((b) => b.t >= fromTs)
+      if (closes.length >= 15) {
+        return {
+          symbol: cached.symbol,
+          closes,
+          last: closes[closes.length - 1].c,
+          high52: recomputeHigh52(closes),
+          meta: {
+            ...(cached.meta || {}),
+            cache: 'stale-fallback',
+            lastBar: isoFromUnix(closes[closes.length - 1].t),
+            store,
+          },
+        }
       }
     }
     return null
   }
-  if (!fresh) return null
 
-  const merged = cached?.closes?.length ? mergeBars(cached.closes, fresh.closes) : fresh.closes
   const payload = {
-    symbol: fresh.symbol,
+    symbol: fresh?.symbol || seriesSymbol,
     updatedAt: Date.now(),
     closes: merged,
     last: merged[merged.length - 1].c,
     high52: recomputeHigh52(merged),
-    meta: fresh.meta || {},
+    meta: fresh?.meta || {},
   }
   await writeSeriesCache(payload)
+  void patchSnapshotLastPrice(seriesSymbol, payload.last)
 
   const closes = merged.filter((b) => b.t >= fromTs)
   return {
@@ -106,7 +167,12 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
     closes,
     last: closes.length ? closes[closes.length - 1].c : payload.last,
     high52: recomputeHigh52(closes.length ? closes : merged),
-    meta: { ...payload.meta, cache: cached ? 'refresh' : 'miss', store },
+    meta: {
+      ...payload.meta,
+      cache: cached ? 'refresh' : 'miss',
+      lastBar: closes.length ? isoFromUnix(closes[closes.length - 1].t) : undefined,
+      store,
+    },
   }
 }
 
