@@ -58,9 +58,6 @@ export function sydneyWindowBounds(window = 'today') {
     day: '2-digit',
   })
   const todaySydney = fmt.format(new Date()) // YYYY-MM-DD
-  const startToday = Date.parse(`${todaySydney}T00:00:00+10:00`)
-  // Use +10/+11 roughly via formatting offset by comparing — better: use noon UTC trick
-  // Robust: interpret Sydney midnight via Temporal-less approach
   const start = sydneyMidnightUtcMs(todaySydney)
   if (window === 'week') {
     return { from: start - 6 * 86_400_000, to: start + 86_400_000 }
