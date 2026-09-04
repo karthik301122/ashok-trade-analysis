@@ -11,6 +11,7 @@ import { clearBreadthChartCache } from './breadthHistory.mjs'
 import { readinessFromSnapshot } from './production.mjs'
 import { isEodhdDailyLimitExceeded } from './eodhdLimit.mjs'
 import { tickersForUniverseId } from './eodhdIndexMembers.mjs'
+import { readSeriesCache, isoFromUnix } from './seriesStore.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -203,6 +204,24 @@ export function clearStocksPerfCache() {
   stocksPerfBuiltAt = 0
 }
 
+/** Latest AXJO daily bar date (ISO) — what Markets/charts should match. */
+export async function readBarsAsOf() {
+  try {
+    const cached = await readSeriesCache('^AXJO')
+    if (!cached?.closes?.length) return null
+    const iso = isoFromUnix(cached.closes[cached.closes.length - 1].t)
+    const label = new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-AU', {
+      timeZone: 'UTC',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    })
+    return { iso, label }
+  } catch {
+    return null
+  }
+}
+
 /** Fast metadata without parsing the large stocks JSON column. */
 export async function readMarketSnapshotMeta() {
   const row = await sqlOne(
@@ -210,9 +229,12 @@ export async function readMarketSnapshotMeta() {
   )
   if (!row) return null
   const builtAt = Number(row.built_at)
+  const barsAsOf = await readBarsAsOf()
   return {
     builtAt,
     asOf: row.as_of,
+    barsAsOf: barsAsOf?.iso ?? null,
+    barsAsOfLabel: barsAsOf?.label ?? null,
     loaded: Number(row.loaded),
     failed: Number(row.failed),
     fresh: isSnapshotFresh(builtAt),
@@ -280,11 +302,15 @@ async function loadIndexPerf(from5y, opts = {}) {
 
 async function persistSnapshot(stocks, indexPerf, loaded, failed) {
   const builtAt = Date.now()
-  const asOf = new Date().toLocaleString('en-AU', {
+  const barsAsOf = await readBarsAsOf()
+  const clock = new Date().toLocaleString('en-AU', {
     timeZone: 'Australia/Sydney',
     dateStyle: 'medium',
     timeStyle: 'short',
   })
+  const asOf = barsAsOf?.label
+    ? `Bars ${barsAsOf.label} · updated ${clock}`
+    : clock
 
   const cleanStocks = {}
   for (const [ticker, perf] of Object.entries(stocks)) {
@@ -313,7 +339,7 @@ async function persistSnapshot(stocks, indexPerf, loaded, failed) {
 
   clearStocksPerfCache()
   clearBreadthChartCache()
-  return { builtAt, asOf }
+  return { builtAt, asOf, barsAsOf: barsAsOf?.iso ?? null }
 }
 
 async function loadSeriesForSnapshot(ticker, from2y, forceRefresh = false) {

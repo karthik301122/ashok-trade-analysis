@@ -7,6 +7,7 @@ import { loadEnvFile } from './loadEnv.mjs'
 import { initDb } from './db.mjs'
 import { maybeStartBackgroundSnapshot } from './snapshotJob.mjs'
 import { maybeStartAsxFilingsScheduler } from './asxFilingsJob.mjs'
+import { maybeStartDeskSyncScheduler } from './deskSyncJob.mjs'
 
 loadEnvFile()
 
@@ -27,6 +28,7 @@ export function asxDataPlugin() {
       void initDb().then(() => {
         maybeStartBackgroundSnapshot()
         maybeStartAsxFilingsScheduler()
+        maybeStartDeskSyncScheduler()
       })
       server.middlewares.use(async (req, res, next) => {
         try {

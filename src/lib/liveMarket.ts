@@ -63,6 +63,9 @@ type ServerSnapshotJson = {
   loaded?: number
   failed?: number
   builtAt?: number
+  asOf?: string
+  barsAsOf?: string | null
+  barsAsOfLabel?: string | null
   indexPerf?: CachedPerf
   stocks?: Record<string, CachedPerf>
   store?: string
@@ -222,6 +225,9 @@ async function fetchServerSnapshotJson(
     loaded: loadedCount,
     failed,
     fresh: meta.fresh,
+    asOf: meta.asOf,
+    barsAsOf: meta.barsAsOf,
+    barsAsOfLabel: meta.barsAsOfLabel,
     indexPerf: meta.indexPerf,
     stocks,
     store: 'sqlite',
@@ -309,6 +315,7 @@ export function assembleSnapshotFromPerfs(
   stockPerfs: Map<string, CachedPerf>,
   indexPerf: CachedPerf,
   universe: StockRaw[] = ASX_UNIVERSE,
+  asOfLabel?: string | null,
 ): MarketSnapshot {
   const benchmarkPerf = toPerfBundle(indexPerf)
   benchmarkPerf.rs = 50
@@ -425,11 +432,13 @@ export function assembleSnapshotFromPerfs(
   industries.sort((a, b) => b.perf.m3 - a.perf.m3)
 
   return {
-    asOf: new Date().toLocaleDateString('en-AU', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    }),
+    asOf:
+      asOfLabel?.trim() ||
+      new Date().toLocaleDateString('en-AU', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      }),
     benchmark: 'ASX200',
     benchmarkPerf,
     sectors,
@@ -506,8 +515,14 @@ export async function loadLiveMarketSnapshot(
   const finishFromServer = (
     parsed: { stockPerfs: Map<string, CachedPerf>; indexPerf: CachedPerf; failed: number },
     fromCache: boolean,
+    asOfLabel?: string | null,
   ) => {
-    const snapshot = assembleSnapshotFromPerfs(parsed.stockPerfs, parsed.indexPerf)
+    const snapshot = assembleSnapshotFromPerfs(
+      parsed.stockPerfs,
+      parsed.indexPerf,
+      ASX_UNIVERSE,
+      asOfLabel,
+    )
     persist(parsed.stockPerfs, parsed.indexPerf)
     onProgress?.({
       done: total,
@@ -531,7 +546,8 @@ export async function loadLiveMarketSnapshot(
     if (!json) return null
     const parsed = parseServerSnapshot(json, tickers, config, acceptStale)
     if (!parsed) return null
-    return finishFromServer(parsed, !forceRefresh)
+    const asOfLabel = json.barsAsOfLabel || json.asOf || null
+    return finishFromServer(parsed, !forceRefresh, asOfLabel)
   }
 
   if (!forceRefresh) {

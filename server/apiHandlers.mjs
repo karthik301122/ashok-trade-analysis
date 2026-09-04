@@ -11,6 +11,7 @@ import {
   getSnapshotJobStatus,
   isSnapshotFresh,
   maybeStartBackgroundSnapshot,
+  readBarsAsOf,
   readMarketSnapshotMeta,
   readMarketSnapshotRow,
   readMarketSnapshotStocksChunk,
@@ -411,6 +412,7 @@ export async function handleConnectApi(req, res, send) {
       universeTotal,
     )
     const admin = await isAdminRequest(req)
+    const barsAsOf = await readBarsAsOf()
     send(200, {
       ok: true,
       provider: seriesProviderName(),
@@ -419,6 +421,8 @@ export async function handleConnectApi(req, res, send) {
       productionMode: isProductionMode(),
       browserUniverseFetch: browserUniverseFetchEnabled(),
       isAdmin: admin,
+      barsAsOf: barsAsOf?.iso ?? null,
+      barsAsOfLabel: barsAsOf?.label ?? null,
       rateLimits: {
         seriesPerMinute: seriesRateLimitPerMinute(),
         snapshotPerMinute: snapshotRateLimitPerMinute(),
@@ -598,6 +602,7 @@ export function mountExpressApi(app) {
       : null
     const readiness = readinessFromSnapshot(snapMeta || {}, universeTotal)
     const admin = await isAdminRequest(req)
+    const barsAsOf = await readBarsAsOf()
     res.json({
       ok: true,
       provider: seriesProviderName(),
@@ -606,6 +611,8 @@ export function mountExpressApi(app) {
       productionMode: isProductionMode(),
       browserUniverseFetch: browserUniverseFetchEnabled(),
       isAdmin: admin,
+      barsAsOf: barsAsOf?.iso ?? null,
+      barsAsOfLabel: barsAsOf?.label ?? null,
       rateLimits: {
         seriesPerMinute: seriesRateLimitPerMinute(),
         snapshotPerMinute: snapshotRateLimitPerMinute(),

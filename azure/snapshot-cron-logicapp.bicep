@@ -38,12 +38,12 @@ var workflowDefinition = {
     }
   }
   actions: {
-    Rebuild_snapshot_from_cache: {
+    Rebuild_desk_from_EODHD: {
       type: 'Http'
       runAfter: {}
       inputs: {
         method: 'POST'
-        uri: '${siteUrl}/api/snapshot/rebuild-cache'
+        uri: '${siteUrl}/api/snapshot/refresh?force=1&priority=desk'
         headers: {
           'x-admin-key': adminApiKey
         }

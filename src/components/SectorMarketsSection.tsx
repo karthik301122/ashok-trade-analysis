@@ -44,6 +44,7 @@ function SectorMarketsSectionBody({
         <p className="text-sm text-[var(--color-ink-soft)]">
           {snapshot.asOf} · vs {snapshot.benchmark} · {snapshot.industries.length} industries
           {backfilling ? ' · updating…' : ''}
+          {livePricesActive ? ' · live prices (~15m delay)' : ''}
         </p>
       </div>
 

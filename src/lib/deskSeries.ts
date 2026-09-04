@@ -204,7 +204,7 @@ export async function fetchDeskOhlcForPatternScan(symbol: string): Promise<OhlcB
   return fetchDeskOhlc(symbol, patternScanFromIso(), { staleOk: true })
 }
 
-const OHLC_SESSION_MS = 45 * 60 * 1000
+const OHLC_SESSION_MS = 5 * 60 * 1000
 const ohlcSessionCache = new Map<string, { at: number; bars: OhlcBar[] }>()
 
 export function clearOhlcSessionCache() {
@@ -309,7 +309,7 @@ export function rsi(values: number[], period = 14): number | null {
 }
 
 const CACHE_KEY = 'asx-live-perf-v7-minerals'
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000 // 6 hours
+const CACHE_TTL_MS = 30 * 60 * 1000 // 30 minutes — thin client cache
 
 export type PerfCache = {
   savedAt: number

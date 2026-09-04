@@ -11,6 +11,7 @@ import { maybeStartBackgroundSnapshot } from './snapshotJob.mjs'
 import { maybeStartLiveQuoteScheduler } from './liveQuoteJob.mjs'
 import { maybeStartIndexMembersScheduler } from './indexMembersJob.mjs'
 import { maybeStartAsxFilingsScheduler } from './asxFilingsJob.mjs'
+import { maybeStartDeskSyncScheduler } from './deskSyncJob.mjs'
 import { dbPath, dbStoreLabel, initDb } from './db.mjs'
 import { maintenanceMiddleware } from './maintenance.mjs'
 
@@ -53,5 +54,6 @@ app.listen(port, '0.0.0.0', () => {
     maybeStartLiveQuoteScheduler()
     maybeStartIndexMembersScheduler()
     maybeStartAsxFilingsScheduler()
+    maybeStartDeskSyncScheduler()
   }, 5000)
 })
