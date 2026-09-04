@@ -10,6 +10,7 @@ import { applyLiveQuotesToStockMap, getLiveQuotesMeta, stripLiveOverlayFromPerf 
 import { clearBreadthChartCache } from './breadthHistory.mjs'
 import { readinessFromSnapshot } from './production.mjs'
 import { isEodhdDailyLimitExceeded } from './eodhdLimit.mjs'
+import { tickersForUniverseId } from './eodhdIndexMembers.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -17,25 +18,54 @@ const universePath = path.join(root, 'src', 'data', 'asxUniverse.json')
 
 export const SNAPSHOT_FRESH_MS = 12 * 60 * 60 * 1000
 const RETRY_COOLDOWN_MS = 30_000
+/** Abandon in-process / orphaned jobs older than this so Refresh is never permanently stuck. */
+const JOB_MAX_AGE_MS = () => {
+  const n = Number(process.env.SNAPSHOT_JOB_MAX_AGE_MS)
+  return Number.isFinite(n) && n > 0 ? n : 40 * 60 * 1000
+}
 
 /** @type {Promise<unknown> | null} */
 let runningJob = null
+/** Bumped to cancel a hung in-process job so a new refresh can start. */
+let jobEpoch = 0
 
-/** If the DB says "running" but this process has no job, a restart interrupted the build. */
+/** If the DB says "running" but this process has no job (or the job is hung), clear it. */
 export async function recoverStaleSnapshotJob() {
-  if (runningJob) return false
   const row = await sqlOne('SELECT * FROM snapshot_job WHERE id = 1')
   if (!row || row.status !== 'running') return false
+  const age = Date.now() - Number(row.started_at || 0)
+  const maxAge = JOB_MAX_AGE_MS()
+  if (runningJob && Number.isFinite(age) && age < maxAge) return false
+  if (runningJob) {
+    jobEpoch += 1
+    runningJob = null
+    console.warn('[snapshot] abandoned hung in-process job', {
+      ageMin: Math.round(age / 60000),
+    })
+  }
   await setJob('error', {
     started_at: row.started_at,
     finished_at: Date.now(),
-    message: 'Interrupted (server restart) — tap Refresh to rebuild',
+    message:
+      age >= maxAge
+        ? 'Interrupted (hung job) — tap Refresh to rebuild'
+        : 'Interrupted (server restart) — tap Refresh to rebuild',
     loaded: row.loaded,
     failed: row.failed,
     total: row.total,
   })
   console.warn('[snapshot] cleared stale running job from previous process')
   return true
+}
+
+function loadAsx200Tickers() {
+  const fromMembers = tickersForUniverseId('asx200')
+  if (fromMembers.length >= 50) return fromMembers
+  return loadUniverse()
+    .slice()
+    .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
+    .slice(0, 200)
+    .map((u) => u.ticker)
 }
 
 function snapshotNeedsMoreWork(existing) {
@@ -665,6 +695,115 @@ export function runRetryFailedSnapshot() {
   return runUniverseSnapshot({ retryFailed: true })
 }
 
+/**
+ * Fast desk refresh: force-pull ASX200 (+ index) from EODHD, merge into snapshot, persist.
+ * Supersedes any in-flight job so Refresh/Retry cannot stay stuck forever.
+ */
+export async function runAsx200ForceRefresh() {
+  await recoverStaleSnapshotJob()
+  if (runningJob) {
+    jobEpoch += 1
+    runningJob = null
+    console.warn('[snapshot] superseding in-flight job for ASX200 force refresh')
+  }
+
+  const myEpoch = jobEpoch
+  runningJob = (async () => {
+    const universe = loadUniverse()
+    const total = universe.length
+    const priorityTickers = loadAsx200Tickers()
+    const started = Date.now()
+    const from2y = from2yIso()
+    const from5y = from5yIso()
+    const existing = await readMarketSnapshotDbRow()
+    const stocks = { ...(existing?.stocks || {}) }
+    const pacing = snapshotFetchPacing()
+
+    await setJob('running', {
+      started_at: started,
+      finished_at: null,
+      message: `Force-refreshing ASX200 (${priorityTickers.length} names)`,
+      loaded: Object.keys(stocks).length,
+      failed: Math.max(0, total - Object.keys(stocks).length),
+      total,
+    })
+
+    try {
+      const indexPerf = await loadIndexPerf(from5y, { forceRefresh: true, staleOk: false })
+      const failedTickers = []
+
+      await mapPool(
+        priorityTickers,
+        pacing.concurrency,
+        async (ticker) => {
+          if (myEpoch !== jobEpoch) return ticker
+          const series = await loadSeriesForSnapshot(ticker, from2y, true)
+          if (series?.closes?.length) {
+            stocks[ticker] = seriesToCachedPerf(series, indexPerf.m3)
+          } else {
+            failedTickers.push(ticker)
+          }
+          return ticker
+        },
+        async (done) => {
+          if (myEpoch !== jobEpoch) return
+          if (done % 20 === 0 || done === priorityTickers.length) {
+            const loaded = Object.keys(stocks).length
+            await setJob('running', {
+              started_at: started,
+              message: `ASX200 ${done}/${priorityTickers.length}`,
+              loaded,
+              failed: total - loaded,
+              total,
+            })
+            if (done % 40 === 0) {
+              await persistSnapshot(stocks, indexPerf, loaded, total - loaded)
+            }
+          }
+        },
+        pacing.delayMs,
+      )
+
+      if (myEpoch !== jobEpoch) return { aborted: true }
+
+      const loaded = Object.keys(stocks).length
+      const failed = total - loaded
+      const { builtAt, asOf } = await persistSnapshot(stocks, indexPerf, loaded, failed)
+      await setJob('done', {
+        started_at: started,
+        finished_at: builtAt,
+        message:
+          failedTickers.length > 0
+            ? `asx200-ready · ${failedTickers.length} ASX200 names failed`
+            : 'asx200-ready · ASX200 refreshed from EODHD',
+        loaded,
+        failed,
+        total,
+      })
+      console.log(
+        `[snapshot] ASX200 force refresh · updated=${priorityTickers.length - failedTickers.length}/${priorityTickers.length} · snapshot loaded=${loaded}`,
+      )
+
+      return { loaded, failed, builtAt, asOf, priority: 'asx200', failedTickers }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      await setJob('error', {
+        started_at: started,
+        finished_at: Date.now(),
+        message,
+        loaded: Object.keys(stocks).length,
+        failed: total - Object.keys(stocks).length,
+        total,
+      })
+      throw err
+    } finally {
+      if (myEpoch === jobEpoch) runningJob = null
+    }
+  })()
+
+  return runningJob
+}
+
 /** Kick a background refresh if snapshot is missing/stale/incomplete. */
 export async function maybeStartBackgroundSnapshot() {
   await recoverStaleSnapshotJob()
@@ -673,7 +812,7 @@ export async function maybeStartBackgroundSnapshot() {
   if (job.status === 'running') return
 
   const existing = await readMarketSnapshotDbRow()
-  if (existing && isSnapshotFresh(existing.builtAt) && !snapshotNeedsMoreWork(existing, job.status)) {
+  if (existing && isSnapshotFresh(existing.builtAt) && !snapshotNeedsMoreWork(existing)) {
     return
   }
 

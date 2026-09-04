@@ -4,6 +4,7 @@ import type { ViewId } from './components/ViewTabs'
 import { MainPagePanels } from './components/MainPagePanels'
 import { AuthPage } from './components/AuthPage'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
+import { clearPerfCache } from './lib/deskSeries'
 import { fetchDeskServerConfig, type DeskServerConfig } from './lib/deskConfig'
 import { fetchAuthMe, logout as apiLogout, type PatternAlertWatch } from './lib/auth'
 import type { MarketSnapshot } from './data/types'
@@ -155,7 +156,7 @@ export default function App() {
   const loadRef = useRef(load)
   loadRef.current = load
 
-  const waitForSnapshotJob = useCallback(async () => {
+  const waitForSnapshotJob = useCallback(async (startedAfter = 0) => {
     for (let i = 0; i < 600; i++) {
       try {
         const res = await fetch('/api/snapshot/refresh', { credentials: 'include' })
@@ -164,8 +165,19 @@ export default function App() {
           continue
         }
         if (!res.ok) return null
-        const json = (await res.json()) as { job?: { status?: string; message?: string } }
-        if (json.job?.status !== 'running') return json.job
+        const json = (await res.json()) as {
+          job?: { status?: string; message?: string; startedAt?: number; finishedAt?: number }
+        }
+        const job = json.job
+        const startedAt = Number(job?.startedAt || 0)
+        // Ignore stale status from a previous job until this refresh has started.
+        if (startedAfter > 0 && startedAt > 0 && startedAt < startedAfter - 2000) {
+          await new Promise((r) => setTimeout(r, 1000))
+          continue
+        }
+        const msg = job?.message || ''
+        if (msg.includes('asx200-ready')) return job
+        if (job?.status !== 'running') return job
       } catch {
         await new Promise((r) => setTimeout(r, 3000))
         continue
@@ -175,21 +187,29 @@ export default function App() {
     return null
   }, [])
 
+  const startAsx200ForceRefresh = useCallback(async () => {
+    const startedAfter = Date.now()
+    const res = await fetch('/api/snapshot/refresh?force=1&priority=asx200', {
+      method: 'POST',
+      credentials: 'include',
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(
+        typeof body?.error === 'string'
+          ? body.error
+          : `Refresh failed (${res.status}) — admin access required in production`,
+      )
+    }
+    await waitForSnapshotJob(startedAfter)
+  }, [waitForSnapshotJob])
+
   const retryFailedLoads = useCallback(async () => {
     setRetryingFailed(true)
     setError(null)
     try {
-      const res = await fetch('/api/snapshot/retry-failed', {
-        method: 'POST',
-        credentials: 'include',
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(
-          typeof body?.error === 'string' ? body.error : `Retry failed (${res.status})`,
-        )
-      }
-      await waitForSnapshotJob()
+      clearPerfCache()
+      await startAsx200ForceRefresh()
       await load(false)
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Retry failed'
@@ -197,31 +217,33 @@ export default function App() {
     } finally {
       setRetryingFailed(false)
     }
-  }, [load, waitForSnapshotJob])
+  }, [load, startAsx200ForceRefresh])
 
   const refreshLive = useCallback(async () => {
     const config = deskConfig ?? await fetchDeskServerConfig()
     if (!deskConfig) setDeskConfig(config)
+    setError(null)
+    clearPerfCache()
     if (config.productionMode) {
-      if (config.isAdmin) {
-        const rebuildRes = await fetch('/api/snapshot/rebuild-cache', {
-          method: 'POST',
-          credentials: 'include',
-        })
-        if (rebuildRes.status === 404) {
-          // Server not yet deployed with rebuild-cache — fall back to refresh
-          await fetch('/api/snapshot/refresh', {
-            method: 'POST',
-            credentials: 'include',
-          })
-        }
-        await waitForSnapshotJob()
+      if (!config.isAdmin) {
+        setError('Admin access required to refresh market data in production.')
+        await load(false)
+        return
       }
-      await load(false)
+      setBackfilling(true)
+      try {
+        await startAsx200ForceRefresh()
+        await load(false)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Refresh failed'
+        setError(msg)
+      } finally {
+        setBackfilling(false)
+      }
       return
     }
     await load(true)
-  }, [deskConfig, load, waitForSnapshotJob])
+  }, [deskConfig, load, startAsx200ForceRefresh])
 
   const canUseApp = !authChecking && (!authRequired || Boolean(user))
 

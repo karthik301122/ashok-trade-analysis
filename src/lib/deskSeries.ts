@@ -302,3 +302,14 @@ export function savePerfCache(cache: PerfCache) {
     }
   }
 }
+
+export function clearPerfCache() {
+  try {
+    localStorage.removeItem(CACHE_KEY)
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith('asx-live-')) localStorage.removeItem(k)
+    }
+  } catch {
+    // ignore
+  }
+}

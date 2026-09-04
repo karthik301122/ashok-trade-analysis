@@ -14,6 +14,7 @@ import {
   readMarketSnapshotMeta,
   readMarketSnapshotRow,
   readMarketSnapshotStocksChunk,
+  runAsx200ForceRefresh,
   runUniverseSnapshot,
   runRetryFailedSnapshot,
   runRebuildSnapshotFromCache,
@@ -261,19 +262,27 @@ export async function handleConnectApi(req, res, send) {
     if (req.method === 'POST') {
       if (await requireAdminOrSend(req, send)) return true
       const force = url.searchParams.get('force') === '1'
-      // Kick async; return job status immediately if already running
+      const priority = url.searchParams.get('priority')
       const status = await getSnapshotJobStatus()
-      if (status.status === 'running') {
-        log('info', 'snapshot.refresh', { alreadyRunning: true, force })
+      if (status.status === 'running' && priority !== 'asx200' && !force) {
+        log('info', 'snapshot.refresh', { alreadyRunning: true, force, priority })
         send(202, { ok: true, job: status })
         return true
       }
-      log('info', 'snapshot.refresh', { started: true, force })
-      void runUniverseSnapshot({ force }).catch((err) => {
-        log('error', 'snapshot.refresh.error', {
-          message: err instanceof Error ? err.message : String(err),
+      log('info', 'snapshot.refresh', { started: true, force, priority })
+      if (priority === 'asx200') {
+        void runAsx200ForceRefresh().catch((err) => {
+          log('error', 'snapshot.refresh.error', {
+            message: err instanceof Error ? err.message : String(err),
+          })
         })
-      })
+      } else {
+        void runUniverseSnapshot({ force }).catch((err) => {
+          log('error', 'snapshot.refresh.error', {
+            message: err instanceof Error ? err.message : String(err),
+          })
+        })
+      }
       send(202, { ok: true, started: true, job: await getSnapshotJobStatus() })
       return true
     }
@@ -285,14 +294,8 @@ export async function handleConnectApi(req, res, send) {
     if (await requireSessionOrAdmin(req, send)) return true
     if (req.method === 'POST') {
       if (await requireAdminOrSend(req, send)) return true
-      const status = await getSnapshotJobStatus()
-      if (status.status === 'running') {
-        log('info', 'snapshot.retry_failed', { alreadyRunning: true })
-        send(202, { ok: true, job: status })
-        return true
-      }
-      log('info', 'snapshot.retry_failed', { started: true })
-      void runRetryFailedSnapshot().catch((err) => {
+      log('info', 'snapshot.retry_failed', { started: true, via: 'asx200-force' })
+      void runAsx200ForceRefresh().catch((err) => {
         log('error', 'snapshot.retry_failed.error', {
           message: err instanceof Error ? err.message : String(err),
         })
@@ -904,17 +907,26 @@ export function mountExpressApi(app) {
       })
     }
     const force = req.query.force === '1'
+    const priority = typeof req.query.priority === 'string' ? req.query.priority : ''
     const status = await getSnapshotJobStatus()
-    if (status.status === 'running') {
-      log('info', 'snapshot.refresh', { alreadyRunning: true, force })
+    if (status.status === 'running' && priority !== 'asx200' && !force) {
+      log('info', 'snapshot.refresh', { alreadyRunning: true, force, priority })
       return res.status(202).json({ ok: true, job: status })
     }
-    log('info', 'snapshot.refresh', { started: true, force })
-    void runUniverseSnapshot({ force }).catch((err) => {
-      log('error', 'snapshot.refresh.error', {
-        message: err instanceof Error ? err.message : String(err),
+    log('info', 'snapshot.refresh', { started: true, force, priority })
+    if (priority === 'asx200') {
+      void runAsx200ForceRefresh().catch((err) => {
+        log('error', 'snapshot.refresh.error', {
+          message: err instanceof Error ? err.message : String(err),
+        })
       })
-    })
+    } else {
+      void runUniverseSnapshot({ force }).catch((err) => {
+        log('error', 'snapshot.refresh.error', {
+          message: err instanceof Error ? err.message : String(err),
+        })
+      })
+    }
     return res.status(202).json({ ok: true, started: true, job: await getSnapshotJobStatus() })
   })
 
@@ -927,12 +939,12 @@ export function mountExpressApi(app) {
       })
     }
     const status = await getSnapshotJobStatus()
+    // Prefer ASX200 force refresh — "retry failed" alone does nothing when all names are loaded but stale.
+    log('info', 'snapshot.retry_failed', { started: true, via: 'asx200-force' })
     if (status.status === 'running') {
-      log('info', 'snapshot.retry_failed', { alreadyRunning: true })
-      return res.status(202).json({ ok: true, job: status })
+      // Still allow ASX200 supersede path
     }
-    log('info', 'snapshot.retry_failed', { started: true })
-    void runRetryFailedSnapshot().catch((err) => {
+    void runAsx200ForceRefresh().catch((err) => {
       log('error', 'snapshot.retry_failed.error', {
         message: err instanceof Error ? err.message : String(err),
       })
