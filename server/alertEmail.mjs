@@ -1,6 +1,9 @@
 import nodemailer from 'nodemailer'
 import { log } from './log.mjs'
 
+/** Official outbound address for pattern alert mail. */
+export const DEFAULT_ALERT_FROM = 'TradersScope Alerts <alerts@traderscope.com>'
+
 let transporter = null
 
 export function alertEmailConfigured() {
@@ -9,6 +12,11 @@ export function alertEmailConfigured() {
       process.env.SMTP_USER?.trim() &&
       process.env.SMTP_PASS?.trim(),
   )
+}
+
+/** From header — prefer SMTP_FROM, else always the official alerts@ mailbox (not SMTP_USER). */
+export function alertEmailFromAddress() {
+  return process.env.SMTP_FROM?.trim() || DEFAULT_ALERT_FROM
 }
 
 function getTransporter() {
@@ -47,10 +55,7 @@ export async function sendAlertEmail(item, recipient) {
     .toLowerCase()
   if (!to) return false
 
-  const from =
-    process.env.SMTP_FROM?.trim() ||
-    process.env.SMTP_USER?.trim() ||
-    'alerts@traderscope.com'
+  const from = alertEmailFromAddress()
   const site = process.env.PUBLIC_SITE_URL?.trim() || 'https://traderscope.com'
   const ticker = item.ticker ? String(item.ticker).toUpperCase() : null
   const score = Number(item.score)
@@ -92,6 +97,7 @@ export async function sendAlertEmail(item, recipient) {
   try {
     await transport.sendMail({
       from,
+      replyTo: 'alerts@traderscope.com',
       to,
       subject,
       text,
@@ -99,6 +105,7 @@ export async function sendAlertEmail(item, recipient) {
     })
     log('info', 'alert.email.sent', {
       recipient: to,
+      from,
       ticker,
       score: Number.isFinite(score) ? score : null,
     })
