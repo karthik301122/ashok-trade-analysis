@@ -114,7 +114,11 @@ function barsUpTo(sorted, t) {
   return sorted.slice(0, lo + 1)
 }
 
-async function loadBarsMap(tickers) {
+/**
+ * @param {string[]} tickers
+ * @param {string} indexSymbol e.g. ^AXJO / ^AORD / ^AXSO
+ */
+async function loadBarsMap(tickers, indexSymbol = INDEX_SYMBOL) {
   const map = new Map()
   const symbolToTicker = new Map()
   for (const raw of tickers) {
@@ -128,11 +132,19 @@ async function loadBarsMap(tickers) {
     }
   }
   const symbols = [...new Set(tickers.map(toBarSymbol))]
-  if (symbols.includes(INDEX_SYMBOL) === false) {
+  const idx = String(indexSymbol).toUpperCase()
+  if (!symbols.includes(idx)) {
+    symbols.push(idx)
+    symbolToTicker.set(idx, idx)
+    map.set(idx, [])
+  }
+  // Keep AXJO available as fallback calendar when universe index is thin.
+  if (idx !== INDEX_SYMBOL && !symbols.includes(INDEX_SYMBOL)) {
     symbols.push(INDEX_SYMBOL)
     symbolToTicker.set(INDEX_SYMBOL, INDEX_SYMBOL)
     map.set(INDEX_SYMBOL, [])
   }
+
   const CHUNK = 100
   for (let i = 0; i < symbols.length; i += CHUNK) {
     const chunk = symbols.slice(i, i + CHUNK)
@@ -156,7 +168,54 @@ async function loadBarsMap(tickers) {
   return map
 }
 
-/** @type {Map<string, { builtAt: number, points: object[] }>} */
+/**
+ * Pull EODHD for universe members whose last bar is behind (capped per request).
+ * @param {string[]} tickers
+ * @param {number} maxPulls
+ */
+async function refreshStaleUniverseBars(tickers, maxPulls = 80) {
+  const { getCachedSeries, resolveSeriesSymbol } = await import('./getSeries.mjs')
+  const { isLastBarAcceptable } = await import('./seriesStore.mjs')
+  const { mapPool } = await import('./perfMath.mjs')
+  const from = new Date()
+  from.setUTCFullYear(from.getUTCFullYear() - 2)
+  const fromIso = from.toISOString().slice(0, 10)
+
+  const stale = []
+  for (const raw of tickers) {
+    const ticker = String(raw).toUpperCase()
+    const sym = resolveSeriesSymbol(ticker)
+    const cached = await readSeriesCache(sym)
+    if (cached?.closes?.length && isLastBarAcceptable(cached.closes)) continue
+    stale.push(ticker)
+    if (stale.length >= maxPulls) break
+  }
+  if (!stale.length) return 0
+
+  let pulled = 0
+  await mapPool(
+    stale,
+    2,
+    async (ticker) => {
+      try {
+        await getCachedSeries(ticker, fromIso, { staleOk: false })
+        pulled++
+      } catch {
+        /* keep going */
+      }
+      return ticker
+    },
+    undefined,
+    80,
+  )
+  if (pulled > 0) {
+    console.log(`[breadth] refreshed ${pulled}/${stale.length} stale series for chart history`)
+    clearBreadthChartCache()
+  }
+  return pulled
+}
+
+/** @type {Map<string, { builtAt: number, indexLast: string, points: object[] }>} */
 const chartCache = new Map()
 
 /**
@@ -168,16 +227,30 @@ const chartCache = new Map()
  */
 export async function computeBreadthChartHistory(universeId, stocks, builtAt, days = DEFAULT_DAYS) {
   if (!UNIVERSE_IDS.has(universeId)) return []
-  const cached = chartCache.get(universeId)
-  if (cached && cached.builtAt === builtAt && cached.points.length) {
-    return cached.points
-  }
 
   const tickers = universeTickers(universeId)
   if (!tickers.length) return []
 
-  const barsMap = await loadBarsMap(tickers)
-  const indexBars = barsMap.get(INDEX_SYMBOL) ?? []
+  const { symbol: indexSymbol } = universeChartIndex(universeId)
+  // Mid/small often lag ASX200 — catch up bars before reading (and before cache hit).
+  // Cap pulls so /api/breadth/daily stays under gateway timeouts; full catch-up is Refresh.
+  const maxPulls = universeId === 'asx200' ? 25 : 45
+  await refreshStaleUniverseBars([indexSymbol, ...tickers], maxPulls)
+
+  const indexCached = await readSeriesCache(indexSymbol)
+  const indexLast =
+    indexCached?.closes?.length
+      ? new Date(indexCached.closes[indexCached.closes.length - 1].t * 1000).toISOString().slice(0, 10)
+      : 'none'
+  const cacheKey = `${universeId}:${builtAt}:${indexLast}`
+  const cached = chartCache.get(cacheKey)
+  if (cached?.points?.length) return cached.points
+
+  const barsMap = await loadBarsMap(tickers, indexSymbol)
+  let indexBars = barsMap.get(indexSymbol) ?? []
+  if (indexBars.length < 25) {
+    indexBars = barsMap.get(INDEX_SYMBOL) ?? indexBars
+  }
   const refBars = indexBars.length >= 25 ? indexBars : barsMap.get(tickers[0]) ?? []
   if (refBars.length < 25) return []
 
@@ -266,7 +339,7 @@ export async function computeBreadthChartHistory(universeId, stocks, builtAt, da
     })
   }
 
-  chartCache.set(universeId, { builtAt, points })
+  chartCache.set(cacheKey, { builtAt, indexLast, points })
   return points
 }
 
@@ -295,6 +368,20 @@ export async function getIndexBarsForChart(universeId = 'asx200', days = DEFAULT
   const minBars = 2
   const sliceLast = (bars) => (bars.length > days ? bars.slice(-days) : bars)
 
+  const from = new Date()
+  from.setUTCDate(from.getUTCDate() - (days + 90))
+  const fromIso = from.toISOString().slice(0, 10)
+
+  // Always prefer a last-bar-fresh pull (staleOk:false) so mid/small indices don't stick on old AORD/AXSO.
+  try {
+    const { getCachedSeries } = await import('./getSeries.mjs')
+    const series = await getCachedSeries(symbol, fromIso, { staleOk: false })
+    const fromSeries = dedupeIndexBarsByDay(series?.closes ?? [])
+    if (fromSeries.length >= minBars) return sliceLast(fromSeries)
+  } catch {
+    /* fall through */
+  }
+
   const cached = await readSeriesCache(symbol)
   if (cached?.closes?.length >= minBars) {
     const bars = dedupeIndexBarsByDay(cached.closes)
@@ -308,19 +395,6 @@ export async function getIndexBarsForChart(universeId = 'asx200', days = DEFAULT
   )
   const fromDb = dedupeIndexBarsByDay(rows)
   if (fromDb.length >= minBars) return sliceLast(fromDb)
-
-  const from = new Date()
-  from.setUTCDate(from.getUTCDate() - (days + 90))
-  const fromIso = from.toISOString().slice(0, 10)
-
-  try {
-    const { getCachedSeries } = await import('./getSeries.mjs')
-    const series = await getCachedSeries(symbol, fromIso, { staleOk: true })
-    const fromSeries = dedupeIndexBarsByDay(series?.closes ?? [])
-    if (fromSeries.length >= minBars) return sliceLast(fromSeries)
-  } catch {
-    /* optional */
-  }
 
   try {
     const fresh = await fetchChartCloses(symbol, fromIso, { attempts: 5, baseDelayMs: 600 })

@@ -474,20 +474,26 @@ export function computeBreadth(
   },
 ): BreadthBundle {
   const stocks = filterUniverse(snapshot.stocks, universeId)
-  const pctAbove20 = pctOf(stocks, (s) => s.above20ma)
-  const pctAbove50 = pctOf(stocks, (s) => s.above50ma)
-  const pctAbove200 = pctOf(stocks, (s) => s.above200ma)
-  const pctRsi50 = pctOf(stocks, (s) => (s.rsi ?? 50) >= 50)
+  const serverPoints = opts?.serverPoints?.length ? opts.serverPoints : []
+  const chartHistory = opts?.chartHistory?.length ? opts.chartHistory : []
+  const ohlcLast =
+    chartHistory.length >= MIN_OHLC_CHART_DAYS ? chartHistory[chartHistory.length - 1] : null
+
+  // Prefer last OHLC-reconstructed point for mid/small so gauges match charts when snapshot perfs lag.
+  let pctAbove20 = ohlcLast?.above20 ?? pctOf(stocks, (s) => s.above20ma)
+  let pctAbove50 = ohlcLast?.above50 ?? pctOf(stocks, (s) => s.above50ma)
+  let pctAbove200 = ohlcLast?.above200 ?? pctOf(stocks, (s) => s.above200ma)
+  let pctRsi50 = ohlcLast?.rsi50 ?? pctOf(stocks, (s) => (s.rsi ?? 50) >= 50)
   const pctRsi60 = pctOf(stocks, (s) => (s.rsi ?? 50) >= 60)
-  const pctRsi70 = pctOf(stocks, (s) => (s.rsi ?? 50) >= 70)
-  const pctNear52w = pctOf(stocks, (s) => Math.abs(s.from52wHigh) <= 5)
-  const pctRs50 = pctOf(stocks, (s) => (s.rs ?? 50) >= 50)
+  let pctRsi70 = ohlcLast?.rsi70 ?? pctOf(stocks, (s) => (s.rsi ?? 50) >= 70)
+  let pctNear52w = ohlcLast?.near52w ?? pctOf(stocks, (s) => Math.abs(s.from52wHigh) <= 5)
+  let pctRs50 = ohlcLast?.rs50 ?? pctOf(stocks, (s) => (s.rs ?? 50) >= 50)
   const pctRs70 = pctOf(stocks, (s) => (s.rs ?? 50) >= 70)
   const avgRs =
     stocks.length > 0
       ? round1(stocks.reduce((a, s) => a + (s.rs ?? 50), 0) / stocks.length)
       : 50
-  const pctRvol15 = pctOf(stocks, (s) => (s.relativeVolume ?? 0) >= 1.5)
+  let pctRvol15 = ohlcLast?.rvol15 ?? pctOf(stocks, (s) => (s.relativeVolume ?? 0) >= 1.5)
   const pctRvol20 = pctOf(stocks, (s) => (s.relativeVolume ?? 0) >= 2)
   const pctRvol30 = pctOf(stocks, (s) => (s.relativeVolume ?? 0) >= 3)
   const avgRvol =
@@ -515,10 +521,16 @@ export function computeBreadth(
   const overall: BreadthSentiment =
     sum >= 5 ? 'bullish' : sum >= 1 ? 'neutral' : sum >= -3 ? 'weak' : 'bearish'
 
-  const advancing = stocks.filter((s) => s.d1 > 0).length
-  const declining = stocks.filter((s) => s.d1 < 0).length
-  const unchanged = stocks.length - advancing - declining
-  const adNet = advancing - declining
+  let advancing =
+    ohlcLast?.advancing != null
+      ? Number(ohlcLast.advancing)
+      : stocks.filter((s) => s.d1 > 0).length
+  let declining =
+    ohlcLast?.declining != null
+      ? Number(ohlcLast.declining)
+      : stocks.filter((s) => s.d1 < 0).length
+  const unchanged = Math.max(0, stocks.length - advancing - declining)
+  const adNet = ohlcLast?.adNet ?? advancing - declining
 
   const hist = sparkHistory(stocks)
   if (hist.above20.length) {
@@ -527,7 +539,8 @@ export function computeBreadth(
     hist.above200[hist.above200.length - 1] = pctAbove200
     hist.near52w[hist.near52w.length - 1] = pctNear52w
     hist.rsiOb[hist.rsiOb.length - 1] = pctRsi70
-    hist.rsiOs[hist.rsiOs.length - 1] = pctOf(stocks, (s) => (s.rsi ?? 50) <= 30)
+    hist.rsiOs[hist.rsiOs.length - 1] =
+      ohlcLast?.rsi30 ?? pctOf(stocks, (s) => (s.rsi ?? 50) <= 30)
     hist.rsiNeutral[hist.rsiNeutral.length - 1] = pctOf(
       stocks,
       (s) => (s.rsi ?? 50) > 30 && (s.rsi ?? 50) < 70,
@@ -537,9 +550,6 @@ export function computeBreadth(
     hist.advances[hist.advances.length - 1] = advancing
     hist.declines[hist.declines.length - 1] = declining
   }
-
-  const serverPoints = opts?.serverPoints?.length ? opts.serverPoints : []
-  const chartHistory = opts?.chartHistory?.length ? opts.chartHistory : []
 
   let historyKind: BreadthBundle['historyKind'] = 'spark-proxy'
   let dailyHistory = serverPoints
@@ -626,7 +636,7 @@ export function computeBreadth(
     {
       id: 'rs50',
       label: '% Stocks RS ≥ 50 (Beating market)',
-      subtitle: `Relative strength vs ASX200 · universe avg RS ${avgRs}`,
+      subtitle: `Relative strength vs ${universeIndexLabel(universeId)} · universe avg RS ${avgRs}`,
       pct: pctRs50,
       sentiment: sentimentFromPct(pctRs50),
       spark: hist.rs50,

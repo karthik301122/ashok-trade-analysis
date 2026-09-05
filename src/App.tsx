@@ -222,9 +222,10 @@ export default function App() {
           : `Refresh failed (${res.status}) — admin access required in production`,
       )
     }
-    // Unblock UI after ASX200 (~2–4 min). Mid/small keep running server-side.
+    // Wait for full desk (ASX200 + mid + small). Mid/small were finishing in the
+    // background while the UI showed "done", which left Breadth Mid/Small on stale bars.
     await waitForSnapshotJob(startedAfter, {
-      readyOn: 'asx200',
+      readyOn: 'desk',
       onStatus: setRefreshStatus,
     })
     return startedAfter
@@ -237,15 +238,13 @@ export default function App() {
     try {
       clearPerfCache()
       clearOhlcSessionCache()
-      const startedAfter = await startAsx200ForceRefresh()
+      await startAsx200ForceRefresh()
       await load(false)
-      void waitForSnapshotJob(startedAfter, { readyOn: 'desk' }).then(async (job) => {
-        if (job) await loadRef.current(false)
-        setRefreshStatus(null)
-      })
+      setRefreshStatus(null)
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Retry failed'
       setError(msg)
+      setRefreshStatus(null)
     } finally {
       setRetryingFailed(false)
     }
@@ -266,22 +265,15 @@ export default function App() {
       }
       setBackfilling(true)
       try {
-        const startedAfter = await startAsx200ForceRefresh()
+        await startAsx200ForceRefresh()
         await load(false)
-        setBackfilling(false)
-        setRefreshStatus('ASX200 ready · finishing mid/small in background…')
-        void waitForSnapshotJob(startedAfter, {
-          readyOn: 'desk',
-          onStatus: setRefreshStatus,
-        }).then(async (job) => {
-          if (job) await loadRef.current(false)
-          setRefreshStatus(null)
-        })
+        setRefreshStatus(null)
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Refresh failed'
         setError(msg)
-        setBackfilling(false)
         setRefreshStatus(null)
+      } finally {
+        setBackfilling(false)
       }
       return
     }
