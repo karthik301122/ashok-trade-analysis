@@ -425,15 +425,17 @@ export default function App() {
     <PatternPrefsProvider user={user}>
     <AppNavContext.Provider value={{ page, setPage: navigate }}>
     <div className="min-h-screen bg-[var(--color-muted)] text-[var(--color-ink)]">
-      <Header
-        dark={dark}
-        onToggleDark={() => setDark((d) => !d)}
-        page={page}
-        onPage={navigate}
-        authRequired={authRequired}
-        user={user}
-        onLogout={authRequired ? handleLogout : undefined}
-      />
+      {canUseApp && (
+        <Header
+          dark={dark}
+          onToggleDark={() => setDark((d) => !d)}
+          page={page}
+          onPage={navigate}
+          authRequired={authRequired}
+          user={user}
+          onLogout={authRequired ? handleLogout : undefined}
+        />
+      )}
 
       <main className="mx-auto max-w-[1600px] px-4 py-5">
         {authChecking ? (
