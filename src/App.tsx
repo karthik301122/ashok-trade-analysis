@@ -315,6 +315,29 @@ export default function App() {
     return () => abortRef.current?.abort()
   }, [canUseApp])
 
+  // When a chart loads fresh OHLC, keep Markets overview Price on that last close.
+  useEffect(() => {
+    const onPrice = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ ticker?: string; lastPrice?: number }>).detail
+      const ticker = String(detail?.ticker || '').toUpperCase()
+      const lastPrice = Number(detail?.lastPrice)
+      if (!ticker || !Number.isFinite(lastPrice) || lastPrice <= 0) return
+      setSnapshot((prev) => {
+        if (!prev?.stocks?.length) return prev
+        let changed = false
+        const stocks = prev.stocks.map((s) => {
+          if (s.ticker !== ticker) return s
+          if (Number(s.lastPrice) === lastPrice) return s
+          changed = true
+          return { ...s, lastPrice }
+        })
+        return changed ? { ...prev, stocks } : prev
+      })
+    }
+    window.addEventListener('desk-last-price', onPrice)
+    return () => window.removeEventListener('desk-last-price', onPrice)
+  }, [])
+
   const handleLogin = async (u: string) => {
     startedLoad.current = false
     setUser(u)

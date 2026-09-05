@@ -49,6 +49,8 @@ type Props = {
   name?: string
   onClose: () => void
   initialFocus?: ChartPatternFocus | null
+  /** Fired when daily OHLC last close is known (keeps Markets Price in sync with chart). */
+  onLastPrice?: (ticker: string, lastPrice: number) => void
 }
 
 function nearestBar(bars: OhlcBar[], t: number): OhlcBar {
@@ -92,7 +94,7 @@ function barsAroundHit(all: OhlcBar[], hit: PatternHit, intraday = false): OhlcB
   return sliced.length >= 10 ? sliced : all.slice(-Math.min(all.length, intraday ? 400 : 180))
 }
 
-export function StockChartModal({ ticker, name, onClose, initialFocus = null }: Props) {
+export function StockChartModal({ ticker, name, onClose, initialFocus = null, onLastPrice }: Props) {
   const symbol = toTradingViewSymbol(ticker)
   const tvUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(symbol)}`
   const { page } = useAppNav()
@@ -185,6 +187,18 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null }: 
         setLoading(false)
         setIntradayLoading(false)
         return
+      }
+      const lastClose = ohlc[ohlc.length - 1]?.c
+      if (Number.isFinite(lastClose) && lastClose > 0) {
+        const px = Math.round(lastClose * 10000) / 10000
+        onLastPrice?.(ticker, px)
+        try {
+          window.dispatchEvent(
+            new CustomEvent('desk-last-price', { detail: { ticker, lastPrice: px } }),
+          )
+        } catch {
+          /* ignore */
+        }
       }
       const resolved = resolveChartInterval(chartInterval, prefs.scanWindow, dataProvider)
       setDailyBars(ohlc)

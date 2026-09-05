@@ -66,6 +66,7 @@ type ServerSnapshotJson = {
   asOf?: string
   barsAsOf?: string | null
   barsAsOfLabel?: string | null
+  lastPrices?: Record<string, number>
   indexPerf?: CachedPerf
   stocks?: Record<string, CachedPerf>
   store?: string
@@ -228,6 +229,7 @@ async function fetchServerSnapshotJson(
     asOf: meta.asOf,
     barsAsOf: meta.barsAsOf,
     barsAsOfLabel: meta.barsAsOfLabel,
+    lastPrices: meta.lastPrices,
     indexPerf: meta.indexPerf,
     stocks,
     store: 'sqlite',
@@ -516,7 +518,17 @@ export async function loadLiveMarketSnapshot(
     parsed: { stockPerfs: Map<string, CachedPerf>; indexPerf: CachedPerf; failed: number },
     fromCache: boolean,
     asOfLabel?: string | null,
+    lastPrices?: Record<string, number> | null,
   ) => {
+    if (lastPrices) {
+      for (const [ticker, px] of Object.entries(lastPrices)) {
+        if (!Number.isFinite(px) || px <= 0) continue
+        const perf = parsed.stockPerfs.get(ticker)
+        if (!perf) continue
+        if (Number(perf.lastPrice) === px) continue
+        parsed.stockPerfs.set(ticker, { ...perf, lastPrice: px })
+      }
+    }
     const snapshot = assembleSnapshotFromPerfs(
       parsed.stockPerfs,
       parsed.indexPerf,
@@ -547,7 +559,7 @@ export async function loadLiveMarketSnapshot(
     const parsed = parseServerSnapshot(json, tickers, config, acceptStale)
     if (!parsed) return null
     const asOfLabel = json.barsAsOfLabel || json.asOf || null
-    return finishFromServer(parsed, !forceRefresh, asOfLabel)
+    return finishFromServer(parsed, !forceRefresh, asOfLabel, json.lastPrices)
   }
 
   if (!forceRefresh) {

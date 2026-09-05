@@ -225,6 +225,7 @@ const PRICE_SYNC_MIN_MS = 15 * 1000
 /**
  * Align Markets overview lastPrice with the latest bar close (same value charts use).
  * Prefer bars over series_meta.last — meta can lag behind the bars table.
+ * When both JNS.AX and JNS.AU exist, keep the bar with the latest session timestamp.
  */
 export async function syncSnapshotPricesFromSeriesMeta(opts = {}) {
   const force = Boolean(opts.force)
@@ -239,9 +240,8 @@ export async function syncSnapshotPricesFromSeriesMeta(opts = {}) {
     if (!row?.stocks_perf_json) return { updated: 0 }
     const stocks = JSON.parse(row.stocks_perf_json)
 
-    // Latest close per symbol from bars (authoritative for charts).
     const lastBars = await sqlAll(
-      `SELECT b.symbol, b.c AS last
+      `SELECT b.symbol, b.c AS last, b.t AS t
        FROM bars b
        INNER JOIN (
          SELECT symbol, MAX(t) AS maxt FROM bars GROUP BY symbol
@@ -250,14 +250,23 @@ export async function syncSnapshotPricesFromSeriesMeta(opts = {}) {
     )
     if (!lastBars?.length) return { updated: 0 }
 
-    let updated = 0
+    /** @type {Map<string, { last: number, t: number }>} */
+    const byTicker = new Map()
     for (const bar of lastBars) {
       const ticker = appTickerFromBarSymbol(bar.symbol)
       if (!ticker) continue
+      const last = Number(bar.last)
+      const t = Number(bar.t)
+      if (!Number.isFinite(last) || last <= 0 || !Number.isFinite(t)) continue
+      const prev = byTicker.get(ticker)
+      if (!prev || t >= prev.t) byTicker.set(ticker, { last, t })
+    }
+
+    let updated = 0
+    for (const [ticker, { last }] of byTicker) {
       const perf = stocks[ticker]
       if (!perf || typeof perf !== 'object') continue
-      const next = Math.round(Number(bar.last) * 10000) / 10000
-      if (!Number.isFinite(next) || next <= 0) continue
+      const next = Math.round(last * 10000) / 10000
       if (Number(perf.lastPrice) === next) continue
       stocks[ticker] = { ...perf, lastPrice: next }
       updated++
@@ -278,6 +287,38 @@ export async function syncSnapshotPricesFromSeriesMeta(opts = {}) {
     )
     return { updated: 0, error: true }
   }
+}
+
+/**
+ * Lightweight ticker → last close from bars (for client overlay; matches chart last).
+ * @returns {Promise<Record<string, number>>}
+ */
+export async function readLastPricesFromBars() {
+  const lastBars = await sqlAll(
+    `SELECT b.symbol, b.c AS last, b.t AS t
+     FROM bars b
+     INNER JOIN (
+       SELECT symbol, MAX(t) AS maxt FROM bars GROUP BY symbol
+     ) x ON b.symbol = x.symbol AND b.t = x.maxt
+     WHERE b.c > 0`,
+  )
+  /** @type {Map<string, { last: number, t: number }>} */
+  const byTicker = new Map()
+  for (const bar of lastBars || []) {
+    const ticker = appTickerFromBarSymbol(bar.symbol)
+    if (!ticker) continue
+    const last = Number(bar.last)
+    const t = Number(bar.t)
+    if (!Number.isFinite(last) || last <= 0 || !Number.isFinite(t)) continue
+    const prev = byTicker.get(ticker)
+    if (!prev || t >= prev.t) byTicker.set(ticker, { last, t })
+  }
+  /** @type {Record<string, number>} */
+  const out = {}
+  for (const [ticker, { last }] of byTicker) {
+    out[ticker] = Math.round(last * 10000) / 10000
+  }
+  return out
 }
 
 /** Latest AXJO daily bar date (ISO) — what Markets/charts should match. */
