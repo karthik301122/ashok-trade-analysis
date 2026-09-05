@@ -129,32 +129,40 @@ async function waitForServerSnapshotJob(
   failed: number
   source?: 'server-sqlite' | 'browser-series'
 } | null> {
-  for (let i = 0; i < 300; i++) {
+  // Keep retrying even when job is idle/error — deploy restarts clear "running"
+  // before the background rebuild has started; bailing early caused false "still building".
+  for (let i = 0; i < 180; i++) {
     if (signal?.aborted) throw new Error('Aborted')
     if (tryReady) {
       const ready = await tryReady()
       if (ready) return ready
     }
+    if (i === 0 || i % 5 === 0) maybeStartBackgroundSnapshotClient()
     const res = await fetch(`/api/snapshot/refresh?_=${Date.now()}`, {
       credentials: 'include',
       cache: 'no-store',
       signal,
     })
-    if (!res.ok) break
+    if (!res.ok) {
+      await sleep(2000)
+      continue
+    }
     const json = (await res.json()) as {
       job?: { status?: string; loaded?: number; total?: number; message?: string }
+      snapshot?: { loaded?: number } | null
     }
     const job = json.job
-    if (job?.status !== 'running') return null
-    const loaded = job.loaded ?? 0
-    const jobTotal = job.total ?? total
-    onProgress?.({
-      done: loaded,
-      total: jobTotal > 0 ? jobTotal + 1 : total,
-      phase: 'cache',
-      loaded,
-      remaining: Math.max(0, jobTotal - loaded),
-    })
+    const loaded = job?.loaded ?? json.snapshot?.loaded ?? 0
+    const jobTotal = job?.total ?? total
+    if (job?.status === 'running' || loaded > 0) {
+      onProgress?.({
+        done: loaded,
+        total: jobTotal > 0 ? jobTotal + 1 : total,
+        phase: 'cache',
+        loaded,
+        remaining: Math.max(0, jobTotal - loaded),
+      })
+    }
     await sleep(2000)
   }
   return null

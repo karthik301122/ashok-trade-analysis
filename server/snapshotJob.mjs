@@ -223,7 +223,7 @@ function appTickerFromBarSymbol(symbol) {
 let lastPriceSyncAt = 0
 const PRICE_SYNC_MIN_MS = 15 * 1000
 
-/** @type {{ at: number, prices: Record<string, number> } | null} */
+/** @type {{ at: number, prices: Record<string, number>, key?: string } | null} */
 let lastPricesCache = null
 const LAST_PRICES_CACHE_MS = 20 * 1000
 /** @type {number} */
@@ -249,9 +249,9 @@ export async function syncSnapshotPricesFromSeriesMeta(opts = {}) {
     const row = await sqlOne('SELECT stocks_perf_json FROM market_snapshot WHERE id = 1')
     if (!row?.stocks_perf_json) return { updated: 0 }
     const stocks = JSON.parse(row.stocks_perf_json)
-    // Never block request path on EODHD — schedule stale bar catch-up in background.
+    // Prefer accurate bars for background sync; HTTP path uses series_meta (fast).
     scheduleStaleLastBarRefresh(Object.keys(stocks))
-    const lastPrices = await readLastPricesFromBars()
+    const lastPrices = await readLastPricesFromBars({ fromBars: true })
     if (!lastPrices || !Object.keys(lastPrices).length) return { updated: 0 }
 
     let updated = 0
@@ -364,39 +364,56 @@ export function scheduleStaleLastBarRefresh(preferTickers = []) {
 }
 
 /**
- * Lightweight ticker → last close from bars (for client overlay; matches chart last).
- * Fast SQL only — never blocks HTTP on EODHD (see scheduleStaleLastBarRefresh).
- * @param {{ bypassCache?: boolean }} [opts]
+ * Lightweight ticker → last close for client overlay.
+ * Default: series_meta (one row/symbol — safe for /api/snapshot/meta).
+ * fromBars: true scans bars (slower; background price sync only).
+ * @param {{ bypassCache?: boolean, fromBars?: boolean }} [opts]
  * @returns {Promise<Record<string, number>>}
  */
 export async function readLastPricesFromBars(opts = {}) {
   const now = Date.now()
+  const cacheKey = opts.fromBars ? 'bars' : 'meta'
   if (
     !opts.bypassCache &&
     lastPricesCache &&
+    lastPricesCache.key === cacheKey &&
     now - lastPricesCache.at < LAST_PRICES_CACHE_MS
   ) {
     return lastPricesCache.prices
   }
 
-  const lastBars = await sqlAll(
-    `SELECT b.symbol, b.c AS last, b.t AS t
-     FROM bars b
-     INNER JOIN (
-       SELECT symbol, MAX(t) AS maxt FROM bars GROUP BY symbol
-     ) x ON b.symbol = x.symbol AND b.t = x.maxt
-     WHERE b.c > 0`,
-  )
-  /** @type {Map<string, { last: number, t: number }>} */
+  /** @type {Map<string, { last: number, t?: number }>} */
   const byTicker = new Map()
-  for (const bar of lastBars || []) {
-    const ticker = appTickerFromBarSymbol(bar.symbol)
-    if (!ticker) continue
-    const last = Number(bar.last)
-    const t = Number(bar.t)
-    if (!Number.isFinite(last) || last <= 0 || !Number.isFinite(t)) continue
-    const prev = byTicker.get(ticker)
-    if (!prev || t >= prev.t) byTicker.set(ticker, { last, t })
+
+  if (opts.fromBars) {
+    const lastBars = await sqlAll(
+      `SELECT b.symbol, b.c AS last, b.t AS t
+       FROM bars b
+       INNER JOIN (
+         SELECT symbol, MAX(t) AS maxt FROM bars GROUP BY symbol
+       ) x ON b.symbol = x.symbol AND b.t = x.maxt
+       WHERE b.c > 0`,
+    )
+    for (const bar of lastBars || []) {
+      const ticker = appTickerFromBarSymbol(bar.symbol)
+      if (!ticker) continue
+      const last = Number(bar.last)
+      const t = Number(bar.t)
+      if (!Number.isFinite(last) || last <= 0) continue
+      const prev = byTicker.get(ticker)
+      if (!prev || (Number.isFinite(t) && t >= (prev.t || 0))) {
+        byTicker.set(ticker, { last, t })
+      }
+    }
+  } else {
+    const rows = await sqlAll('SELECT symbol, last FROM series_meta WHERE last > 0')
+    for (const row of rows || []) {
+      const ticker = appTickerFromBarSymbol(row.symbol)
+      if (!ticker) continue
+      const last = Number(row.last)
+      if (!Number.isFinite(last) || last <= 0) continue
+      byTicker.set(ticker, { last })
+    }
   }
 
   /** @type {Record<string, number>} */
@@ -404,7 +421,7 @@ export async function readLastPricesFromBars(opts = {}) {
   for (const [ticker, { last }] of byTicker) {
     out[ticker] = Math.round(last * 10000) / 10000
   }
-  lastPricesCache = { at: Date.now(), prices: out }
+  lastPricesCache = { at: Date.now(), prices: out, key: cacheKey }
   return out
 }
 

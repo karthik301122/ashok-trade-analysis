@@ -182,7 +182,8 @@ export async function handleConnectApi(req, res, send) {
 
   if (url.pathname === '/api/snapshot/meta' && req.method === 'GET') {
     if (rateLimitOrSend(req, send, 'snapshot', snapshotRateLimitPerMinute())) return true
-    await syncSnapshotPricesFromSeriesMeta({ force: true })
+    // Never block meta on price sync / bars scan — that timed out production loads.
+    void syncSnapshotPricesFromSeriesMeta()
     const meta = await readMarketSnapshotMeta()
     if (!meta) {
       void maybeStartBackgroundSnapshot()
@@ -222,7 +223,7 @@ export async function handleConnectApi(req, res, send) {
   if (url.pathname === '/api/snapshot') {
     if (req.method === 'GET') {
       if (rateLimitOrSend(req, send, 'snapshot', snapshotRateLimitPerMinute())) return true
-      await syncSnapshotPricesFromSeriesMeta()
+      void syncSnapshotPricesFromSeriesMeta()
       const row = await readMarketSnapshotRow()
       if (!row) {
         void maybeStartBackgroundSnapshot()
@@ -836,7 +837,8 @@ export function mountExpressApi(app) {
     ) {
       return
     }
-    await syncSnapshotPricesFromSeriesMeta({ force: true })
+    // Never block meta on price sync — large stocks_perf JSON + bars scan timed out loads.
+    void syncSnapshotPricesFromSeriesMeta()
     const meta = await readMarketSnapshotMeta()
     if (!meta) {
       void maybeStartBackgroundSnapshot()
@@ -887,7 +889,7 @@ export function mountExpressApi(app) {
     ) {
       return
     }
-    await syncSnapshotPricesFromSeriesMeta()
+    void syncSnapshotPricesFromSeriesMeta()
     const row = await readMarketSnapshotRow()
     if (!row) {
       void maybeStartBackgroundSnapshot()
