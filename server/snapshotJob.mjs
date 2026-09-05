@@ -192,18 +192,51 @@ export async function readMarketSnapshotRow() {
 /** In-memory cache so chunked stock reads don't re-parse the full JSON blob each time. */
 let stocksPerfCache = null
 let stocksPerfBuiltAt = 0
+/** @type {Promise<boolean> | null} */
+let stocksPerfWarmPromise = null
 
 function loadStocksPerfMap(builtAt, stocksJson) {
   if (stocksPerfCache && stocksPerfBuiltAt === builtAt) return stocksPerfCache
+  const t0 = Date.now()
   stocksPerfCache = JSON.parse(stocksJson)
   stocksPerfBuiltAt = builtAt
+  const n = Object.keys(stocksPerfCache).length
+  console.log(`[snapshot] parsed stocks_perf (${n} names) in ${Date.now() - t0}ms`)
   return stocksPerfCache
 }
 
 export function clearStocksPerfCache() {
   stocksPerfCache = null
   stocksPerfBuiltAt = 0
+  stocksPerfWarmPromise = null
   lastPricesCache = null
+}
+
+/**
+ * Parse stocks_perf_json once per process (shared across concurrent chunk requests).
+ * First /api/snapshot/stocks without this can take so long the browser times out at 96%.
+ * @returns {Promise<boolean>}
+ */
+export async function ensureStocksPerfCacheWarm() {
+  if (stocksPerfCache) return true
+  if (stocksPerfWarmPromise) return stocksPerfWarmPromise
+  stocksPerfWarmPromise = (async () => {
+    try {
+      const row = await sqlOne('SELECT built_at, stocks_perf_json FROM market_snapshot WHERE id = 1')
+      if (!row?.stocks_perf_json) return false
+      loadStocksPerfMap(Number(row.built_at), row.stocks_perf_json)
+      return true
+    } catch (err) {
+      console.warn(
+        '[snapshot] stocks_perf warm failed:',
+        err instanceof Error ? err.message : String(err),
+      )
+      return false
+    } finally {
+      stocksPerfWarmPromise = null
+    }
+  })()
+  return stocksPerfWarmPromise
 }
 
 /**
@@ -445,6 +478,8 @@ export async function readBarsAsOf() {
 
 /** Fast metadata without parsing the large stocks JSON column. */
 export async function readMarketSnapshotMeta() {
+  // Await warm so the first stocks chunk does not re-hit Postgres for the giant JSON.
+  await ensureStocksPerfCacheWarm()
   const row = await sqlOne(
     'SELECT built_at, as_of, loaded, failed, index_perf_json FROM market_snapshot WHERE id = 1',
   )
@@ -463,15 +498,19 @@ export async function readMarketSnapshotMeta() {
     indexPerf: JSON.parse(row.index_perf_json),
     store: dbStoreLabel(),
     liveQuotes: await getLiveQuotesMeta(),
+    stocksCacheWarm: Boolean(stocksPerfCache),
   }
 }
 
 /** Paginated stock perfs for browsers that cannot download one giant /api/snapshot payload. */
 export async function readMarketSnapshotStocksChunk(offset, limit) {
-  const row = await sqlOne('SELECT built_at, stocks_perf_json FROM market_snapshot WHERE id = 1')
-  if (!row) return null
-  const builtAt = Number(row.built_at)
-  const map = loadStocksPerfMap(builtAt, row.stocks_perf_json)
+  await ensureStocksPerfCacheWarm()
+  let map = stocksPerfCache
+  if (!map) {
+    const row = await sqlOne('SELECT built_at, stocks_perf_json FROM market_snapshot WHERE id = 1')
+    if (!row) return null
+    map = loadStocksPerfMap(Number(row.built_at), row.stocks_perf_json)
+  }
   const keys = Object.keys(map)
   const safeOffset = Math.max(0, Math.min(offset, keys.length))
   const safeLimit = Math.max(1, Math.min(limit, 800))

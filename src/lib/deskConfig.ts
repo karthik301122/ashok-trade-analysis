@@ -32,10 +32,18 @@ export async function fetchDeskServerConfig(
   for (let attempt = 0; attempt < 3; attempt++) {
     const timeout = new AbortController()
     const timer = setTimeout(() => timeout.abort(), 12_000)
-    const linked = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal
+    const onAbort = () => timeout.abort()
+    if (signal) {
+      if (signal.aborted) {
+        clearTimeout(timer)
+        return DEFAULT_CONFIG
+      }
+      signal.addEventListener('abort', onAbort)
+    }
     try {
-      const res = await fetch('/api/health', { credentials: 'include', signal: linked })
+      const res = await fetch('/api/health', { credentials: 'include', signal: timeout.signal })
       clearTimeout(timer)
+      if (signal) signal.removeEventListener('abort', onAbort)
       if (!res.ok) continue
       const j = (await res.json()) as Partial<DeskServerConfig> & {
         provider?: string
@@ -59,6 +67,7 @@ export async function fetchDeskServerConfig(
       }
     } catch {
       clearTimeout(timer)
+      if (signal) signal.removeEventListener('abort', onAbort)
       if (attempt < 2) await new Promise((r) => setTimeout(r, 1500))
     }
   }

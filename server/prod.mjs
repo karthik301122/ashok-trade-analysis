@@ -38,6 +38,11 @@ await initDb()
 
 mountExpressApi(app)
 
+// Warm stocks_perf parse so the first desk load does not time out mid-chunk.
+void import('./snapshotJob.mjs')
+  .then((m) => m.ensureStocksPerfCacheWarm())
+  .catch(() => {})
+
 app.use(express.static(dist))
 
 app.get(/.*/, (_req, res) => {

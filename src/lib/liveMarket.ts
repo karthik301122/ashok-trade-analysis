@@ -28,8 +28,8 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-const API_FETCH_MS = 20_000
-const SNAPSHOT_FETCH_MS = 120_000
+const API_FETCH_MS = 30_000
+const SNAPSHOT_FETCH_MS = 180_000
 
 async function fetchDeskJson<T>(
   url: string,
@@ -44,9 +44,11 @@ async function fetchDeskJson<T>(
   }
   const timer = setTimeout(() => timeout.abort(), timeoutMs)
   try {
+    // Prefer timeout.signal only — AbortSignal.any is missing in some browsers and
+    // silently turned every desk fetch into null (spinner stuck while /api/health works).
     const res = await fetch(url, {
       credentials: 'include',
-      signal: signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal,
+      signal: timeout.signal,
     })
     if (!res.ok) return null
     return (await res.json()) as T
@@ -187,7 +189,7 @@ async function fetchServerSnapshotJson(
   onProgress?: (p: LiveLoadProgress) => void,
   total = 0,
 ): Promise<ServerSnapshotJson | null> {
-  const meta = await fetchDeskJson<ServerSnapshotJson>('/api/snapshot/meta', signal, 45_000)
+  const meta = await fetchDeskJson<ServerSnapshotJson>('/api/snapshot/meta', signal, 90_000)
   if (!meta?.indexPerf) {
     // Older servers without /meta — fall back to monolithic snapshot.
     return fetchDeskJson<ServerSnapshotJson>('/api/snapshot', signal, SNAPSHOT_FETCH_MS)
@@ -249,8 +251,8 @@ async function fetchServerSnapshotJson(
   }
 
   if (Object.keys(stocks).length === 0) {
-    const full = await fetchDeskJson<ServerSnapshotJson>('/api/snapshot', signal, SNAPSHOT_FETCH_MS)
-    if (full?.stocks && Object.keys(full.stocks).length > 0) return full
+    // Avoid the monolithic /api/snapshot fallback — it re-parses the same huge JSON and
+    // often times out, leaving the UI stuck at the last wait-loop progress (~96%).
     return null
   }
 
