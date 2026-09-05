@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { sqlOne, sqlRun } from './db.mjs'
+import { sqlAll, sqlOne, sqlRun } from './db.mjs'
 import { dbStoreLabel } from './db.mjs'
 import { getCachedSeries } from './getSeries.mjs'
 import { eodhdEnabled } from './eodhd.mjs'
@@ -404,58 +404,66 @@ export function scheduleStaleLastBarRefresh(preferTickers = []) {
  * @returns {Promise<Record<string, number>>}
  */
 export async function readLastPricesFromBars(opts = {}) {
-  const now = Date.now()
-  const cacheKey = opts.fromBars ? 'bars' : 'meta'
-  if (
-    !opts.bypassCache &&
-    lastPricesCache &&
-    lastPricesCache.key === cacheKey &&
-    now - lastPricesCache.at < LAST_PRICES_CACHE_MS
-  ) {
-    return lastPricesCache.prices
-  }
+  try {
+    const now = Date.now()
+    const cacheKey = opts.fromBars ? 'bars' : 'meta'
+    if (
+      !opts.bypassCache &&
+      lastPricesCache &&
+      lastPricesCache.key === cacheKey &&
+      now - lastPricesCache.at < LAST_PRICES_CACHE_MS
+    ) {
+      return lastPricesCache.prices
+    }
 
-  /** @type {Map<string, { last: number, t?: number }>} */
-  const byTicker = new Map()
+    /** @type {Map<string, { last: number, t?: number }>} */
+    const byTicker = new Map()
 
-  if (opts.fromBars) {
-    const lastBars = await sqlAll(
-      `SELECT b.symbol, b.c AS last, b.t AS t
-       FROM bars b
-       INNER JOIN (
-         SELECT symbol, MAX(t) AS maxt FROM bars GROUP BY symbol
-       ) x ON b.symbol = x.symbol AND b.t = x.maxt
-       WHERE b.c > 0`,
-    )
-    for (const bar of lastBars || []) {
-      const ticker = appTickerFromBarSymbol(bar.symbol)
-      if (!ticker) continue
-      const last = Number(bar.last)
-      const t = Number(bar.t)
-      if (!Number.isFinite(last) || last <= 0) continue
-      const prev = byTicker.get(ticker)
-      if (!prev || (Number.isFinite(t) && t >= (prev.t || 0))) {
-        byTicker.set(ticker, { last, t })
+    if (opts.fromBars) {
+      const lastBars = await sqlAll(
+        `SELECT b.symbol, b.c AS last, b.t AS t
+         FROM bars b
+         INNER JOIN (
+           SELECT symbol, MAX(t) AS maxt FROM bars GROUP BY symbol
+         ) x ON b.symbol = x.symbol AND b.t = x.maxt
+         WHERE b.c > 0`,
+      )
+      for (const bar of lastBars || []) {
+        const ticker = appTickerFromBarSymbol(bar.symbol)
+        if (!ticker) continue
+        const last = Number(bar.last)
+        const t = Number(bar.t)
+        if (!Number.isFinite(last) || last <= 0) continue
+        const prev = byTicker.get(ticker)
+        if (!prev || (Number.isFinite(t) && t >= (prev.t || 0))) {
+          byTicker.set(ticker, { last, t })
+        }
+      }
+    } else {
+      const rows = await sqlAll('SELECT symbol, last FROM series_meta WHERE last > 0')
+      for (const row of rows || []) {
+        const ticker = appTickerFromBarSymbol(row.symbol)
+        if (!ticker) continue
+        const last = Number(row.last)
+        if (!Number.isFinite(last) || last <= 0) continue
+        byTicker.set(ticker, { last })
       }
     }
-  } else {
-    const rows = await sqlAll('SELECT symbol, last FROM series_meta WHERE last > 0')
-    for (const row of rows || []) {
-      const ticker = appTickerFromBarSymbol(row.symbol)
-      if (!ticker) continue
-      const last = Number(row.last)
-      if (!Number.isFinite(last) || last <= 0) continue
-      byTicker.set(ticker, { last })
-    }
-  }
 
-  /** @type {Record<string, number>} */
-  const out = {}
-  for (const [ticker, { last }] of byTicker) {
-    out[ticker] = Math.round(last * 10000) / 10000
+    /** @type {Record<string, number>} */
+    const out = {}
+    for (const [ticker, { last }] of byTicker) {
+      out[ticker] = Math.round(last * 10000) / 10000
+    }
+    lastPricesCache = { at: Date.now(), prices: out, key: cacheKey }
+    return out
+  } catch (err) {
+    console.warn(
+      '[snapshot] readLastPricesFromBars failed:',
+      err instanceof Error ? err.message : String(err),
+    )
+    return {}
   }
-  lastPricesCache = { at: Date.now(), prices: out, key: cacheKey }
-  return out
 }
 
 /** Latest AXJO daily bar date (ISO) — what Markets/charts should match. */
