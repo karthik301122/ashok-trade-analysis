@@ -6,11 +6,16 @@ export const DEFAULT_ALERT_FROM = 'TradersScope Alerts <alerts@traderscope.com>'
 
 let transporter = null
 
+function smtpPass() {
+  // Google App Passwords are often copied with spaces; SMTP expects no spaces.
+  return String(process.env.SMTP_PASS || '').replace(/\s+/g, '').trim()
+}
+
 export function alertEmailConfigured() {
   return Boolean(
     process.env.SMTP_HOST?.trim() &&
       process.env.SMTP_USER?.trim() &&
-      process.env.SMTP_PASS?.trim(),
+      smtpPass(),
   )
 }
 
@@ -33,7 +38,7 @@ function getTransporter() {
       secure,
       auth: {
         user: process.env.SMTP_USER.trim(),
-        pass: process.env.SMTP_PASS.trim(),
+        pass: smtpPass(),
       },
     })
   }
