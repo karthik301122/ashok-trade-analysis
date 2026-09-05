@@ -466,10 +466,16 @@ export default function App() {
             </p>
             {progress?.phase === 'cache' && progress.done === 0 && (
               <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-                Stuck at 0% usually means this URL has no desk API (wrong port or vite preview).
-                Use <span className="font-mono">npm run dev</span> at{' '}
-                <span className="font-mono">http://localhost:5173</span> — check{' '}
-                <span className="font-mono">/api/health</span> in the browser.
+                {deskConfig?.productionMode
+                  ? 'Waiting for the shared server snapshot… If this stays at 0%, try Refresh or reload in a minute.'
+                  : (
+                    <>
+                      Stuck at 0% usually means this URL has no desk API (wrong port or vite preview).
+                      Use <span className="font-mono">npm run dev</span> at{' '}
+                      <span className="font-mono">http://localhost:5173</span> — check{' '}
+                      <span className="font-mono">/api/health</span> in the browser.
+                    </>
+                  )}
               </p>
             )}
           </div>
