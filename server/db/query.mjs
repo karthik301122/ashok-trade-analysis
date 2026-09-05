@@ -1,7 +1,6 @@
 import { createPostgresBackend } from './postgres.mjs'
-import { createSqliteBackend, resetSqliteForTests, sqliteFilePath } from './sqlite.mjs'
 
-/** @type {import('./postgres.mjs').createPostgresBackend extends (...args: any) => Promise<infer T> ? T : never} | ReturnType<typeof createSqliteBackend> | null} */
+/** @type {Awaited<ReturnType<typeof createPostgresBackend>> | import('./sqlite.mjs').createSqliteBackend extends (...args: any) => infer R ? R : never | null} */
 let backend = null
 
 export function dbKind() {
@@ -18,7 +17,9 @@ export function dbPath() {
   if (process.env.DATABASE_URL?.trim()) {
     return process.env.DATABASE_URL.replace(/:[^:@/]+@/, ':***@')
   }
-  return sqliteFilePath()
+  const custom = process.env.DATABASE_PATH || process.env.CACHE_DIR
+  if (custom) return custom
+  return './data/asx.sqlite'
 }
 
 export async function initDb() {
@@ -26,6 +27,8 @@ export async function initDb() {
   if (process.env.DATABASE_URL?.trim()) {
     backend = await createPostgresBackend(process.env.DATABASE_URL.trim())
   } else {
+    // Lazy-load so production Postgres does not import node:sqlite (noisy warning).
+    const { createSqliteBackend } = await import('./sqlite.mjs')
     backend = createSqliteBackend()
     await backend.ensureSchema()
   }
@@ -62,9 +65,14 @@ export async function seriesSymbolCount() {
   }
 }
 
-export function resetDbForTests() {
+export async function resetDbForTests() {
   backend = null
-  resetSqliteForTests()
+  try {
+    const { resetSqliteForTests } = await import('./sqlite.mjs')
+    resetSqliteForTests()
+  } catch {
+    /* sqlite unused */
+  }
 }
 
 /** @deprecated Use sqlOne/sqlAll/sqlRun — kept for scripts that import getDb during transition */

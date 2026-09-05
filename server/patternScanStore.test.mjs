@@ -9,7 +9,7 @@ describe('patternScanStore', () => {
   let tmpDir
 
   beforeEach(async () => {
-    resetDbForTests()
+    await resetDbForTests()
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pattern-scan-'))
     process.env.DATABASE_PATH = path.join(tmpDir, 'test.sqlite')
     delete process.env.DATABASE_URL

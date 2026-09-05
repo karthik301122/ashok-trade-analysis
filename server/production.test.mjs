@@ -13,10 +13,10 @@ import {
 describe('production mode', () => {
   const prev = { ...process.env }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env = { ...prev }
     delete process.env.DATABASE_URL
-    resetDbForTests()
+    await resetDbForTests()
   })
 
   afterEach(() => {
