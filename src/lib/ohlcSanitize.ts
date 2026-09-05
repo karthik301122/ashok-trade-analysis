@@ -1,5 +1,7 @@
 /**
- * Drop invalid / zero / stray intraday ticks that blow up chart autoscale.
+ * Drop invalid / zero / isolated spike ticks that blow up chart autoscale.
+ * Does NOT use a global median band — that wrongly truncates stocks that re-rate
+ * after long periods at tiny prices (e.g. JNS run from ~$0.15 to ~$0.65).
  */
 export function sanitizeOhlcBars(
   bars: { t: number; o: number; h: number; l: number; c: number; v?: number }[],
@@ -21,11 +23,17 @@ export function sanitizeOhlcBars(
 
   if (valid.length < 3) return valid
 
-  const closes = valid.map((b) => b.c).sort((a, b) => a - b)
-  const median = closes[Math.floor(closes.length / 2)]
-  if (!Number.isFinite(median) || median <= 0) return valid
-
-  const floor = median * 0.2
-  const ceiling = median * 5
-  return valid.filter((b) => b.c >= floor && b.c <= ceiling && b.l >= floor && b.h <= ceiling)
+  // Drop only isolated spikes vs both neighbors (bad ticks), not regime changes.
+  const SPIKE = 20
+  return valid.filter((b, i) => {
+    if (i === 0 || i === valid.length - 1) return true
+    const prev = valid[i - 1].c
+    const next = valid[i + 1].c
+    if (!Number.isFinite(prev) || !Number.isFinite(next) || prev <= 0 || next <= 0) return true
+    const vsPrev = b.c / prev
+    const vsNext = b.c / next
+    const spikeUp = vsPrev > SPIKE && vsNext > SPIKE
+    const spikeDown = vsPrev < 1 / SPIKE && vsNext < 1 / SPIKE
+    return !spikeUp && !spikeDown
+  })
 }
