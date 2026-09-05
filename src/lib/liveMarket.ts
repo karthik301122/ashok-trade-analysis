@@ -77,6 +77,10 @@ function minSnapshotRatio(config: DeskServerConfig, fromServerStore = false) {
   return config.productionMode ? 0.35 : 0.5
 }
 
+function isServerStore(store?: string) {
+  return store === 'sqlite' || store === 'postgres'
+}
+
 function parseServerSnapshot(
   json: ServerSnapshotJson,
   tickers: string[],
@@ -90,13 +94,14 @@ function parseServerSnapshot(
       : typeof json.loaded === 'number' && json.loaded > 0
         ? json.loaded
         : 0
-  const minRatio = minSnapshotRatio(config, json.store === 'sqlite')
+  const minRatio = minSnapshotRatio(config, isServerStore(json.store))
   const enough = stockCount >= tickers.length * minRatio
   const freshOk = Boolean(json.fresh) && enough
   const staleOk = acceptStale && Boolean(json.indexPerf) && enough
-  const serverStore = json.store === 'sqlite'
-  const serverOk = serverStore && Boolean(json.indexPerf) && enough
+  const serverOk = isServerStore(json.store) && Boolean(json.indexPerf) && enough
   if (!json.indexPerf || (!freshOk && !staleOk && !serverOk)) return null
+  // Need the actual stock payloads — loaded count alone is not enough to render.
+  if (fetchedCount === 0) return null
   const stockPerfs = new Map<string, CachedPerf>()
   for (const [t, p] of Object.entries(json.stocks || {})) stockPerfs.set(t, p)
   return {
@@ -180,9 +185,12 @@ async function fetchServerSnapshotJson(
   }
 
   const stocks: Record<string, CachedPerf> = {}
-  const stockTotal = meta.loaded ?? 0
+  // Prefer chunk.total once known — meta.loaded can drift above the JSON map size and
+  // previously caused an infinite empty-chunk loop (stuck at ~96%).
+  let stockTotal = Math.max(0, meta.loaded ?? 0)
   const chunkSize = 400
   let offset = 0
+  let emptyStreak = 0
 
   while (offset < stockTotal) {
     let chunk: {
@@ -204,8 +212,22 @@ async function fetchServerSnapshotJson(
       if (attempt < 3) await sleep(2000 * (attempt + 1))
     }
     if (!chunk?.stocks) break
+    if (typeof chunk.total === 'number' && chunk.total >= 0) {
+      stockTotal = chunk.total
+    }
+    const before = Object.keys(stocks).length
     Object.assign(stocks, chunk.stocks)
-    offset += chunk.count ?? chunkSize
+    const added = Object.keys(stocks).length - before
+    const pageCount = chunk.count ?? Object.keys(chunk.stocks).length
+    if (pageCount <= 0 || added <= 0) {
+      emptyStreak += 1
+      if (emptyStreak >= 2) break
+      // Advance past a hole so we cannot spin forever on count:0.
+      offset += chunkSize
+      continue
+    }
+    emptyStreak = 0
+    offset += pageCount
     const loaded = Object.keys(stocks).length
     onProgress?.({
       done: loaded,
@@ -214,7 +236,7 @@ async function fetchServerSnapshotJson(
       loaded,
       remaining: Math.max(0, stockTotal - loaded),
     })
-    if ((chunk.count ?? 0) < chunkSize) break
+    if (pageCount < chunkSize) break
   }
 
   if (Object.keys(stocks).length === 0) {
@@ -240,7 +262,7 @@ async function fetchServerSnapshotJson(
     lastPrices: meta.lastPrices,
     indexPerf: meta.indexPerf,
     stocks,
-    store: 'sqlite',
+    store: meta.store || 'sqlite',
   }
 }
 
@@ -543,7 +565,8 @@ export async function loadLiveMarketSnapshot(
       ASX_UNIVERSE,
       asOfLabel,
     )
-    persist(parsed.stockPerfs, parsed.indexPerf)
+    // Production never reads browser perf cache — skip huge localStorage writes that can hang.
+    if (!config.productionMode) persist(parsed.stockPerfs, parsed.indexPerf)
     onProgress?.({
       done: total,
       total,
