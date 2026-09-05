@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Copy, Search } from 'lucide-react'
+import { Copy } from 'lucide-react'
 import type { AltAsset } from '../data/altAssets'
 import { classifyCycle, classifyMood, CYCLE_LABEL, MOOD_LABEL, round1 } from '../lib/market'
 import { formatPct, perfCellClass } from '../lib/format'
 import { fetchDeskSeries, returnOver, sma, ema, type SeriesResult } from '../lib/deskSeries'
+import { DebouncedSearchInput } from './DebouncedSearchInput'
 import { Sparkline } from './Sparkline'
 
 type Row = AltAsset & {
@@ -165,15 +166,11 @@ export function AltAssetsPanel({ title, subtitle, assets, benchmarkSymbol = 'BTC
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[200px] flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-ink-soft)]" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search name or symbol..."
-            className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-2 pl-9 pr-3 text-sm outline-none focus:border-teal-500"
-          />
-        </div>
+        <DebouncedSearchInput
+          value={query}
+          onDebouncedChange={setQuery}
+          placeholder="Search name or symbol..."
+        />
         <button
           type="button"
           onClick={copyAll}

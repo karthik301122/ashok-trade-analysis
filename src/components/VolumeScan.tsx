@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Copy, Search, Star, Volume2 } from 'lucide-react'
+import { Copy, Star, Volume2 } from 'lucide-react'
 import type { MarketSnapshot, Mood } from '../data/types'
 import { CYCLE_LABEL, MOOD_LABEL } from '../lib/market'
 import { formatPct, formatPrice, formatVolume, perfCellClass, resolveStockPrice } from '../lib/format'
 import { matchesSectorFilters } from '../lib/sectorFilter'
 import { copyTickersToTradingView } from '../lib/tradingview'
+import { DebouncedSearchInput } from './DebouncedSearchInput'
 import { MultiSelectDropdown } from './MultiSelectDropdown'
 import { Sparkline } from './Sparkline'
 import { StockChartModal } from './StockChartModal'
@@ -172,18 +173,11 @@ export function VolumeScan({ snapshot }: Props) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[200px] flex-1">
-          <Search
-            size={14}
-            className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--color-ink-soft)]"
-          />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search ticker, name, industry…"
-            className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-2 pr-3 pl-9 text-sm"
-          />
-        </div>
+        <DebouncedSearchInput
+          value={query}
+          onDebouncedChange={setQuery}
+          placeholder="Search ticker, name, industry…"
+        />
         <MultiSelectDropdown
           options={sectors}
           value={sectorFilters}

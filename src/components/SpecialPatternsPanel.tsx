@@ -1,5 +1,5 @@
 import { memo, startTransition, useEffect, useMemo, useState, useDeferredValue } from 'react'
-import { Copy, Search, Sparkles, Star } from 'lucide-react'
+import { Copy, Sparkles, Star } from 'lucide-react'
 import type { MarketSnapshot } from '../data/types'
 import { formatPct, formatPrice, perfCellClass, resolveStockPrice } from '../lib/format'
 import {
@@ -19,6 +19,7 @@ import { aggregateLivermoreHits, livermoreHitCounts, type LivermoreHit } from '.
 import { aggregateScriptHits, scriptHitCounts, type ScriptScanRow } from '../lib/specialScriptCache'
 import { matchesSectorFilters } from '../lib/sectorFilter'
 import { copyTickersToTradingView } from '../lib/tradingview'
+import { DebouncedSearchInput } from './DebouncedSearchInput'
 import { MultiSelectDropdown } from './MultiSelectDropdown'
 import { useSharedUnifiedSpecialScans } from './patterns/UnifiedSpecialScansContext'
 import { useDeferredPanelActive } from '../lib/useDeferredPanelActive'
@@ -341,18 +342,13 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
       <div className="flex flex-col gap-4 lg:flex-row">
         <aside className="w-full shrink-0 lg:w-80">
           <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-            <div className="relative mb-2">
-              <Search
-                size={14}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-ink-soft)]"
-              />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search patterns…"
-                className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] py-2 pl-8 pr-2 text-xs outline-none focus:border-violet-500"
-              />
-            </div>
+            <DebouncedSearchInput
+              value={query}
+              onDebouncedChange={setQuery}
+              placeholder="Search patterns…"
+              className="relative mb-2"
+              inputClassName="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] py-2 pl-8 pr-2 text-xs outline-none focus:border-violet-500"
+            />
             <div className="mb-2 flex flex-wrap gap-1">
               <button
                 type="button"

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, Search, Star } from 'lucide-react'
+import { ChevronDown, ChevronRight, Star } from 'lucide-react'
 import type { IndustryMetrics, MarketSnapshot, Mood, StockMetrics } from '../data/types'
 import { ASX_UNIVERSE_COUNT } from '../data/universe'
 import type { PatternPrefs } from '../lib/patternPrefs'
@@ -14,6 +14,7 @@ import {
 import { copyTickersToTradingView } from '../lib/tradingview'
 import { Sparkline } from './Sparkline'
 import { StockChartModal } from './StockChartModal'
+import { DebouncedSearchInput } from './DebouncedSearchInput'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
 import { useIndustryPatternScan } from './patterns/useIndustryPatternScan'
 import type { CachedPatternHit } from '../lib/patternHitsCache'
@@ -442,15 +443,12 @@ export function SectorTable({ snapshot, livePricesActive = false, active = true 
           {starCount} Star Stocks
         </button>
 
-        <div className="relative ml-2 min-w-[200px] flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-ink-soft)]" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search sector or stock..."
-            className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-2 pl-9 pr-3 text-sm outline-none focus:border-teal-500"
-          />
-        </div>
+        <DebouncedSearchInput
+          value={query}
+          onDebouncedChange={setQuery}
+          placeholder="Search sector or stock..."
+          className="relative ml-2 min-w-[200px] flex-1"
+        />
 
         <div
           className={`flex flex-wrap items-center gap-1.5 rounded-lg border px-2 py-1.5 ${
