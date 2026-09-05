@@ -186,6 +186,79 @@ export async function login(username: string, password: string): Promise<{ ok: t
   }
 }
 
+export async function register(
+  name: string,
+  email: string,
+  password: string,
+): Promise<
+  { ok: true; email: string; message: string; expiresInSec?: number } | { ok: false; error: string }
+> {
+  try {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return { ok: false, error: (json as { error?: string }).error || 'Registration failed' }
+    }
+    return {
+      ok: true,
+      email: (json as { email: string }).email,
+      message: (json as { message?: string }).message || 'Check your email for a code',
+      expiresInSec: (json as { expiresInSec?: number }).expiresInSec,
+    }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function verifyRegistration(
+  email: string,
+  otp: string,
+): Promise<{ ok: true; user: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/auth/verify-registration', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, otp }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return { ok: false, error: (json as { error?: string }).error || 'Verification failed' }
+    }
+    return { ok: true, user: (json as { user: string }).user }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function resendRegistrationOtp(
+  email: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/auth/resend-registration-otp', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return { ok: false, error: (json as { error?: string }).error || 'Could not resend code' }
+    }
+    return {
+      ok: true,
+      message: (json as { message?: string }).message || 'Code resent',
+    }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
 export async function logout(): Promise<void> {
   try {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })

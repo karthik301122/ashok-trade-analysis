@@ -51,23 +51,28 @@ export async function verifyDbCredentials(username, password) {
 
 /**
  * @param {string} username
- * @param {string} password
- * @param {{ isAdmin?: boolean }} [opts]
+ * @param {string | null} password — omit when passing opts.passwordHash
+ * @param {{ isAdmin?: boolean, displayName?: string, passwordHash?: string }} [opts]
  */
 export async function createDbUser(username, password, opts = {}) {
   const u = normalizeUsername(username)
   const userErr = validateUsername(u)
   if (userErr) return { ok: false, error: userErr }
-  const passErr = validatePassword(password)
-  if (passErr) return { ok: false, error: passErr }
+
+  let hash = opts.passwordHash ? String(opts.passwordHash) : ''
+  if (!hash) {
+    const passErr = validatePassword(password)
+    if (passErr) return { ok: false, error: passErr }
+    hash = bcrypt.hashSync(String(password), 10)
+  }
 
   const exists = await sqlOne('SELECT username FROM users WHERE username = ?', [u])
   if (exists) return { ok: false, error: 'Username already taken' }
 
-  const hash = bcrypt.hashSync(password, 10)
+  const displayName = String(opts.displayName || '').trim() || null
   await sqlRun(
-    'INSERT INTO users (username, password_hash, created_at, is_admin) VALUES (?, ?, ?, ?)',
-    [u, hash, Date.now(), opts.isAdmin ? 1 : 0],
+    'INSERT INTO users (username, password_hash, created_at, is_admin, display_name) VALUES (?, ?, ?, ?, ?)',
+    [u, hash, Date.now(), opts.isAdmin ? 1 : 0, displayName],
   )
 
   return { ok: true, user: u }

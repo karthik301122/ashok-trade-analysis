@@ -91,7 +91,18 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT PRIMARY KEY,
   password_hash TEXT NOT NULL,
   created_at BIGINT NOT NULL,
-  is_admin INTEGER NOT NULL DEFAULT 0
+  is_admin INTEGER NOT NULL DEFAULT 0,
+  display_name TEXT
+);
+
+CREATE TABLE IF NOT EXISTS registration_otps (
+  email TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  otp_hash TEXT NOT NULL,
+  expires_at BIGINT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at BIGINT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS user_prefs (

@@ -41,6 +41,64 @@ function getTransporter() {
 }
 
 /**
+ * Generic outbound mail via configured SMTP.
+ * @param {{ to: string, subject: string, text: string, html?: string }} opts
+ */
+export async function sendMail(opts) {
+  if (!alertEmailConfigured()) return false
+  const transport = getTransporter()
+  if (!transport) return false
+  const to = String(opts?.to || '')
+    .trim()
+    .toLowerCase()
+  if (!to || !opts?.subject || !opts?.text) return false
+  try {
+    await transport.sendMail({
+      from: alertEmailFromAddress(),
+      replyTo: 'alerts@traderscope.com',
+      to,
+      subject: opts.subject,
+      text: opts.text,
+      html: opts.html || undefined,
+    })
+    return true
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    log('error', 'mail.send.fail', { to, message })
+    return false
+  }
+}
+
+/**
+ * Send a registration / verification OTP.
+ * @param {string} to
+ * @param {string} otp
+ * @param {string} [displayName]
+ */
+export async function sendOtpEmail(to, otp, displayName = '') {
+  const name = String(displayName || '').trim()
+  const greeting = name ? `Hi ${name},` : 'Hi,'
+  const subject = 'TradersScope verification code'
+  const text = [
+    greeting,
+    '',
+    `Your TradersScope verification code is: ${otp}`,
+    '',
+    'This code expires in 15 minutes.',
+    'If you did not request this, you can ignore this email.',
+  ].join('\n')
+  const html = [
+    `<p>${greeting}</p>`,
+    `<p>Your TradersScope verification code is:</p>`,
+    `<p style="font-size:28px;font-weight:700;letter-spacing:4px">${otp}</p>`,
+    `<p style="font-size:12px;color:#666">Expires in 15 minutes. If you did not request this, ignore this email.</p>`,
+  ].join('')
+  const ok = await sendMail({ to, subject, text, html })
+  if (ok) log('info', 'auth.otp.sent', { to })
+  return ok
+}
+
+/**
  * One email for a single alert hit (ticker + pattern / rule).
  * @param {{ ruleName: string, ticker?: string|null, message: string, score?: number|null }} item
  * @param {string} recipient — opted-in user login email

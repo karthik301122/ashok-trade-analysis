@@ -323,7 +323,66 @@ export async function handleAuthApi(req, res, send) {
   }
 
   if (path === '/api/auth/register' && method === 'POST') {
-    return send(403, { error: 'Registration is disabled' })
+    if (!authEnabled()) {
+      return send(400, { error: 'Auth is not configured on this server' })
+    }
+    let body
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return send(400, { error: 'Invalid JSON' })
+    }
+    const { startRegistration } = await import('./registration.mjs')
+    const result = await startRegistration(body)
+    if (!result.ok) return send(result.status || 400, { error: result.error })
+    return send(200, {
+      ok: true,
+      email: result.email,
+      expiresInSec: result.expiresInSec,
+      message: result.message,
+    })
+  }
+
+  if (path === '/api/auth/verify-registration' && method === 'POST') {
+    if (!authEnabled()) {
+      return send(400, { error: 'Auth is not configured on this server' })
+    }
+    let body
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return send(400, { error: 'Invalid JSON' })
+    }
+    const { verifyRegistration } = await import('./registration.mjs')
+    const result = await verifyRegistration(body)
+    if (!result.ok) return send(result.status || 400, { error: result.error })
+    const token = createSessionToken(result.user)
+    return send(
+      200,
+      { ok: true, user: result.user, displayName: result.displayName },
+      { 'Set-Cookie': sessionSetCookieHeader(token) },
+    )
+  }
+
+  if (path === '/api/auth/resend-registration-otp' && method === 'POST') {
+    if (!authEnabled()) {
+      return send(400, { error: 'Auth is not configured on this server' })
+    }
+    let body
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return send(400, { error: 'Invalid JSON' })
+    }
+    const { resendRegistrationOtp } = await import('./registration.mjs')
+    const result = await resendRegistrationOtp(body)
+    if (!result.ok) return send(result.status || 400, { error: result.error })
+    return send(200, {
+      ok: true,
+      email: result.email,
+      expiresInSec: result.expiresInSec,
+      message: result.message,
+    })
   }
 
   if (path === '/api/auth/login' && method === 'POST') {

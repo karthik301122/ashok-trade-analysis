@@ -733,8 +733,46 @@ export function mountExpressApi(app) {
     return res.json(authPublicConfig())
   })
 
-  app.post('/api/auth/register', (_req, res) => {
-    return res.status(403).json({ error: 'Registration is disabled' })
+  app.post('/api/auth/register', async (req, res) => {
+    if (!authEnabled()) {
+      return res.status(400).json({ error: 'Auth is not configured on this server' })
+    }
+    const { startRegistration } = await import('./registration.mjs')
+    const result = await startRegistration(req.body || {})
+    if (!result.ok) return res.status(result.status || 400).json({ error: result.error })
+    return res.json({
+      ok: true,
+      email: result.email,
+      expiresInSec: result.expiresInSec,
+      message: result.message,
+    })
+  })
+
+  app.post('/api/auth/verify-registration', async (req, res) => {
+    if (!authEnabled()) {
+      return res.status(400).json({ error: 'Auth is not configured on this server' })
+    }
+    const { verifyRegistration } = await import('./registration.mjs')
+    const result = await verifyRegistration(req.body || {})
+    if (!result.ok) return res.status(result.status || 400).json({ error: result.error })
+    const token = createSessionToken(result.user)
+    res.setHeader('Set-Cookie', sessionSetCookieHeader(token))
+    return res.json({ ok: true, user: result.user, displayName: result.displayName })
+  })
+
+  app.post('/api/auth/resend-registration-otp', async (req, res) => {
+    if (!authEnabled()) {
+      return res.status(400).json({ error: 'Auth is not configured on this server' })
+    }
+    const { resendRegistrationOtp } = await import('./registration.mjs')
+    const result = await resendRegistrationOtp(req.body || {})
+    if (!result.ok) return res.status(result.status || 400).json({ error: result.error })
+    return res.json({
+      ok: true,
+      email: result.email,
+      expiresInSec: result.expiresInSec,
+      message: result.message,
+    })
   })
 
   app.post('/api/auth/login', async (req, res) => {
