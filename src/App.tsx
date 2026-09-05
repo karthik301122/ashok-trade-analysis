@@ -331,7 +331,30 @@ export default function App() {
           changed = true
           return { ...s, lastPrice }
         })
-        return changed ? { ...prev, stocks } : prev
+        // Sector table renders industry.stocks — must patch nested copies too.
+        const industries = prev.industries.map((ind) => {
+          let indChanged = false
+          const nextStocks = ind.stocks.map((s) => {
+            if (s.ticker !== ticker) return s
+            if (Number(s.lastPrice) === lastPrice) return s
+            indChanged = true
+            changed = true
+            return { ...s, lastPrice }
+          })
+          return indChanged ? { ...ind, stocks: nextStocks } : ind
+        })
+        const sectors = prev.sectors.map((sec) => {
+          let secChanged = false
+          const nextStocks = sec.stocks.map((s) => {
+            if (s.ticker !== ticker) return s
+            if (Number(s.lastPrice) === lastPrice) return s
+            secChanged = true
+            changed = true
+            return { ...s, lastPrice }
+          })
+          return secChanged ? { ...sec, stocks: nextStocks } : sec
+        })
+        return changed ? { ...prev, stocks, industries, sectors } : prev
       })
     }
     window.addEventListener('desk-last-price', onPrice)

@@ -203,6 +203,7 @@ function loadStocksPerfMap(builtAt, stocksJson) {
 export function clearStocksPerfCache() {
   stocksPerfCache = null
   stocksPerfBuiltAt = 0
+  lastPricesCache = null
 }
 
 /**
@@ -222,6 +223,13 @@ function appTickerFromBarSymbol(symbol) {
 let lastPriceSyncAt = 0
 const PRICE_SYNC_MIN_MS = 15 * 1000
 
+/** @type {{ at: number, prices: Record<string, number> } | null} */
+let lastPricesCache = null
+const LAST_PRICES_CACHE_MS = 20 * 1000
+/** @type {number} */
+let lastStalePricePullAt = 0
+const STALE_PRICE_PULL_MS = 10 * 60 * 1000
+
 /**
  * Align Markets overview lastPrice with the latest bar close (same value charts use).
  * Prefer bars over series_meta.last — meta can lag behind the bars table.
@@ -239,35 +247,15 @@ export async function syncSnapshotPricesFromSeriesMeta(opts = {}) {
     const row = await sqlOne('SELECT stocks_perf_json FROM market_snapshot WHERE id = 1')
     if (!row?.stocks_perf_json) return { updated: 0 }
     const stocks = JSON.parse(row.stocks_perf_json)
-
-    const lastBars = await sqlAll(
-      `SELECT b.symbol, b.c AS last, b.t AS t
-       FROM bars b
-       INNER JOIN (
-         SELECT symbol, MAX(t) AS maxt FROM bars GROUP BY symbol
-       ) x ON b.symbol = x.symbol AND b.t = x.maxt
-       WHERE b.c > 0`,
-    )
-    if (!lastBars?.length) return { updated: 0 }
-
-    /** @type {Map<string, { last: number, t: number }>} */
-    const byTicker = new Map()
-    for (const bar of lastBars) {
-      const ticker = appTickerFromBarSymbol(bar.symbol)
-      if (!ticker) continue
-      const last = Number(bar.last)
-      const t = Number(bar.t)
-      if (!Number.isFinite(last) || last <= 0 || !Number.isFinite(t)) continue
-      const prev = byTicker.get(ticker)
-      if (!prev || t >= prev.t) byTicker.set(ticker, { last, t })
-    }
+    const lastPrices = await readLastPricesFromBars({ preferTickers: Object.keys(stocks) })
+    if (!lastPrices || !Object.keys(lastPrices).length) return { updated: 0 }
 
     let updated = 0
-    for (const [ticker, { last }] of byTicker) {
+    for (const [ticker, last] of Object.entries(lastPrices)) {
       const perf = stocks[ticker]
       if (!perf || typeof perf !== 'object') continue
-      const next = Math.round(last * 10000) / 10000
-      // Replace even when values are "close" after 1dp rounding (1.9 vs 1.875).
+      const next = Math.round(Number(last) * 10000) / 10000
+      if (!Number.isFinite(next) || next <= 0) continue
       if (Math.round(Number(perf.lastPrice) * 10000) === Math.round(next * 10000)) continue
       stocks[ticker] = { ...perf, lastPrice: next }
       updated++
@@ -292,9 +280,21 @@ export async function syncSnapshotPricesFromSeriesMeta(opts = {}) {
 
 /**
  * Lightweight ticker → last close from bars (for client overlay; matches chart last).
+ * Re-pulls a capped set of names whose last bar is behind so overview doesn't stick on
+ * an older close (e.g. TBR 5.4 from Aug while chart has 5.38 from Sept).
+ * @param {{ preferTickers?: string[], bypassCache?: boolean }} [opts]
  * @returns {Promise<Record<string, number>>}
  */
-export async function readLastPricesFromBars() {
+export async function readLastPricesFromBars(opts = {}) {
+  const now = Date.now()
+  if (
+    !opts.bypassCache &&
+    lastPricesCache &&
+    now - lastPricesCache.at < LAST_PRICES_CACHE_MS
+  ) {
+    return lastPricesCache.prices
+  }
+
   const lastBars = await sqlAll(
     `SELECT b.symbol, b.c AS last, b.t AS t
      FROM bars b
@@ -303,7 +303,7 @@ export async function readLastPricesFromBars() {
      ) x ON b.symbol = x.symbol AND b.t = x.maxt
      WHERE b.c > 0`,
   )
-  /** @type {Map<string, { last: number, t: number }>} */
+  /** @type {Map<string, { last: number, t: number, symbol: string }>} */
   const byTicker = new Map()
   for (const bar of lastBars || []) {
     const ticker = appTickerFromBarSymbol(bar.symbol)
@@ -312,13 +312,63 @@ export async function readLastPricesFromBars() {
     const t = Number(bar.t)
     if (!Number.isFinite(last) || last <= 0 || !Number.isFinite(t)) continue
     const prev = byTicker.get(ticker)
-    if (!prev || t >= prev.t) byTicker.set(ticker, { last, t })
+    if (!prev || t >= prev.t) byTicker.set(ticker, { last, t, symbol: String(bar.symbol) })
   }
+
+  const prefer = new Set(
+    (opts.preferTickers || []).map((t) => String(t || '').toUpperCase()).filter(Boolean),
+  )
+  /** @type {string[]} */
+  const stale = []
+  for (const [ticker, info] of byTicker) {
+    if (!isLastBarAcceptable([{ t: info.t, c: info.last }])) stale.push(ticker)
+  }
+  // Desk names first so overview (TBR etc.) updates before obscure series.
+  stale.sort((a, b) => {
+    const ap = prefer.has(a) ? 0 : 1
+    const bp = prefer.has(b) ? 0 : 1
+    return ap - bp || a.localeCompare(b)
+  })
+
+  if (stale.length && now - lastStalePricePullAt >= STALE_PRICE_PULL_MS) {
+    lastStalePricePullAt = now
+    const from = new Date()
+    from.setUTCFullYear(from.getUTCFullYear() - 2)
+    const fromIso = from.toISOString().slice(0, 10)
+    const toPull = stale.slice(0, 40)
+    await mapPool(
+      toPull,
+      2,
+      async (ticker) => {
+        try {
+          const series = await getCachedSeries(ticker, fromIso, { staleOk: false })
+          if (series?.closes?.length) {
+            const bar = series.closes[series.closes.length - 1]
+            byTicker.set(ticker, {
+              last: Number(series.last ?? bar.c),
+              t: Number(bar.t),
+              symbol: series.symbol || ticker,
+            })
+          }
+        } catch {
+          /* keep prior */
+        }
+        return ticker
+      },
+      undefined,
+      40,
+    )
+    console.log(
+      `[snapshot] refreshed ${toPull.length}/${stale.length} stale last-bars for price overlay`,
+    )
+  }
+
   /** @type {Record<string, number>} */
   const out = {}
   for (const [ticker, { last }] of byTicker) {
     out[ticker] = Math.round(last * 10000) / 10000
   }
+  lastPricesCache = { at: Date.now(), prices: out }
   return out
 }
 
