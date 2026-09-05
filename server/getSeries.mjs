@@ -78,10 +78,12 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
     if (closes.length >= 15) {
       const barsOk = isLastBarAcceptable(cached.closes)
       if (staleOk || barsOk) {
+        const last = closes[closes.length - 1].c
+        void patchSnapshotLastPrice(seriesSymbol, last)
         return {
           symbol: cached.symbol,
           closes,
-          last: closes[closes.length - 1].c,
+          last,
           high52: recomputeHigh52(closes),
           meta: {
             ...(cached.meta || {}),

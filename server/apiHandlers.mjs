@@ -19,6 +19,7 @@ import {
   runUniverseSnapshot,
   runRetryFailedSnapshot,
   runRebuildSnapshotFromCache,
+  syncSnapshotPricesFromSeriesMeta,
 } from './snapshotJob.mjs'
 import {
   createAlertRule,
@@ -180,6 +181,7 @@ export async function handleConnectApi(req, res, send) {
 
   if (url.pathname === '/api/snapshot/meta' && req.method === 'GET') {
     if (rateLimitOrSend(req, send, 'snapshot', snapshotRateLimitPerMinute())) return true
+    await syncSnapshotPricesFromSeriesMeta()
     const meta = await readMarketSnapshotMeta()
     if (!meta) {
       void maybeStartBackgroundSnapshot()
@@ -218,6 +220,7 @@ export async function handleConnectApi(req, res, send) {
   if (url.pathname === '/api/snapshot') {
     if (req.method === 'GET') {
       if (rateLimitOrSend(req, send, 'snapshot', snapshotRateLimitPerMinute())) return true
+      await syncSnapshotPricesFromSeriesMeta()
       const row = await readMarketSnapshotRow()
       if (!row) {
         void maybeStartBackgroundSnapshot()
@@ -830,6 +833,7 @@ export function mountExpressApi(app) {
     ) {
       return
     }
+    await syncSnapshotPricesFromSeriesMeta()
     const meta = await readMarketSnapshotMeta()
     if (!meta) {
       void maybeStartBackgroundSnapshot()
@@ -879,6 +883,7 @@ export function mountExpressApi(app) {
     ) {
       return
     }
+    await syncSnapshotPricesFromSeriesMeta()
     const row = await readMarketSnapshotRow()
     if (!row) {
       void maybeStartBackgroundSnapshot()

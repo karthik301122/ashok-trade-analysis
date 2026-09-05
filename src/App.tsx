@@ -114,6 +114,8 @@ export default function App() {
     setError(null)
     setProgress({ done: 0, total: ASX_UNIVERSE_COUNT + 1, phase: 'fetch' })
     try {
+      clearPerfCache()
+      clearOhlcSessionCache()
       const result = await loadLiveMarketSnapshot({
         forceRefresh,
         deskConfig: config,
