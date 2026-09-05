@@ -79,6 +79,17 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
       const barsOk = isLastBarAcceptable(cached.closes)
       if (staleOk || barsOk) {
         const last = closes[closes.length - 1].c
+        // Repair meta.last if it drifted from the bars table (overview sync depends on it too).
+        if (Number(cached.last) !== last) {
+          void writeSeriesCache({
+            symbol: cached.symbol,
+            updatedAt: cached.updatedAt || Date.now(),
+            closes: cached.closes,
+            last,
+            high52: recomputeHigh52(cached.closes),
+            meta: cached.meta || {},
+          }).catch(() => {})
+        }
         void patchSnapshotLastPrice(seriesSymbol, last)
         return {
           symbol: cached.symbol,

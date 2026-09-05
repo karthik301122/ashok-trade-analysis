@@ -220,11 +220,11 @@ function appTickerFromBarSymbol(symbol) {
 
 /** @type {number} */
 let lastPriceSyncAt = 0
-const PRICE_SYNC_MIN_MS = 30 * 1000
+const PRICE_SYNC_MIN_MS = 15 * 1000
 
 /**
- * Align Markets overview lastPrice with series_meta.last (same source charts use).
- * Fast: one meta query + optional snapshot write. No EODHD calls.
+ * Align Markets overview lastPrice with the latest bar close (same value charts use).
+ * Prefer bars over series_meta.last — meta can lag behind the bars table.
  */
 export async function syncSnapshotPricesFromSeriesMeta(opts = {}) {
   const force = Boolean(opts.force)
@@ -235,19 +235,28 @@ export async function syncSnapshotPricesFromSeriesMeta(opts = {}) {
   lastPriceSyncAt = now
 
   try {
-    const row = await sqlOne('SELECT stocks_perf_json, index_perf_json FROM market_snapshot WHERE id = 1')
+    const row = await sqlOne('SELECT stocks_perf_json FROM market_snapshot WHERE id = 1')
     if (!row?.stocks_perf_json) return { updated: 0 }
     const stocks = JSON.parse(row.stocks_perf_json)
-    const metas = await sqlAll('SELECT symbol, last FROM series_meta WHERE last > 0')
-    if (!metas?.length) return { updated: 0 }
+
+    // Latest close per symbol from bars (authoritative for charts).
+    const lastBars = await sqlAll(
+      `SELECT b.symbol, b.c AS last
+       FROM bars b
+       INNER JOIN (
+         SELECT symbol, MAX(t) AS maxt FROM bars GROUP BY symbol
+       ) x ON b.symbol = x.symbol AND b.t = x.maxt
+       WHERE b.c > 0`,
+    )
+    if (!lastBars?.length) return { updated: 0 }
 
     let updated = 0
-    for (const meta of metas) {
-      const ticker = appTickerFromBarSymbol(meta.symbol)
+    for (const bar of lastBars) {
+      const ticker = appTickerFromBarSymbol(bar.symbol)
       if (!ticker) continue
       const perf = stocks[ticker]
       if (!perf || typeof perf !== 'object') continue
-      const next = Math.round(Number(meta.last) * 10000) / 10000
+      const next = Math.round(Number(bar.last) * 10000) / 10000
       if (!Number.isFinite(next) || next <= 0) continue
       if (Number(perf.lastPrice) === next) continue
       stocks[ticker] = { ...perf, lastPrice: next }
@@ -256,15 +265,12 @@ export async function syncSnapshotPricesFromSeriesMeta(opts = {}) {
 
     if (updated === 0) return { updated: 0 }
 
-    const indexPerf = JSON.parse(row.index_perf_json)
-    const loaded = Object.keys(stocks).length
-    // Preserve built_at / as_of — this is a price overlay, not a full rebuild.
     await sqlRun('UPDATE market_snapshot SET stocks_perf_json = ? WHERE id = 1', [
       JSON.stringify(stocks),
     ])
     clearStocksPerfCache()
-    console.log(`[snapshot] synced ${updated}/${loaded} lastPrices from series_meta`)
-    return { updated, loaded, indexPerf }
+    console.log(`[snapshot] synced ${updated} lastPrices from bars`)
+    return { updated }
   } catch (err) {
     console.warn(
       '[snapshot] price sync failed:',

@@ -487,8 +487,8 @@ export async function loadLiveMarketSnapshot(
   const tickers = ASX_UNIVERSE.map((s) => s.ticker)
   const total = tickers.length + 1
 
-  // Show cached universe immediately while server snapshot loads (dev / repeat visits).
-  if (!forceRefresh) {
+  // Never flash browser localStorage prices in production — they lag charts/bars.
+  if (!forceRefresh && !config.productionMode) {
     const browserCached = loadPerfCache()
     if (browserCached?.index) {
       const cachedPerfs = new Map<string, CachedPerf>()

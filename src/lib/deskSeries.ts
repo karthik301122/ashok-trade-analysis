@@ -308,7 +308,7 @@ export function rsi(values: number[], period = 14): number | null {
   return Math.round((100 - 100 / (1 + rs)) * 10) / 10
 }
 
-const CACHE_KEY = 'asx-live-perf-v7-minerals'
+const CACHE_KEY = 'asx-live-perf-v8-bars-sync'
 /** Browser perf cache — short so Markets doesn't sit on pre-sync numbers. */
 export const PERF_CACHE_TTL_MS = 15 * 60 * 1000
 const CACHE_TTL_MS = PERF_CACHE_TTL_MS
