@@ -74,7 +74,7 @@ See `.env.example`.
 | `EODHD_ONLY` | always on when token set — no Yahoo fallback |
 | `PRODUCTION_MODE` | `true` — shared server snapshot only (recommended for multi-user) |
 | `ADMIN_USERS` | Comma list of usernames allowed to force snapshot rebuild |
-| `ADMIN_API_KEY` | Optional `x-admin-key` header for cron (`POST /api/snapshot/rebuild-cache`) |
+| `ADMIN_API_KEY` | Optional `x-admin-key` header for cron (`POST /api/snapshot/refresh?force=1&priority=desk`) |
 | `SERIES_RATE_LIMIT` | `/api/series` per IP per minute (default `600` in production) |
 | `SNAPSHOT_RATE_LIMIT` | `/api/snapshot` GET per IP per minute (default `60` in production) |
 | `AUTH_SECRET` + `AUTH_USERS` | **Required** when `PRODUCTION_MODE=true` — login is mandatory |
@@ -117,7 +117,7 @@ $env:SQLITE_PATH = "C:\path\to\asx.sqlite"   # or /mounts/appdata/asx.sqlite fro
 node scripts/migrate-sqlite-to-postgres.mjs
 ```
 
-Then trigger **Rebuild cache** in the UI (or `POST /api/snapshot/rebuild-cache`) to refresh the desk snapshot.
+Then trigger **Refresh** in the UI (or `POST /api/snapshot/refresh?force=1&priority=desk`) to refresh the desk snapshot.
 
 **4. Verify**
 
@@ -150,7 +150,7 @@ SERIES_RATE_LIMIT=600
 ```
 
 - Users load **`GET /api/snapshot`** only — no browser crawl of ~2k tickers.
-- Schedule: `curl -X POST -H "x-admin-key: $ADMIN_API_KEY" https://tradersscope.com/api/snapshot/rebuild-cache`
+- Schedule: `curl -X POST -H "x-admin-key: $ADMIN_API_KEY" https://tradersscope.com/api/snapshot/refresh?force=1&priority=desk`
 - Weekly full EODHD pull (optional): `.../api/snapshot/refresh?force=1`
 - Check readiness: `GET /api/health` → `readiness.multiUserReady`
 
@@ -158,7 +158,7 @@ SERIES_RATE_LIMIT=600
 
 Keeps the shared desk fresh without manual Refresh. Uses **Azure Logic Apps (Consumption)** only — no GitHub cron required.
 
-**Why:** In production all users read one server snapshot. A daily rebuild from SQLite cache (~1–2 min) updates prices/sector stats for everyone. Optional weekly `force=1` pulls new bars from EODHD.
+**Why:** In production all users read one server snapshot. After ASX close the app (and optional Logic App) force-pulls ASX200 + mid + small from EODHD. Cache is a same-day accelerator only.
 
 **Cost (typical):** **~$0–2/month**. One Logic App run per day = ~30 HTTP calls/month. Consumption Logic Apps bill per action (fractions of a cent); well within free/low tiers. You already pay for App Service — the cron does not add another app server.
 
@@ -178,7 +178,7 @@ Keeps the shared desk fresh without manual Refresh. Uses **Azure Logic Apps (Con
    - At: **5:30 PM** (after ASX close; adjust if needed)
 5. Action: **HTTP**
    - Method: **POST**
-   - URI: `https://tradersscope.com/api/snapshot/rebuild-cache`
+   - URI: `https://tradersscope.com/api/snapshot/refresh?force=1&priority=desk`
    - Headers: `x-admin-key` = same value as `ADMIN_API_KEY` on the web app
 6. **Save** → **Run Trigger** once to test → check **Run history** (should be Succeeded)
 

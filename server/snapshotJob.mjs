@@ -11,13 +11,14 @@ import { clearBreadthChartCache } from './breadthHistory.mjs'
 import { readinessFromSnapshot } from './production.mjs'
 import { isEodhdDailyLimitExceeded } from './eodhdLimit.mjs'
 import { tickersForUniverseId } from './eodhdIndexMembers.mjs'
-import { readSeriesCache, isoFromUnix } from './seriesStore.mjs'
+import { readSeriesCache, isoFromUnix, isLastBarAcceptable } from './seriesStore.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
 const universePath = path.join(root, 'src', 'data', 'asxUniverse.json')
 
-export const SNAPSHOT_FRESH_MS = 12 * 60 * 60 * 1000
+/** Clock window only — also require last AXJO bar current before skipping rebuilds. */
+export const SNAPSHOT_FRESH_MS = 4 * 60 * 60 * 1000
 const RETRY_COOLDOWN_MS = 30_000
 /** Abandon in-process / orphaned jobs older than this so Refresh is never permanently stuck. */
 const JOB_MAX_AGE_MS = () => {
@@ -230,6 +231,7 @@ export async function readMarketSnapshotMeta() {
   if (!row) return null
   const builtAt = Number(row.built_at)
   const barsAsOf = await readBarsAsOf()
+  const barsCurrent = await isSnapshotBarsCurrent()
   return {
     builtAt,
     asOf: row.as_of,
@@ -237,7 +239,7 @@ export async function readMarketSnapshotMeta() {
     barsAsOfLabel: barsAsOf?.label ?? null,
     loaded: Number(row.loaded),
     failed: Number(row.failed),
-    fresh: isSnapshotFresh(builtAt),
+    fresh: isSnapshotFresh(builtAt) && barsCurrent,
     indexPerf: JSON.parse(row.index_perf_json),
     store: dbStoreLabel(),
     liveQuotes: await getLiveQuotesMeta(),
@@ -268,6 +270,24 @@ export async function readMarketSnapshotStocksChunk(offset, limit) {
 
 export function isSnapshotFresh(builtAt, now = Date.now()) {
   return Number.isFinite(builtAt) && now - builtAt < SNAPSHOT_FRESH_MS
+}
+
+/** True when AXJO last bar matches the expected session (not write-time alone). */
+export async function isSnapshotBarsCurrent() {
+  try {
+    const cached = await readSeriesCache('^AXJO')
+    return Boolean(cached?.closes?.length && isLastBarAcceptable(cached.closes))
+  } catch {
+    return false
+  }
+}
+
+/** Skip background/universe rebuild only when clock-fresh and bars are current. */
+export async function snapshotLooksCurrent(existing) {
+  if (!existing) return false
+  if (snapshotNeedsMoreWork(existing)) return false
+  if (!isSnapshotFresh(existing.builtAt)) return false
+  return isSnapshotBarsCurrent()
 }
 
 function from2yIso() {
@@ -434,13 +454,7 @@ export async function runUniverseSnapshot(opts = {}) {
   const existing = await readMarketSnapshotDbRow()
   const job = await getSnapshotJobStatus()
 
-  if (
-    !force &&
-    !retryFailedOnly &&
-    existing &&
-    isSnapshotFresh(existing.builtAt) &&
-    !snapshotNeedsMoreWork(existing)
-  ) {
+  if (!force && !retryFailedOnly && (await snapshotLooksCurrent(existing))) {
     return {
       loaded: existing.loaded,
       failed: existing.failed,
@@ -477,9 +491,10 @@ export async function runUniverseSnapshot(opts = {}) {
     })
 
     try {
+      // Always last-bar fresh for the benchmark — never clock/write-time staleOk.
       const indexPerf = await loadIndexPerf(from5y, {
         forceRefresh: force,
-        staleOk: !force,
+        staleOk: false,
       })
 
       const stocks =
@@ -646,93 +661,15 @@ export async function runUniverseSnapshot(opts = {}) {
   return runningJob
 }
 
-/** Fast rebuild: populate snapshot from OHLC cache only (no EODHD). */
+/**
+ * Legacy endpoint name — no longer rebuilds from SQLite alone.
+ * Delegates to desk force refresh (ASX200 + mid + small from EODHD).
+ */
 export function runRebuildSnapshotFromCache() {
-  if (runningJob) return runningJob
-
-  runningJob = (async () => {
-    await recoverStaleSnapshotJob()
-    const universe = loadUniverse()
-    const allTickers = universe.map((u) => u.ticker)
-    const total = allTickers.length
-    const started = Date.now()
-    const from2y = from2yIso()
-    const from5y = from5yIso()
-    const existing = await readMarketSnapshotDbRow()
-
-    await setJob('running', {
-      started_at: started,
-      finished_at: null,
-      message: 'Refreshing stale OHLC then rebuilding snapshot',
-      loaded: 0,
-      failed: 0,
-      total,
-    })
-
-    try {
-      const indexPerf = await loadIndexPerf(from5y, { staleOk: false })
-
-      const stocks = {}
-      let eodLimited = false
-      for (let i = 0; i < allTickers.length; i++) {
-        const ticker = allTickers[i]
-        if (!eodLimited && isEodhdDailyLimitExceeded()) eodLimited = true
-        // Refresh EODHD when last bar is stale; fall back to cache-only if daily limit hit.
-        const series = await getCachedSeries(ticker, from2y, { staleOk: eodLimited })
-        if (series?.closes?.length) {
-          stocks[ticker] = seriesToCachedPerf(series, indexPerf.m3)
-        }
-        if (i % 200 === 0 || i === allTickers.length - 1) {
-          const loaded = Object.keys(stocks).length
-          await setJob('running', {
-            started_at: started,
-            message: eodLimited
-              ? `Cache scan ${i + 1}/${total} (EODHD daily limit — using stale bars)`
-              : `Cache scan ${i + 1}/${total}`,
-            loaded,
-            failed: total - loaded,
-            total,
-          })
-        }
-      }
-
-      const loaded = Object.keys(stocks).length
-      const failed = total - loaded
-      const { builtAt } = await persistSnapshot(stocks, indexPerf, loaded, failed)
-      await setJob('done', {
-        started_at: started,
-        finished_at: builtAt,
-        message: eodLimited
-          ? `ok · EOD limit hit · ${failed} missing`
-          : failed
-            ? `ok · ${failed} not in cache`
-            : 'ok · from cache',
-        loaded,
-        failed,
-        total,
-      })
-      console.log(
-        `[snapshot] cache rebuild · loaded=${loaded} failed=${failed} total=${total}` +
-          (eodLimited ? ' · eodhd-daily-limit' : ''),
-      )
-      return { loaded, failed, builtAt, skipped: false, eodLimited }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      await setJob('error', {
-        started_at: started,
-        finished_at: Date.now(),
-        message,
-        loaded: 0,
-        failed: 0,
-        total,
-      })
-      throw err
-    } finally {
-      runningJob = null
-    }
-  })()
-
-  return runningJob
+  console.warn(
+    '[snapshot] rebuild-cache is deprecated; running desk force refresh (priority=desk)',
+  )
+  return runAsx200ForceRefresh()
 }
 
 /** Retry only tickers missing from the last snapshot (slower, force refresh). */
@@ -903,9 +840,7 @@ export async function maybeStartBackgroundSnapshot() {
   if (job.status === 'running') return
 
   const existing = await readMarketSnapshotDbRow()
-  if (existing && isSnapshotFresh(existing.builtAt) && !snapshotNeedsMoreWork(existing)) {
-    return
-  }
+  if (await snapshotLooksCurrent(existing)) return
 
   console.log('[snapshot] starting background universe build…')
   void runUniverseSnapshot({ force: false }).catch(() => {})

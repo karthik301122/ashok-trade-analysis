@@ -351,7 +351,7 @@ export default function App() {
       if (deskConfig?.eodhdOnly || prov === 'eodhd') return ` · desk snapshot${live}`
       return ` · server snapshot${live}`
     }
-    if (meta.fromCache && !backfilling) return ' · cached (6h)'
+    if (meta.fromCache && !backfilling) return ' · cached (15m)'
     if (backfilling) {
       const rem = progress?.remaining
       return rem != null

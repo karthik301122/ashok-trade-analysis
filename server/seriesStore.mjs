@@ -1,6 +1,7 @@
 import { sqlAll, sqlOne, withTransaction } from './db.mjs'
 
-export const SERIES_FRESH_MS = 18 * 60 * 60 * 1000
+/** Write-time hint for meta labels only — serving uses isLastBarAcceptable. */
+export const SERIES_FRESH_MS = 4 * 60 * 60 * 1000
 
 /** Extra trading sessions of lag allowed (ASX holidays / late EOD publish). */
 export const LAST_BAR_SLACK_SESSIONS = 0

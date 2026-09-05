@@ -326,13 +326,13 @@ export async function handleConnectApi(req, res, send) {
         send(202, { ok: true, job: status })
         return true
       }
-      log('info', 'snapshot.rebuild_cache', { started: true })
+      log('info', 'snapshot.rebuild_cache', { started: true, via: 'desk-force' })
       void runRebuildSnapshotFromCache().catch((err) => {
         log('error', 'snapshot.rebuild_cache.error', {
           message: err instanceof Error ? err.message : String(err),
         })
       })
-      send(202, { ok: true, started: true, job: await getSnapshotJobStatus() })
+      send(202, { ok: true, started: true, via: 'desk-force', job: await getSnapshotJobStatus() })
       return true
     }
     send(405, { error: 'Method not allowed' })
@@ -987,13 +987,18 @@ export function mountExpressApi(app) {
       log('info', 'snapshot.rebuild_cache', { alreadyRunning: true })
       return res.status(202).json({ ok: true, job: status })
     }
-    log('info', 'snapshot.rebuild_cache', { started: true })
+    log('info', 'snapshot.rebuild_cache', { started: true, via: 'desk-force' })
     void runRebuildSnapshotFromCache().catch((err) => {
       log('error', 'snapshot.rebuild_cache.error', {
         message: err instanceof Error ? err.message : String(err),
       })
     })
-    return res.status(202).json({ ok: true, started: true, job: await getSnapshotJobStatus() })
+    return res.status(202).json({
+      ok: true,
+      started: true,
+      via: 'desk-force',
+      job: await getSnapshotJobStatus(),
+    })
   })
 
   app.post('/api/live-quotes/refresh', async (req, res) => {
