@@ -165,7 +165,7 @@ async function fetchServerSnapshotJson(
   onProgress?: (p: LiveLoadProgress) => void,
   total = 0,
 ): Promise<ServerSnapshotJson | null> {
-  const meta = await fetchDeskJson<ServerSnapshotJson>('/api/snapshot/meta', signal, 15_000)
+  const meta = await fetchDeskJson<ServerSnapshotJson>('/api/snapshot/meta', signal, 45_000)
   if (!meta?.indexPerf) {
     // Older servers without /meta — fall back to monolithic snapshot.
     return fetchDeskJson<ServerSnapshotJson>('/api/snapshot', signal, SNAPSHOT_FETCH_MS)
