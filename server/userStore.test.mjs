@@ -17,8 +17,13 @@ describe('userStore validation', () => {
     expect(validateUsername('bad name')).not.toBeNull()
   })
 
-  it('requires password length', () => {
+  it('requires strong password rules', () => {
     expect(validatePassword('short')).not.toBeNull()
-    expect(validatePassword('longenough')).toBeNull()
+    expect(validatePassword('longenough')).not.toBeNull() // no upper/num/symbol
+    expect(validatePassword('Longenough1')).not.toBeNull() // no symbol
+    expect(validatePassword('Longenough!')).not.toBeNull() // no number
+    expect(validatePassword('longenough1!')).not.toBeNull() // no upper
+    expect(validatePassword('LONGENOUGH1!')).not.toBeNull() // no lower
+    expect(validatePassword('Longenough1!')).toBeNull()
   })
 })

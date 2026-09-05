@@ -198,7 +198,9 @@ export function AuthPage({ onSuccess }: Props) {
                 required
                 minLength={8}
               />
-              <span className="text-xs text-[var(--color-ink-soft)]">At least 8 characters</span>
+              <span className="text-xs text-[var(--color-ink-soft)]">
+                Min 8 characters, with upper, lower, number, and symbol
+              </span>
             </label>
 
             {error && (

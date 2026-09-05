@@ -21,6 +21,10 @@ export function validatePassword(password) {
   const p = String(password)
   if (p.length < 8) return 'Password must be at least 8 characters'
   if (p.length > 128) return 'Password is too long'
+  if (!/[A-Z]/.test(p)) return 'Password must include an uppercase letter'
+  if (!/[a-z]/.test(p)) return 'Password must include a lowercase letter'
+  if (!/[0-9]/.test(p)) return 'Password must include a number'
+  if (!/[^A-Za-z0-9]/.test(p)) return 'Password must include a symbol (e.g. !@#$%)'
   return null
 }
 
