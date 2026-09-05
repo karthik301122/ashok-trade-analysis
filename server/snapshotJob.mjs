@@ -267,7 +267,8 @@ export async function syncSnapshotPricesFromSeriesMeta(opts = {}) {
       const perf = stocks[ticker]
       if (!perf || typeof perf !== 'object') continue
       const next = Math.round(last * 10000) / 10000
-      if (Number(perf.lastPrice) === next) continue
+      // Replace even when values are "close" after 1dp rounding (1.9 vs 1.875).
+      if (Math.round(Number(perf.lastPrice) * 10000) === Math.round(next * 10000)) continue
       stocks[ticker] = { ...perf, lastPrice: next }
       updated++
     }

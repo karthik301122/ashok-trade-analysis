@@ -525,7 +525,7 @@ export async function loadLiveMarketSnapshot(
         if (!Number.isFinite(px) || px <= 0) continue
         const perf = parsed.stockPerfs.get(ticker)
         if (!perf) continue
-        if (Number(perf.lastPrice) === px) continue
+        // Always prefer bar close (full precision) — snapshot may still hold round1 leftovers (1.88 → 1.9).
         parsed.stockPerfs.set(ticker, { ...perf, lastPrice: px })
       }
     }

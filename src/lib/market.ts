@@ -239,7 +239,7 @@ export function buildMarketSnapshot(asOf = new Date()): MarketSnapshot {
       avgVolume20,
       relativeVolume,
       dollarVolume,
-      lastPrice: round1(priceProxy),
+      lastPrice: Math.round(priceProxy * 10000) / 10000,
       rsi: Math.round(30 + rnd(seed, 4) * 55 + (perf.m1 > 0 ? 8 : -5)),
     }
   })
