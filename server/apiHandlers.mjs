@@ -59,6 +59,7 @@ import {
   requireSessionOrAdmin,
   seriesRateLimitPerMinute,
   snapshotRateLimitPerMinute,
+  snapshotStocksRateLimitPerMinute,
 } from './production.mjs'
 import { getLiveQuotesMeta } from './liveQuotes.mjs'
 import { runLiveQuoteRefresh } from './liveQuoteJob.mjs'
@@ -208,7 +209,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/snapshot/stocks' && req.method === 'GET') {
-    if (rateLimitOrSend(req, send, 'snapshot', snapshotRateLimitPerMinute())) return true
+    if (rateLimitOrSend(req, send, 'snapshot-stocks', snapshotStocksRateLimitPerMinute())) return true
     const offset = Number(url.searchParams.get('offset') || 0)
     const limit = Number(url.searchParams.get('limit') || 500)
     const chunk = await readMarketSnapshotStocksChunk(offset, limit)
@@ -863,8 +864,8 @@ export function mountExpressApi(app) {
       rateLimitOrSend(
         req,
         (status, body) => res.status(status).json(body),
-        'snapshot',
-        snapshotRateLimitPerMinute(),
+        'snapshot-stocks',
+        snapshotStocksRateLimitPerMinute(),
       )
     ) {
       return

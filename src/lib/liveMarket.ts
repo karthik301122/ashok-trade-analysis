@@ -134,41 +134,50 @@ async function waitForServerSnapshotJob(
   failed: number
   source?: 'server-sqlite' | 'browser-series'
 } | null> {
-  // Keep retrying even when job is idle/error — deploy restarts clear "running"
-  // before the background rebuild has started; bailing early caused false "still building".
-  for (let i = 0; i < 180; i++) {
+  // When the job is already done, retrying every 2s re-downloads all stock chunks and
+  // trips the snapshot rate limit — leave the spinner at ~96% forever. Back off hard.
+  for (let i = 0; i < 60; i++) {
     if (signal?.aborted) throw new Error('Aborted')
-    if (tryReady) {
-      const ready = await tryReady()
-      if (ready) return ready
-    }
-    if (i === 0 || i % 5 === 0) maybeStartBackgroundSnapshotClient()
+
     const res = await fetch(`/api/snapshot/refresh?_=${Date.now()}`, {
       credentials: 'include',
       cache: 'no-store',
       signal,
     })
-    if (!res.ok) {
-      await sleep(2000)
-      continue
+    let jobStatus = ''
+    let loaded = 0
+    let jobTotal = total
+    if (res.ok) {
+      const json = (await res.json()) as {
+        job?: { status?: string; loaded?: number; total?: number; message?: string }
+        snapshot?: { loaded?: number } | null
+      }
+      jobStatus = String(json.job?.status || '')
+      loaded = json.job?.loaded ?? json.snapshot?.loaded ?? 0
+      jobTotal = json.job?.total ?? total
+      if (jobStatus === 'running' || loaded > 0) {
+        onProgress?.({
+          done: loaded,
+          total: jobTotal > 0 ? jobTotal + 1 : total,
+          phase: 'cache',
+          loaded,
+          remaining: Math.max(0, jobTotal - loaded),
+        })
+      }
     }
-    const json = (await res.json()) as {
-      job?: { status?: string; loaded?: number; total?: number; message?: string }
-      snapshot?: { loaded?: number } | null
+
+    const jobDone = jobStatus === 'done' || jobStatus === 'error' || jobStatus === 'idle'
+    // While building: try often. Once done: try a few times with long gaps (avoid 429).
+    const shouldTry =
+      Boolean(tryReady) && (i === 0 || jobStatus === 'running' || (jobDone && i % 3 === 0))
+    if (shouldTry && tryReady) {
+      const ready = await tryReady()
+      if (ready) return ready
     }
-    const job = json.job
-    const loaded = job?.loaded ?? json.snapshot?.loaded ?? 0
-    const jobTotal = job?.total ?? total
-    if (job?.status === 'running' || loaded > 0) {
-      onProgress?.({
-        done: loaded,
-        total: jobTotal > 0 ? jobTotal + 1 : total,
-        phase: 'cache',
-        loaded,
-        remaining: Math.max(0, jobTotal - loaded),
-      })
-    }
-    await sleep(2000)
+
+    if (!jobDone && (i === 0 || i % 5 === 0)) maybeStartBackgroundSnapshotClient()
+
+    await sleep(jobDone ? 8000 : 2000)
   }
   return null
 }
@@ -188,7 +197,7 @@ async function fetchServerSnapshotJson(
   // Prefer chunk.total once known — meta.loaded can drift above the JSON map size and
   // previously caused an infinite empty-chunk loop (stuck at ~96%).
   let stockTotal = Math.max(0, meta.loaded ?? 0)
-  const chunkSize = 400
+  const chunkSize = 800
   let offset = 0
   let emptyStreak = 0
 

@@ -83,7 +83,16 @@ export function seriesRateLimitPerMinute() {
 export function snapshotRateLimitPerMinute() {
   const n = Number(process.env.SNAPSHOT_RATE_LIMIT)
   if (Number.isFinite(n) && n > 0) return n
-  return isProductionMode() ? 60 : 120
+  // Chunked desk load needs meta + ~ceil(N/400) stock pages; 60/min was too low and
+  // caused the wait-loop to rate-limit itself into a permanent 96% spinner.
+  return isProductionMode() ? 300 : 180
+}
+
+/** Higher ceiling for paginated /api/snapshot/stocks (many small GETs per page load). */
+export function snapshotStocksRateLimitPerMinute() {
+  const n = Number(process.env.SNAPSHOT_STOCKS_RATE_LIMIT)
+  if (Number.isFinite(n) && n > 0) return n
+  return isProductionMode() ? 600 : 300
 }
 
 export function minSnapshotStockRatio() {
