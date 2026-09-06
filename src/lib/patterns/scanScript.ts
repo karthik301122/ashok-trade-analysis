@@ -6,6 +6,9 @@ import type { CustomRuleSet, RuleCondition, RuleMetric, RuleOp } from './customR
 
 export const SCANSCRIPT_NAME = 'ScanScript'
 
+/** Served from /public — full how-to + Pine Script comparison PDF. */
+export const SCANSCRIPT_PDF_URL = '/ScanScript-Guide.pdf'
+
 export const SCANSCRIPT_EXAMPLE = `# ${SCANSCRIPT_NAME} — scans all stocks when saved as My Pattern
 match all
 
@@ -19,7 +22,7 @@ pct_chg(5) >= 3
 /** User-facing rules guide for Create pattern → ScanScript. */
 export const SCANSCRIPT_GUIDE = {
   summary:
-    'Write one condition per line. Scripts compile to safe desk rules (no arbitrary code) and scan the ASX universe when saved.',
+    'Write one condition per line (Pine-like filters). Scripts compile to safe desk rules — no arbitrary code — and scan the ASX universe when saved. Open the PDF for the full guide and Pine Script comparison.',
   headers: [
     { code: 'match all', meaning: 'Every condition must pass (AND). Default.' },
     { code: 'match any', meaning: 'Any one condition can pass (OR).' },
@@ -39,6 +42,7 @@ export const SCANSCRIPT_GUIDE = {
     'Max 8 conditions per script.',
     'Operators: > >= < <= (also ≥ ≤).',
     'Fires if true on a recent session (same engine as My conditions).',
+    'Like Pine conditions, but only supported metrics — no plots, loops, or strategy.*',
   ],
   examples: [
     {

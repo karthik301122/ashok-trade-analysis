@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, type FormEvent } from 'react'
-import { BookOpen, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, FileText, Pencil, Trash2 } from 'lucide-react'
 import type {
   OhlcBar,
   PatternBias,
@@ -21,6 +21,7 @@ import {
   SCANSCRIPT_EXAMPLE,
   SCANSCRIPT_GUIDE,
   SCANSCRIPT_NAME,
+  SCANSCRIPT_PDF_URL,
   validateScanScript,
   describeScanScript,
   type BodyPosition,
@@ -580,14 +581,31 @@ export function PatternCreatePanel({
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h4 className="text-sm font-bold">{SCANSCRIPT_NAME}</h4>
-                    <button
-                      type="button"
-                      onClick={() => setCScanScript(SCANSCRIPT_EXAMPLE)}
-                      className="text-[11px] font-semibold text-teal-700 hover:underline dark:text-teal-300"
-                    >
-                      Load example
-                    </button>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <a
+                        href={SCANSCRIPT_PDF_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-teal-700 hover:underline dark:text-teal-300"
+                        title="How to write ScanScript and how it compares with Pine Script"
+                      >
+                        <FileText size={13} />
+                        View PDF guide
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => setCScanScript(SCANSCRIPT_EXAMPLE)}
+                        className="text-[11px] font-semibold text-teal-700 hover:underline dark:text-teal-300"
+                      >
+                        Load example
+                      </button>
+                    </div>
                   </div>
+
+                  <p className="text-[11px] leading-relaxed text-[var(--color-ink-soft)]">
+                    ScanScript uses Pine-like condition lines (RSI, MAs, volume, % change) but is not
+                    full Pine — open the PDF for structure, examples, and a side-by-side comparison.
+                  </p>
 
                   <div className="overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40">
                     <button
@@ -596,7 +614,7 @@ export function PatternCreatePanel({
                       className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]"
                     >
                       <BookOpen size={14} className="shrink-0 text-teal-700 dark:text-teal-300" />
-                      Rules guide
+                      Quick rules guide
                       {scriptGuideOpen ? (
                         <ChevronDown size={14} className="ml-auto" />
                       ) : (
@@ -667,6 +685,16 @@ export function PatternCreatePanel({
                             </div>
                           ))}
                         </div>
+
+                        <a
+                          href={SCANSCRIPT_PDF_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 font-semibold text-teal-700 hover:underline dark:text-teal-300"
+                        >
+                          <FileText size={12} />
+                          Full PDF — how to write ScanScript &amp; vs Pine Script
+                        </a>
                       </div>
                     )}
                   </div>

@@ -22,7 +22,8 @@
     "lint": "oxlint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "preview": "node server/prod.mjs"
+    "preview": "node server/prod.mjs",
+    "docs:scanscript-pdf": "node scripts/generate-scan-script-pdf.mjs"
   },
   "engines": {
     "node": ">=22"

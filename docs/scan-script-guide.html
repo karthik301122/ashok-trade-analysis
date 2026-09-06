@@ -285,7 +285,77 @@ rsi(14) &gt;= 70</code></pre>
   <tr><td>Save button disabled</td><td>Fix red validation errors in the script editor first.</td></tr>
 </table>
 
-<h2>8. ScanScript vs other pattern types</h2>
+<h2>8. ScanScript vs Pine Script</h2>
+<p>
+  If you know <strong>TradingView Pine Script</strong>, ScanScript will feel familiar in spirit:
+  you describe indicator filters with comparisons, combine them with AND/OR, and look for
+  setups on OHLC bars. The big difference is <em>purpose</em>: Pine builds chart indicators
+  and strategies on TradingView; ScanScript builds a <strong>safe desk scanner</strong> that
+  runs across the ASX universe inside this app.
+</p>
+
+<div class="callout">
+  <strong>Mental model:</strong> think of ScanScript as a short Pine-style condition list —
+  not a full programming language. There are no plots, loops, arrays, <code>strategy.*</code>,
+  webhooks, or arbitrary functions. Each line compiles to one fixed desk metric.
+</div>
+
+<h3>What is the same (conceptually)</h3>
+<table>
+  <tr><th>Idea in Pine</th><th>ScanScript equivalent</th></tr>
+  <tr>
+    <td><code>rsi(close, 14) &lt;= 35</code></td>
+    <td><code>rsi(14) &lt;= 35</code></td>
+  </tr>
+  <tr>
+    <td><code>ta.sma(close, 50)</code> / price above MA</td>
+    <td><code>above_sma(50)</code> or <code>above_sma(50) &gt;= 2</code></td>
+  </tr>
+  <tr>
+    <td>Volume vs average volume</td>
+    <td><code>rvol &gt;= 1.5</code></td>
+  </tr>
+  <tr>
+    <td>AND / OR filters</td>
+    <td><code>match all</code> / <code>match any</code></td>
+  </tr>
+  <tr>
+    <td>Comments with <code>//</code></td>
+    <td>Comments with <code>#</code></td>
+  </tr>
+</table>
+
+<h3>Side-by-side example</h3>
+<p>Pine-style thinking (not runnable Pine here):</p>
+<pre><code>// Oversold with volume, still in uptrend
+rsiOk = ta.rsi(close, 14) &lt;= 35
+volOk = volume &gt; ta.sma(volume, 20) * 1.5
+trendOk = close &gt; ta.sma(close, 50)
+signal = rsiOk and volOk and trendOk</code></pre>
+<p>Same idea as ScanScript:</p>
+<pre><code>bias bullish
+match all
+
+rsi(14) &lt;= 35
+rvol &gt;= 1.5
+above_sma(50)</code></pre>
+
+<h3>What is different</h3>
+<table>
+  <tr><th>Pine Script</th><th>ScanScript</th></tr>
+  <tr><td>Full language (vars, loops, plots, strategies)</td><td>Declarative condition lines only</td></tr>
+  <tr><td>Runs on TradingView charts / alerts</td><td>Runs on this desk’s ASX OHLC scan</td></tr>
+  <tr><td>You can invent custom series math</td><td>Only supported metrics (RSI, RVOL, SMA/EMA %, % change)</td></tr>
+  <tr><td>Can execute arbitrary script logic</td><td>Compiles to fixed safe rules — no code execution</td></tr>
+  <tr><td>Often one symbol / alert feed</td><td>Saved pattern scans the full ASX universe</td></tr>
+</table>
+<p>
+  <strong>Tip:</strong> when translating from Pine, keep only the boolean filter lines
+  (<code>rsi …</code>, <code>close &gt; sma …</code>, volume spike). Drop plots, inputs, colors,
+  and strategy entries — those do not exist in ScanScript.
+</p>
+
+<h2>9. ScanScript vs other pattern types in this app</h2>
 <table>
   <tr><th>Method</th><th>Best for</th></tr>
   <tr><td><strong>ScanScript</strong></td><td>Multi-condition RSI / volume / MA / momentum filters across full ASX.</td></tr>
@@ -296,8 +366,8 @@ rsi(14) &gt;= 70</code></pre>
 </table>
 
 <div class="footer">
-  ASX Sector Intelligence · ScanScript v1 · Generated for desk pattern authoring<br />
-  For the latest metrics and UI, refer to the Pattern Analysis panel in the app.
+  TraderScope · ScanScript v1 · Pattern authoring guide (incl. Pine Script comparison)<br />
+  For the latest metrics and UI, refer to Create pattern → ScanScript in the app.
 </div>
 
 </body>

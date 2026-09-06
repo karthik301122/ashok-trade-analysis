@@ -1,15 +1,18 @@
 /**
- * Generate docs/ScanScript-Guide.pdf from docs/scan-script-guide.html
+ * Generate ScanScript-Guide.pdf from docs/scan-script-guide.html
+ * Writes to docs/ (source copy) and public/ (served by Vite / production).
  * Usage: node scripts/generate-scan-script-pdf.mjs
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const htmlPath = path.join(root, 'docs', 'scan-script-guide.html')
-const pdfPath = path.join(root, 'docs', 'ScanScript-Guide.pdf')
+const docsPdfPath = path.join(root, 'docs', 'ScanScript-Guide.pdf')
+const publicDir = path.join(root, 'public')
+const publicPdfPath = path.join(publicDir, 'ScanScript-Guide.pdf')
 const htmlUrl = `file:///${htmlPath.replace(/\\/g, '/')}`
 
 const chromeCandidates = [
@@ -33,7 +36,7 @@ const result = spawnSync(
     '--headless=new',
     '--disable-gpu',
     '--no-pdf-header-footer',
-    `--print-to-pdf=${pdfPath}`,
+    `--print-to-pdf=${docsPdfPath}`,
     htmlUrl,
   ],
   { encoding: 'utf8' },
@@ -44,4 +47,7 @@ if (result.status !== 0) {
   process.exit(result.status ?? 1)
 }
 
-console.log(`PDF written: ${pdfPath}`)
+mkdirSync(publicDir, { recursive: true })
+copyFileSync(docsPdfPath, publicPdfPath)
+console.log(`PDF written: ${docsPdfPath}`)
+console.log(`PDF copied:  ${publicPdfPath}`)

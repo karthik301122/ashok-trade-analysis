@@ -167,6 +167,7 @@ export {
   SCANSCRIPT_EXAMPLE,
   SCANSCRIPT_GUIDE,
   SCANSCRIPT_NAME,
+  SCANSCRIPT_PDF_URL,
   compileScanScript,
   describeScanScript,
   rulesFromCustom,
