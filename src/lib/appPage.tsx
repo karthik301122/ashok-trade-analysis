@@ -6,6 +6,7 @@ export type AppPage =
   | 'alerts'
   | 'special-patterns'
   | 'create-pattern'
+  | 'profile'
 
 type AppNavContextValue = {
   page: AppPage

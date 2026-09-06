@@ -3,6 +3,7 @@ import { Header } from './components/Header'
 import type { ViewId } from './components/ViewTabs'
 import { MainPagePanels } from './components/MainPagePanels'
 import { AuthPage } from './components/AuthPage'
+import { ProfilePage } from './components/ProfilePage'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
 import { clearPerfCache, clearOhlcSessionCache } from './lib/deskSeries'
 import { fetchDeskServerConfig, type DeskServerConfig } from './lib/deskConfig'
@@ -305,7 +306,15 @@ export default function App() {
     await load(true)
   }, [deskConfig, load, startAsx200ForceRefresh, waitForSnapshotJob])
 
-  const canUseApp = !authChecking && (!authRequired || Boolean(user))
+  const passwordResetPending = (() => {
+    try {
+      return Boolean(new URLSearchParams(window.location.search).get('reset')?.trim())
+    } catch {
+      return false
+    }
+  })()
+
+  const canUseApp = !authChecking && (!authRequired || Boolean(user)) && !passwordResetPending
 
   useEffect(() => {
     if (!canUseApp) return
@@ -466,8 +475,10 @@ export default function App() {
             <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-teal-200 border-t-teal-600" />
             <p className="text-sm text-[var(--color-ink-soft)]">Checking session…</p>
           </div>
-        ) : authRequired && !user ? (
+        ) : authRequired && (!user || passwordResetPending) ? (
           <AuthPage onSuccess={handleLogin} />
+        ) : page === 'profile' && user ? (
+          <ProfilePage user={user} onUserChange={setUser} />
         ) : loading && !snapshot ? (
           <div className="mx-auto mt-16 max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-sm">
             <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-teal-200 border-t-teal-600" />
@@ -628,6 +639,8 @@ export default function App() {
                 backfilling={backfilling}
                 patternAlertWatches={patternAlertWatches}
                 onPatternAlertWatchesChange={setPatternAlertWatches}
+                user={user}
+                onUserChange={setUser}
               />
             </PanelErrorBoundary>
           </>

@@ -233,8 +233,11 @@ export async function handleAuthApi(req, res, send) {
     const alertEmailMinScore = canReceiveAlertEmail ? await getAlertEmailMinScore(user) : 80
     const patternAlertIds = await getPatternAlertIds(user)
     const patternAlertWatches = await getPatternAlertWatches(user)
+    const { getDbUserProfile } = await import('./userStore.mjs')
+    const profile = await getDbUserProfile(user)
     return send(200, {
       user,
+      displayName: profile?.displayName || null,
       authRequired: true,
       canReceiveAlertEmail,
       alertEmailOptIn,
@@ -413,6 +416,112 @@ export async function handleAuthApi(req, res, send) {
 
   if (path === '/api/auth/logout' && method === 'POST') {
     return send(200, { ok: true }, { 'Set-Cookie': sessionClearCookieHeader() })
+  }
+
+  if (path === '/api/auth/forgot-password' && method === 'POST') {
+    if (!authEnabled()) {
+      return send(400, { error: 'Auth is not configured on this server' })
+    }
+    let body
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return send(400, { error: 'Invalid JSON' })
+    }
+    const { requestPasswordReset } = await import('./passwordReset.mjs')
+    const result = await requestPasswordReset(body, req)
+    if (!result.ok) return send(result.status || 400, { error: result.error })
+    return send(200, { ok: true, message: result.message })
+  }
+
+  if (path === '/api/auth/reset-password' && method === 'POST') {
+    if (!authEnabled()) {
+      return send(400, { error: 'Auth is not configured on this server' })
+    }
+    let body
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return send(400, { error: 'Invalid JSON' })
+    }
+    const { completePasswordReset } = await import('./passwordReset.mjs')
+    const result = await completePasswordReset(body)
+    if (!result.ok) return send(result.status || 400, { error: result.error })
+    return send(200, { ok: true, message: result.message })
+  }
+
+  if (path === '/api/auth/profile' && method === 'GET') {
+    if (!authEnabled()) {
+      return send(400, { error: 'Auth is not configured on this server' })
+    }
+    const user = getUserFromRequest(req)
+    if (!user) return send(401, { error: 'Unauthorized', authRequired: true })
+    const { getDbUserProfile } = await import('./userStore.mjs')
+    const profile = await getDbUserProfile(user)
+    return send(200, {
+      user,
+      displayName: profile?.displayName || null,
+      canEditProfile: Boolean(profile),
+      canReceiveAlertEmail: isEmailLogin(user),
+    })
+  }
+
+  if (path === '/api/auth/profile' && method === 'POST') {
+    if (!authEnabled()) {
+      return send(400, { error: 'Auth is not configured on this server' })
+    }
+    const user = getUserFromRequest(req)
+    if (!user) return send(401, { error: 'Unauthorized', authRequired: true })
+    let body
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return send(400, { error: 'Invalid JSON' })
+    }
+    const { updateDbDisplayName, updateDbUsername, getDbUserProfile } = await import(
+      './userStore.mjs'
+    )
+    let current = user
+    if (body?.displayName != null) {
+      const r = await updateDbDisplayName(current, body.displayName)
+      if (!r.ok) return send(400, { error: r.error })
+    }
+    if (body?.username != null && normalizeUsername(body.username) !== normalizeUsername(current)) {
+      const r = await updateDbUsername(current, body.username)
+      if (!r.ok) return send(400, { error: r.error })
+      current = r.user
+    }
+    const profile = await getDbUserProfile(current)
+    const token = createSessionToken(current)
+    return send(
+      200,
+      {
+        ok: true,
+        user: current,
+        displayName: profile?.displayName || null,
+        canEditProfile: Boolean(profile),
+        canReceiveAlertEmail: isEmailLogin(current),
+      },
+      { 'Set-Cookie': sessionSetCookieHeader(token) },
+    )
+  }
+
+  if (path === '/api/auth/change-password' && method === 'POST') {
+    if (!authEnabled()) {
+      return send(400, { error: 'Auth is not configured on this server' })
+    }
+    const user = getUserFromRequest(req)
+    if (!user) return send(401, { error: 'Unauthorized', authRequired: true })
+    let body
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return send(400, { error: 'Invalid JSON' })
+    }
+    const { changeDbPassword } = await import('./userStore.mjs')
+    const result = await changeDbPassword(user, body?.currentPassword, body?.newPassword)
+    if (!result.ok) return send(400, { error: result.error })
+    return send(200, { ok: true, message: 'Password updated' })
   }
 
   return false

@@ -104,6 +104,40 @@ export async function sendOtpEmail(to, otp, displayName = '') {
 }
 
 /**
+ * Send a password reset link.
+ * @param {string} to
+ * @param {string} resetUrl
+ * @param {string} [displayName]
+ */
+export async function sendPasswordResetEmail(to, resetUrl, displayName = '') {
+  const name = String(displayName || '').trim()
+  const greeting = name ? `Hi ${name},` : 'Hi,'
+  const url = String(resetUrl || '').trim()
+  if (!url) return false
+  const subject = 'TradersScope password reset'
+  const text = [
+    greeting,
+    '',
+    'We received a request to reset your TradersScope password.',
+    'Open this link to choose a new password (expires in 1 hour):',
+    '',
+    url,
+    '',
+    'If you did not request this, you can ignore this email.',
+  ].join('\n')
+  const html = [
+    `<p>${greeting}</p>`,
+    `<p>We received a request to reset your TradersScope password.</p>`,
+    `<p><a href="${url}" style="display:inline-block;padding:10px 16px;background:#0f766e;color:#fff;text-decoration:none;border-radius:8px;font-weight:600">Reset password</a></p>`,
+    `<p style="font-size:12px;color:#666">Or paste this link into your browser:<br/>${url}</p>`,
+    `<p style="font-size:12px;color:#666">Expires in 1 hour. If you did not request this, ignore this email.</p>`,
+  ].join('')
+  const ok = await sendMail({ to, subject, text, html })
+  if (ok) log('info', 'auth.password_reset.sent', { to })
+  return ok
+}
+
+/**
  * One email for a single alert hit (ticker + pattern / rule).
  * @param {{ ruleName: string, ticker?: string|null, message: string, score?: number|null }} item
  * @param {string} recipient — opted-in user login email

@@ -81,3 +81,112 @@ export async function createDbUser(username, password, opts = {}) {
 
   return { ok: true, user: u }
 }
+
+/**
+ * @param {string} username
+ * @returns {Promise<{ username: string, displayName: string | null, isAdmin: boolean } | null>}
+ */
+export async function getDbUserProfile(username) {
+  const u = normalizeUsername(username)
+  const row = await sqlOne(
+    'SELECT username, display_name, is_admin FROM users WHERE username = ?',
+    [u],
+  )
+  if (!row) return null
+  return {
+    username: String(row.username),
+    displayName: row.display_name != null ? String(row.display_name) : null,
+    isAdmin: Boolean(row.is_admin),
+  }
+}
+
+export async function dbUserExists(username) {
+  const row = await sqlOne('SELECT username FROM users WHERE username = ?', [
+    normalizeUsername(username),
+  ])
+  return Boolean(row)
+}
+
+/**
+ * @param {string} username
+ * @param {string} displayName
+ */
+export async function updateDbDisplayName(username, displayName) {
+  const u = normalizeUsername(username)
+  const name = String(displayName || '').trim()
+  if (name.length < 2) return { ok: false, error: 'Name must be at least 2 characters' }
+  if (name.length > 80) return { ok: false, error: 'Name is too long' }
+  const exists = await dbUserExists(u)
+  if (!exists) return { ok: false, error: 'Account is managed by the server and cannot be edited here' }
+  await sqlRun('UPDATE users SET display_name = ? WHERE username = ?', [name, u])
+  return { ok: true, displayName: name }
+}
+
+/**
+ * Rename login username and migrate prefs. Re-issue session on the client.
+ * @param {string} currentUsername
+ * @param {string} newUsername
+ */
+export async function updateDbUsername(currentUsername, newUsername) {
+  const from = normalizeUsername(currentUsername)
+  const to = normalizeUsername(newUsername)
+  if (from === to) return { ok: true, user: from }
+
+  const userErr = validateUsername(to)
+  if (userErr) return { ok: false, error: userErr }
+
+  const exists = await dbUserExists(from)
+  if (!exists) {
+    return { ok: false, error: 'Account is managed by the server and cannot be edited here' }
+  }
+
+  const taken = await dbUserExists(to)
+  if (taken) return { ok: false, error: 'Username already taken' }
+
+  await sqlRun('UPDATE users SET username = ? WHERE username = ?', [to, from])
+  await sqlRun('DELETE FROM user_prefs WHERE username = ?', [to])
+  await sqlRun('UPDATE user_prefs SET username = ? WHERE username = ?', [to, from])
+  await sqlRun('DELETE FROM password_reset_tokens WHERE username = ? OR username = ?', [from, to])
+
+  return { ok: true, user: to }
+}
+
+/**
+ * @param {string} username
+ * @param {string} currentPassword
+ * @param {string} newPassword
+ */
+export async function changeDbPassword(username, currentPassword, newPassword) {
+  const u = normalizeUsername(username)
+  const row = await sqlOne('SELECT password_hash FROM users WHERE username = ?', [u])
+  if (!row?.password_hash) {
+    return { ok: false, error: 'Account is managed by the server and cannot be edited here' }
+  }
+  const ok = await bcrypt.compare(String(currentPassword), row.password_hash)
+  if (!ok) return { ok: false, error: 'Current password is incorrect' }
+
+  const passErr = validatePassword(newPassword)
+  if (passErr) return { ok: false, error: passErr }
+
+  const hash = bcrypt.hashSync(String(newPassword), 10)
+  await sqlRun('UPDATE users SET password_hash = ? WHERE username = ?', [hash, u])
+  await sqlRun('DELETE FROM password_reset_tokens WHERE username = ?', [u])
+  return { ok: true }
+}
+
+/**
+ * Set password from a verified reset token (no current password).
+ * @param {string} username
+ * @param {string} newPassword
+ */
+export async function setDbPassword(username, newPassword) {
+  const u = normalizeUsername(username)
+  const exists = await dbUserExists(u)
+  if (!exists) return { ok: false, error: 'Account not found' }
+  const passErr = validatePassword(newPassword)
+  if (passErr) return { ok: false, error: passErr }
+  const hash = bcrypt.hashSync(String(newPassword), 10)
+  await sqlRun('UPDATE users SET password_hash = ? WHERE username = ?', [hash, u])
+  await sqlRun('DELETE FROM password_reset_tokens WHERE username = ?', [u])
+  return { ok: true }
+}

@@ -24,7 +24,7 @@ export function Header({ dark, onToggleDark, page, onPage, authRequired, user, o
   const showSession = Boolean(authRequired && user)
   const initials = user
     ? user
-        .split(/[.\s_-]+/)
+        .split(/[.@\s_-]+/)
         .filter(Boolean)
         .slice(0, 2)
         .map((p) => p[0]?.toUpperCase() ?? '')
@@ -97,11 +97,21 @@ export function Header({ dark, onToggleDark, page, onPage, authRequired, user, o
           </button>
           {showSession && (
             <div className="flex items-center gap-1.5 rounded-full border border-[var(--color-border)] py-1 pl-1 pr-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-700 text-xs font-semibold text-white">
-                {initials}
-              </span>
-              <span className="hidden max-w-[120px] truncate text-sm md:inline">{user}</span>
-              <User size={14} className="text-[var(--color-ink-soft)] md:hidden" />
+              <button
+                type="button"
+                onClick={() => onPage('profile')}
+                title="View profile"
+                aria-current={page === 'profile' ? 'page' : undefined}
+                className={`flex items-center gap-1.5 rounded-full py-0.5 pl-0.5 pr-1 transition hover:bg-[var(--color-muted)] ${
+                  page === 'profile' ? 'bg-[var(--color-muted)]' : ''
+                }`}
+              >
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-700 text-xs font-semibold text-white">
+                  {initials}
+                </span>
+                <span className="hidden max-w-[120px] truncate text-sm md:inline">{user}</span>
+                <User size={14} className="text-[var(--color-ink-soft)] md:hidden" />
+              </button>
               {onLogout && (
                 <button
                   type="button"

@@ -127,6 +127,12 @@ function openSqlite() {
       attempts INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      token_hash TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS user_prefs (
       username TEXT PRIMARY KEY,
       alert_email_opt_in INTEGER NOT NULL DEFAULT 0,

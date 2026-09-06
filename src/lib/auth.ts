@@ -266,3 +266,129 @@ export async function logout(): Promise<void> {
     // ignore
   }
 }
+
+export async function requestPasswordReset(
+  email: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/auth/forgot-password', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return { ok: false, error: (json as { error?: string }).error || 'Could not send reset email' }
+    }
+    return {
+      ok: true,
+      message: (json as { message?: string }).message || 'Check your email for a reset link',
+    }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function resetPasswordWithToken(
+  token: string,
+  password: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/auth/reset-password', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return { ok: false, error: (json as { error?: string }).error || 'Could not reset password' }
+    }
+    return {
+      ok: true,
+      message: (json as { message?: string }).message || 'Password updated',
+    }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export type ProfileInfo = {
+  user: string
+  displayName: string | null
+  canEditProfile: boolean
+  canReceiveAlertEmail: boolean
+}
+
+export async function fetchProfile(): Promise<
+  { ok: true } & ProfileInfo | { ok: false; error: string }
+> {
+  try {
+    const res = await fetch('/api/auth/profile', { credentials: 'include' })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return { ok: false, error: (json as { error?: string }).error || 'Could not load profile' }
+    }
+    return {
+      ok: true,
+      user: String((json as { user?: string }).user || ''),
+      displayName: (json as { displayName?: string | null }).displayName ?? null,
+      canEditProfile: Boolean((json as { canEditProfile?: boolean }).canEditProfile),
+      canReceiveAlertEmail: Boolean((json as { canReceiveAlertEmail?: boolean }).canReceiveAlertEmail),
+    }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function updateProfile(input: {
+  username?: string
+  displayName?: string
+}): Promise<{ ok: true } & ProfileInfo | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/auth/profile', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return { ok: false, error: (json as { error?: string }).error || 'Could not update profile' }
+    }
+    return {
+      ok: true,
+      user: String((json as { user?: string }).user || ''),
+      displayName: (json as { displayName?: string | null }).displayName ?? null,
+      canEditProfile: Boolean((json as { canEditProfile?: boolean }).canEditProfile),
+      canReceiveAlertEmail: Boolean((json as { canReceiveAlertEmail?: boolean }).canReceiveAlertEmail),
+    }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/auth/change-password', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return { ok: false, error: (json as { error?: string }).error || 'Could not change password' }
+    }
+    return {
+      ok: true,
+      message: (json as { message?: string }).message || 'Password updated',
+    }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}

@@ -662,8 +662,11 @@ export function mountExpressApi(app) {
     const alertEmailMinScore = canReceiveAlertEmail ? await getAlertEmailMinScore(user) : 80
     const patternAlertIds = await getPatternAlertIds(user)
     const patternAlertWatches = await getPatternAlertWatches(user)
+    const { getDbUserProfile } = await import('./userStore.mjs')
+    const profile = await getDbUserProfile(user)
     return res.json({
       user,
+      displayName: profile?.displayName || null,
       authRequired: true,
       canReceiveAlertEmail,
       alertEmailOptIn,
@@ -804,6 +807,88 @@ export function mountExpressApi(app) {
   app.post('/api/auth/logout', (_req, res) => {
     res.setHeader('Set-Cookie', sessionClearCookieHeader())
     return res.json({ ok: true })
+  })
+
+  app.post('/api/auth/forgot-password', async (req, res) => {
+    if (!authEnabled()) {
+      return res.status(400).json({ error: 'Auth is not configured on this server' })
+    }
+    const { requestPasswordReset } = await import('./passwordReset.mjs')
+    const result = await requestPasswordReset(req.body || {}, req)
+    if (!result.ok) return res.status(result.status || 400).json({ error: result.error })
+    return res.json({ ok: true, message: result.message })
+  })
+
+  app.post('/api/auth/reset-password', async (req, res) => {
+    if (!authEnabled()) {
+      return res.status(400).json({ error: 'Auth is not configured on this server' })
+    }
+    const { completePasswordReset } = await import('./passwordReset.mjs')
+    const result = await completePasswordReset(req.body || {})
+    if (!result.ok) return res.status(result.status || 400).json({ error: result.error })
+    return res.json({ ok: true, message: result.message })
+  })
+
+  app.get('/api/auth/profile', async (req, res) => {
+    if (!authEnabled()) {
+      return res.status(400).json({ error: 'Auth is not configured on this server' })
+    }
+    const user = getUserFromRequest(req)
+    if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    const { getDbUserProfile } = await import('./userStore.mjs')
+    const profile = await getDbUserProfile(user)
+    return res.json({
+      user,
+      displayName: profile?.displayName || null,
+      canEditProfile: Boolean(profile),
+      canReceiveAlertEmail: isEmailLogin(user),
+    })
+  })
+
+  app.post('/api/auth/profile', async (req, res) => {
+    if (!authEnabled()) {
+      return res.status(400).json({ error: 'Auth is not configured on this server' })
+    }
+    const user = getUserFromRequest(req)
+    if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    const { updateDbDisplayName, updateDbUsername, getDbUserProfile } = await import(
+      './userStore.mjs'
+    )
+    let current = user
+    if (req.body?.displayName != null) {
+      const r = await updateDbDisplayName(current, req.body.displayName)
+      if (!r.ok) return res.status(400).json({ error: r.error })
+    }
+    if (
+      req.body?.username != null &&
+      normalizeUsername(req.body.username) !== normalizeUsername(current)
+    ) {
+      const r = await updateDbUsername(current, req.body.username)
+      if (!r.ok) return res.status(400).json({ error: r.error })
+      current = r.user
+    }
+    const profile = await getDbUserProfile(current)
+    const token = createSessionToken(current)
+    res.setHeader('Set-Cookie', sessionSetCookieHeader(token))
+    return res.json({
+      ok: true,
+      user: current,
+      displayName: profile?.displayName || null,
+      canEditProfile: Boolean(profile),
+      canReceiveAlertEmail: isEmailLogin(current),
+    })
+  })
+
+  app.post('/api/auth/change-password', async (req, res) => {
+    if (!authEnabled()) {
+      return res.status(400).json({ error: 'Auth is not configured on this server' })
+    }
+    const user = getUserFromRequest(req)
+    if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    const { changeDbPassword } = await import('./userStore.mjs')
+    const result = await changeDbPassword(user, req.body?.currentPassword, req.body?.newPassword)
+    if (!result.ok) return res.status(400).json({ error: result.error })
+    return res.json({ ok: true, message: 'Password updated' })
   })
 
   app.get('/api/admin/users', async (req, res) => {
