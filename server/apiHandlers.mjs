@@ -311,8 +311,14 @@ export async function handleConnectApi(req, res, send) {
     if (await requireSessionOrAdmin(req, send)) return true
     if (req.method === 'POST') {
       if (await requireAdminOrSend(req, send)) return true
-      log('info', 'snapshot.retry_failed', { started: true, via: 'asx200-force' })
-      void runAsx200ForceRefresh().catch((err) => {
+      const status = await getSnapshotJobStatus()
+      if (status.status === 'running') {
+        log('info', 'snapshot.retry_failed', { alreadyRunning: true, message: status.message })
+        send(202, { ok: true, job: status, alreadyRunning: true })
+        return true
+      }
+      log('info', 'snapshot.retry_failed', { started: true, via: 'missing-only' })
+      void runRetryFailedSnapshot().catch((err) => {
         log('error', 'snapshot.retry_failed.error', {
           message: err instanceof Error ? err.message : String(err),
         })
@@ -1012,12 +1018,13 @@ export function mountExpressApi(app) {
       })
     }
     const status = await getSnapshotJobStatus()
-    // Prefer ASX200 force refresh — "retry failed" alone does nothing when all names are loaded but stale.
-    log('info', 'snapshot.retry_failed', { started: true, via: 'asx200-force' })
+    // Only re-fetch missing names — do not restart a full desk pull (that can run 20–40+ min).
     if (status.status === 'running') {
-      // Still allow ASX200 supersede path
+      log('info', 'snapshot.retry_failed', { alreadyRunning: true, message: status.message })
+      return res.status(202).json({ ok: true, job: status, alreadyRunning: true })
     }
-    void runAsx200ForceRefresh().catch((err) => {
+    log('info', 'snapshot.retry_failed', { started: true, via: 'missing-only' })
+    void runRetryFailedSnapshot().catch((err) => {
       log('error', 'snapshot.retry_failed.error', {
         message: err instanceof Error ? err.message : String(err),
       })

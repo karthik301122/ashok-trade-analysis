@@ -224,10 +224,9 @@ export default function App() {
           : `Refresh failed (${res.status}) — admin access required in production`,
       )
     }
-    // Wait for full desk (ASX200 + mid + small). Mid/small were finishing in the
-    // background while the UI showed "done", which left Breadth Mid/Small on stale bars.
+    // Unlock UI once ASX200 is usable; mid/small keep running on the server.
     await waitForSnapshotJob(startedAfter, {
-      readyOn: 'desk',
+      readyOn: 'asx200',
       onStatus: setRefreshStatus,
     })
     return startedAfter
@@ -240,7 +239,31 @@ export default function App() {
     try {
       clearPerfCache()
       clearOhlcSessionCache()
-      await startAsx200ForceRefresh()
+      const res = await fetch('/api/snapshot/retry-failed', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(
+          typeof body?.error === 'string'
+            ? body.error
+            : `Retry failed (${res.status}) — admin access required in production`,
+        )
+      }
+      const body = (await res.json().catch(() => ({}))) as {
+        alreadyRunning?: boolean
+        job?: { startedAt?: number; message?: string }
+      }
+      // If a desk pull is already mid-flight, track that job — don't wait for a new start.
+      const startedAfter = body.alreadyRunning
+        ? Number(body.job?.startedAt || 0)
+        : Date.now()
+      if (body.job?.message) setRefreshStatus(body.job.message)
+      await waitForSnapshotJob(startedAfter, {
+        readyOn: 'desk',
+        onStatus: setRefreshStatus,
+      })
       await load(false)
       setRefreshStatus(null)
     } catch (e) {
@@ -250,7 +273,7 @@ export default function App() {
     } finally {
       setRetryingFailed(false)
     }
-  }, [load, startAsx200ForceRefresh, waitForSnapshotJob])
+  }, [load, waitForSnapshotJob])
 
   const refreshLive = useCallback(async () => {
     const config = deskConfig ?? await fetchDeskServerConfig()
@@ -567,7 +590,7 @@ export default function App() {
                   disabled={backfilling || retryingFailed}
                   onClick={() => void retryFailedLoads()}
                   className="rounded-lg border border-amber-600/80 px-2.5 py-1 font-semibold text-amber-900 disabled:opacity-50 dark:text-amber-200"
-                  title="Admin: re-fetch missing tickers on the server"
+                  title="Admin: re-fetch only tickers missing from the snapshot"
                 >
                   <RefreshCw size={12} className={retryingFailed ? 'animate-spin' : ''} />
                   {retryingFailed ? 'Retrying…' : `Retry ${meta.failed}`}
