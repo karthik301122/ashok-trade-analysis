@@ -5,6 +5,7 @@ export type PatternAlertWatch = {
 
 export type AuthMe = {
   user: string | null
+  displayName?: string | null
   authRequired: boolean
   canReceiveAlertEmail?: boolean
   alertEmailOptIn?: boolean
@@ -47,6 +48,7 @@ export async function fetchAuthMe(): Promise<AuthMe> {
     const minScore = Number(json.alertEmailMinScore)
     return {
       user: json.user ?? null,
+      displayName: json.displayName ?? null,
       authRequired: Boolean(json.authRequired),
       canReceiveAlertEmail: Boolean(json.canReceiveAlertEmail),
       alertEmailOptIn: Boolean(json.alertEmailOptIn),

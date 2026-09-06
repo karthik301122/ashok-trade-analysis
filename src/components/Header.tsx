@@ -9,6 +9,8 @@ type Props = {
   onPage: (p: AppPage) => void
   authRequired?: boolean
   user?: string | null
+  /** Prefer showing this in the header chip (falls back to login email/username). */
+  displayName?: string | null
   onLogout?: () => void
 }
 
@@ -20,16 +22,30 @@ const NAV: { id: AppPage; label: string }[] = [
   { id: 'alerts', label: 'Alerts' },
 ]
 
-export function Header({ dark, onToggleDark, page, onPage, authRequired, user, onLogout }: Props) {
+function labelInitials(label: string) {
+  return (
+    label
+      .split(/[.@\s_-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase() ?? '')
+      .join('') || label.slice(0, 2).toUpperCase()
+  )
+}
+
+export function Header({
+  dark,
+  onToggleDark,
+  page,
+  onPage,
+  authRequired,
+  user,
+  displayName,
+  onLogout,
+}: Props) {
   const showSession = Boolean(authRequired && user)
-  const initials = user
-    ? user
-        .split(/[.@\s_-]+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((p) => p[0]?.toUpperCase() ?? '')
-        .join('') || user.slice(0, 2).toUpperCase()
-    : ''
+  const label = (displayName?.trim() || user || '').trim()
+  const initials = label ? labelInitials(label) : ''
 
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-md">
@@ -100,7 +116,7 @@ export function Header({ dark, onToggleDark, page, onPage, authRequired, user, o
               <button
                 type="button"
                 onClick={() => onPage('profile')}
-                title="View profile"
+                title={user ? `Profile · ${user}` : 'View profile'}
                 aria-current={page === 'profile' ? 'page' : undefined}
                 className={`flex items-center gap-1.5 rounded-full py-0.5 pl-0.5 pr-1 transition hover:bg-[var(--color-muted)] ${
                   page === 'profile' ? 'bg-[var(--color-muted)]' : ''
@@ -109,7 +125,7 @@ export function Header({ dark, onToggleDark, page, onPage, authRequired, user, o
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-700 text-xs font-semibold text-white">
                   {initials}
                 </span>
-                <span className="hidden max-w-[120px] truncate text-sm md:inline">{user}</span>
+                <span className="hidden max-w-[140px] truncate text-sm md:inline">{label}</span>
                 <User size={14} className="text-[var(--color-ink-soft)] md:hidden" />
               </button>
               {onLogout && (

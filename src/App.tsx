@@ -24,6 +24,7 @@ export default function App() {
   const [authChecking, setAuthChecking] = useState(true)
   const [authRequired, setAuthRequired] = useState(false)
   const [user, setUser] = useState<string | null>(null)
+  const [displayName, setDisplayName] = useState<string | null>(null)
   const [patternAlertWatches, setPatternAlertWatches] = useState<PatternAlertWatch[]>([])
   const [page, setPage] = useState<AppPage>('sector')
   const [, startNavTransition] = useTransition()
@@ -94,6 +95,7 @@ export default function App() {
       if (cancelled) return
       setAuthRequired(me.authRequired)
       setUser(me.user)
+      setDisplayName(me.displayName ?? null)
       setPatternAlertWatches(me.patternAlertWatches ?? [])
       setAuthChecking(false)
     })()
@@ -397,6 +399,7 @@ export default function App() {
     startedLoad.current = false
     setUser(u)
     const me = await fetchAuthMe()
+    setDisplayName(me.displayName ?? null)
     setPatternAlertWatches(me.patternAlertWatches ?? [])
   }
 
@@ -404,6 +407,7 @@ export default function App() {
     abortRef.current?.abort()
     await apiLogout()
     setUser(null)
+    setDisplayName(null)
     setPatternAlertWatches([])
     setSnapshot(null)
     setMeta(null)
@@ -411,6 +415,11 @@ export default function App() {
     setLoading(false)
     setBackfilling(false)
     startedLoad.current = false
+  }
+
+  const handleProfileChange = (nextUser: string, nextDisplayName: string | null) => {
+    setUser(nextUser)
+    setDisplayName(nextDisplayName)
   }
 
   const pct =
@@ -465,6 +474,7 @@ export default function App() {
           onPage={navigate}
           authRequired={authRequired}
           user={user}
+          displayName={displayName}
           onLogout={authRequired ? handleLogout : undefined}
         />
       )}
@@ -478,7 +488,7 @@ export default function App() {
         ) : authRequired && (!user || passwordResetPending) ? (
           <AuthPage onSuccess={handleLogin} />
         ) : page === 'profile' && user ? (
-          <ProfilePage user={user} onUserChange={setUser} />
+          <ProfilePage user={user} onProfileChange={handleProfileChange} />
         ) : loading && !snapshot ? (
           <div className="mx-auto mt-16 max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-sm">
             <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-teal-200 border-t-teal-600" />
@@ -640,7 +650,7 @@ export default function App() {
                 patternAlertWatches={patternAlertWatches}
                 onPatternAlertWatchesChange={setPatternAlertWatches}
                 user={user}
-                onUserChange={setUser}
+                onProfileChange={handleProfileChange}
               />
             </PanelErrorBoundary>
           </>

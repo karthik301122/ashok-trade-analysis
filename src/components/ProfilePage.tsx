@@ -9,10 +9,10 @@ import {
 
 type Props = {
   user: string
-  onUserChange: (user: string) => void
+  onProfileChange: (user: string, displayName: string | null) => void
 }
 
-export function ProfilePage({ user, onUserChange }: Props) {
+export function ProfilePage({ user, onProfileChange }: Props) {
   const [displayName, setDisplayName] = useState('')
   const [username, setUsername] = useState(user)
   const [canEdit, setCanEdit] = useState(true)
@@ -66,7 +66,7 @@ export function ProfilePage({ user, onUserChange }: Props) {
       setProfileErr(result.error)
       return
     }
-    onUserChange(result.user)
+    onProfileChange(result.user, result.displayName)
     setUsername(result.user)
     setDisplayName(result.displayName || '')
     setCanEdit(result.canEditProfile)
@@ -124,7 +124,8 @@ export function ProfilePage({ user, onUserChange }: Props) {
           Your profile
         </h1>
         <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
-          Update your name, username, and password. Forgot-password emails go to your login email.
+          Your name appears in the top bar. Username/email is what you use to sign in and receive
+          password-reset mail.
         </p>
       </div>
 

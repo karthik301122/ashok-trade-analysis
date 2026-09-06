@@ -22,7 +22,7 @@ type Props = {
   patternAlertWatches?: PatternAlertWatch[]
   onPatternAlertWatchesChange?: (watches: PatternAlertWatch[]) => void
   user?: string | null
-  onUserChange?: (user: string) => void
+  onProfileChange?: (user: string, displayName: string | null) => void
 }
 
 function mainPagePanelsPropsEqual(prev: Props, next: Props): boolean {
@@ -49,7 +49,7 @@ function MainPagePanelsInner({
   patternAlertWatches,
   onPatternAlertWatchesChange,
   user,
-  onUserChange,
+  onProfileChange,
 }: Props) {
   const overlayPage = page === 'alerts' || page === 'create-pattern' || page === 'profile'
 
@@ -78,8 +78,8 @@ function MainPagePanelsInner({
         />
       )}
       {page === 'create-pattern' && <PatternCreatePage />}
-      {page === 'profile' && user && onUserChange && (
-        <ProfilePage user={user} onUserChange={onUserChange} />
+      {page === 'profile' && user && onProfileChange && (
+        <ProfilePage user={user} onProfileChange={onProfileChange} />
       )}
     </UnifiedSpecialScansProvider>
   )
