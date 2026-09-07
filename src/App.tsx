@@ -45,6 +45,14 @@ export default function App() {
     source?: string
   } | null>(null)
   const [retryingFailed, setRetryingFailed] = useState(false)
+  const [snapshotJob, setSnapshotJob] = useState<{
+    status?: string
+    message?: string
+    loaded?: number
+    failed?: number
+    total?: number
+    trigger?: string | null
+  } | null>(null)
   const [deskConfig, setDeskConfig] = useState<DeskServerConfig | null>(null)
   const [siteMaintenance, setSiteMaintenance] = useState<{
     checking: boolean
@@ -256,12 +264,21 @@ export default function App() {
       }
       const body = (await res.json().catch(() => ({}))) as {
         alreadyRunning?: boolean
-        job?: { startedAt?: number; message?: string }
+        job?: {
+          startedAt?: number
+          message?: string
+          status?: string
+          failed?: number
+          loaded?: number
+          total?: number
+          trigger?: string | null
+        }
       }
       // If a desk pull is already mid-flight, track that job — don't wait for a new start.
       const startedAfter = body.alreadyRunning
         ? Number(body.job?.startedAt || 0)
         : Date.now()
+      if (body.job) setSnapshotJob(body.job)
       if (body.job?.message) setRefreshStatus(body.job.message)
       await waitForSnapshotJob(startedAfter, {
         readyOn: 'desk',
@@ -322,6 +339,67 @@ export default function App() {
     if (!canUseApp) return
     void fetchDeskServerConfig().then(setDeskConfig)
   }, [canUseApp])
+
+  /** Poll job status for everyone when failed is high or a snapshot job is running. */
+  useEffect(() => {
+    if (!canUseApp) return
+    const failed = meta?.failed ?? 0
+    const jobRunning = snapshotJob?.status === 'running'
+    const shouldPoll = failed > 300 || jobRunning || retryingFailed
+    if (!shouldPoll && meta) return
+
+    let cancelled = false
+    let wasRunning = jobRunning
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/snapshot/refresh?_=${Date.now()}`, {
+          credentials: 'include',
+          cache: 'no-store',
+        })
+        if (!res.ok || cancelled) return
+        const json = (await res.json()) as {
+          job?: {
+            status?: string
+            message?: string
+            loaded?: number
+            failed?: number
+            total?: number
+            trigger?: string | null
+          }
+          snapshot?: { loaded?: number; failed?: number } | null
+        }
+        if (cancelled) return
+        const job = json.job ?? null
+        setSnapshotJob(job)
+        if (json.snapshot) {
+          setMeta((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  loaded: json.snapshot!.loaded ?? prev.loaded,
+                  failed: json.snapshot!.failed ?? prev.failed,
+                }
+              : prev,
+          )
+        }
+        const running = job?.status === 'running'
+        if (wasRunning && !running) {
+          // Auto/manual retry finished — refresh desk data for all users.
+          void loadRef.current(false)
+        }
+        wasRunning = Boolean(running)
+      } catch {
+        /* ignore transient poll errors */
+      }
+    }
+
+    void poll()
+    const id = window.setInterval(() => void poll(), jobRunning || failed > 300 ? 4000 : 12_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [canUseApp, meta?.failed, snapshotJob?.status, retryingFailed])
 
   useEffect(() => {
     if (!canUseApp || !deskConfig?.productionMode) return
@@ -449,6 +527,27 @@ export default function App() {
     }
     return ' · live desk data'
   })()
+
+  const publicJobStatus = (() => {
+    if (snapshotJob?.status === 'running') {
+      const msg = (snapshotJob.message || '').trim()
+      if (msg) return msg
+      const n = snapshotJob.failed ?? meta?.failed
+      if (n != null && n > 0) {
+        return snapshotJob.trigger === 'auto-failed'
+          ? `Auto-retrying ${n.toLocaleString()} failed stocks…`
+          : `Retrying ${n.toLocaleString()} failed stocks…`
+      }
+      return 'Updating market snapshot…'
+    }
+    const failed = meta?.failed ?? 0
+    if (failed > 300) {
+      return `High failure count (${failed.toLocaleString()}) — auto-retrying failed stocks…`
+    }
+    return null
+  })()
+
+  const shownJobStatus = refreshStatus || publicJobStatus
 
   if (siteMaintenance.checking) {
     return (
@@ -582,9 +681,13 @@ export default function App() {
                   {statusLine}
                 </span>
               )}
-              {refreshStatus && (
-                <span className="max-w-md truncate text-sky-700 dark:text-sky-300" title={refreshStatus}>
-                  {refreshStatus}
+              {shownJobStatus && (
+                <span
+                  className="inline-flex max-w-xl items-center gap-1.5 truncate text-sky-700 dark:text-sky-300"
+                  title={shownJobStatus}
+                >
+                  <RefreshCw size={12} className="shrink-0 animate-spin" />
+                  {shownJobStatus}
                 </span>
               )}
               <button

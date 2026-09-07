@@ -67,16 +67,30 @@ describe('overviewPatternHits', () => {
     expect(hits.map((h) => h.name).sort()).toEqual(['Hammer', 'My Flag', 'My RVOL'])
   })
 
-  it('merges special hits onto chart overview hits', () => {
+  it('merges special hits onto chart overview hits ranked by score', () => {
     const chart: CachedPatternHit[] = [
       { name: 'Hammer', bias: 'bullish', endT: 100, confidence: 0.8 },
     ]
     const special: CachedPatternHit[] = [
       { name: '3 Weeks Tight', bias: 'bullish', endT: 90, confidence: 0.85 },
     ]
+    // 0.85 is treated as confirmed, so special ranks ahead of Hammer (0.8).
     expect(mergeOverviewHits(chart, special).map((h) => h.name)).toEqual([
-      'Hammer',
       '3 Weeks Tight',
+      'Hammer',
+    ])
+  })
+
+  it('ranks multiple chart hits by confidence not recency', () => {
+    const cached: CachedPatternHit[] = [
+      { name: 'Hammer', bias: 'bullish', endT: 200, confidence: 0.7 },
+      { name: 'My RVOL', bias: 'bullish', endT: 100, confidence: 0.95 },
+      { name: 'Bull Flag', bias: 'bullish', endT: 150, confidence: 0.8 },
+    ]
+    expect(resolveOverviewHits(cached, prefs).map((h) => h.name)).toEqual([
+      'My RVOL',
+      'My Flag',
+      'Hammer',
     ])
   })
 

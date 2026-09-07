@@ -18,6 +18,7 @@ import { DebouncedSearchInput } from './DebouncedSearchInput'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
 import { useIndustryPatternScan } from './patterns/useIndustryPatternScan'
 import type { CachedPatternHit } from '../lib/patternHitsCache'
+import { rankPatternHitsByScore } from '../lib/patterns/rankPatternHits'
 import {
   hasOverviewChartWatch,
   hitDisplayStartT,
@@ -50,8 +51,9 @@ function formatHitDate(t: number) {
 
 function PatternHitChips({ hits, prefs }: { hits: CachedPatternHit[]; prefs: PatternPrefs }) {
   if (!hits.length) return null
-  const show = hits.slice(0, 4)
-  const extra = hits.length - show.length
+  const ranked = rankPatternHitsByScore(hits)
+  const show = ranked.slice(0, 4)
+  const extra = ranked.length - show.length
   return (
     <div className="mt-1 flex flex-wrap gap-1 pl-0">
       {show.map((h) => {

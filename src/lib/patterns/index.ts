@@ -17,6 +17,7 @@ import {
   type PatternHit,
   type PatternScanRow,
 } from './types'
+import { comparePatternHitsByScore, rankPatternHitsByScore } from './rankPatternHits'
 
 export type ScanPatternsOptions = {
   /** Only count hits ending within this window from the latest bar. */
@@ -71,11 +72,11 @@ export function scanPatterns(
       hit: byName.get(def.name) ?? null,
     }))
 
-    // Sort: hits first (newest), then no-hit alphabetically
+    // Sort: hits first (strongest score), then no-hit alphabetically
     rows.sort((a, b) => {
       if (a.hit && !b.hit) return -1
       if (!a.hit && b.hit) return 1
-      if (a.hit && b.hit) return b.hit.endT - a.hit.endT
+      if (a.hit && b.hit) return comparePatternHitsByScore(a.hit, b.hit)
       return a.name.localeCompare(b.name)
     })
 
@@ -89,7 +90,7 @@ export function scanPatterns(
       bullish,
       bearish,
       neutral,
-      hits: hits.sort((a, b) => b.endT - a.endT),
+      hits: rankPatternHitsByScore(hits),
       rows,
       analyzed: catalogFor(meta.id).length,
     }
@@ -106,6 +107,12 @@ export function scanPatterns(
 
 export type { CategorySummary, PatternHit, PatternCategoryId, PatternBias, OhlcBar, PatternScanRow }
 export { CATEGORY_META, PATTERN_CATALOG, CATALOG_TOTAL }
+export {
+  comparePatternHitsByScore,
+  rankPatternHitsByScore,
+  patternHitScore,
+  patternHitConfirmed,
+} from './rankPatternHits'
 export { enrichScanWithPrefs } from './enrichWithPrefs'
 export {
   DEFAULT_PATTERN_SCAN_WINDOW,

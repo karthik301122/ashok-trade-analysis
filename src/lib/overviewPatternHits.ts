@@ -16,6 +16,7 @@ import {
 } from './patterns/specialDetect'
 import { getTickerScriptScan } from './specialScriptCache'
 import { getTickerWeeklySpecial } from './specialWeeklyCache'
+import { rankPatternHitsByScore } from './patterns/rankPatternHits'
 
 export function isDetectableCustom(c: CustomPattern): boolean {
   return Boolean(
@@ -168,13 +169,18 @@ export function resolveSpecialHitsForTicker(
         bias: p.bias,
         startT: hit.startT,
         endT: hit.endT,
-        confidence: 0.75,
+        confidence:
+          typeof hit.score === 'number'
+            ? Math.max(0, Math.min(1, hit.score / 100))
+            : hit.confirmed
+              ? 0.9
+              : 0.75,
       })
       seen.add(p.name)
     }
   }
 
-  return out.sort((a, b) => b.endT - a.endT)
+  return rankPatternHitsByScore(out)
 }
 
 /** @deprecated Use resolveSpecialHitsForTicker */
@@ -236,7 +242,7 @@ export function resolveOverviewHits(
     }
   }
 
-  return out.sort((a, b) => b.endT - a.endT)
+  return rankPatternHitsByScore(out)
 }
 
 /** Merge chart overview hits with special pattern hits (dedupe by name). */
@@ -251,7 +257,7 @@ export function mergeOverviewHits(
     seen.add(h.name)
     merged.push(h)
   }
-  return merged.sort((a, b) => b.endT - a.endT)
+  return rankPatternHitsByScore(merged)
 }
 
 export function isStarredOverviewHit(name: string, prefs: PatternPrefs): boolean {

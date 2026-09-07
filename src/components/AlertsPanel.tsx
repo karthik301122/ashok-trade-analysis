@@ -19,6 +19,7 @@ import {
 } from '../lib/patternScanApi'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
 import { PatternComboAlertsPanel } from './PatternComboAlertsPanel'
+import { comparePatternHitsByScore } from '../lib/patterns/rankPatternHits'
 
 /** Show hit % in the Alerts UI at or above this (email uses a separate user threshold). */
 const UI_HIT_MIN_SCORE = 60
@@ -538,7 +539,24 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
                   <div>
                     <div className="font-mono text-sm font-bold">{w.ticker}</div>
                     <div className="mt-1 flex flex-wrap gap-1">
-                      {w.patternIds.map((pid) => {
+                      {[...w.patternIds]
+                        .sort((a, b) => {
+                          const ra = watchScores[w.ticker]?.get(a)
+                          const rb = watchScores[w.ticker]?.get(b)
+                          return comparePatternHitsByScore(
+                            {
+                              name: a,
+                              score: ra?.score,
+                              confirmed: ra?.confirmed,
+                            },
+                            {
+                              name: b,
+                              score: rb?.score,
+                              confirmed: rb?.confirmed,
+                            },
+                          )
+                        })
+                        .map((pid) => {
                         const row = watchScores[w.ticker]?.get(pid)
                         return (
                           <span
@@ -657,7 +675,18 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
                     </p>
                   ) : (
                     <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                      {patternAlertOptions.map((p) => {
+                      {[...patternAlertOptions]
+                        .sort((a, b) => {
+                          const ra = pickScores.get(a.id)
+                          const rb = pickScores.get(b.id)
+                          const cmp = comparePatternHitsByScore(
+                            { name: a.label, score: ra?.score, confirmed: ra?.confirmed },
+                            { name: b.label, score: rb?.score, confirmed: rb?.confirmed },
+                          )
+                          if (cmp !== 0) return cmp
+                          return a.label.localeCompare(b.label)
+                        })
+                        .map((p) => {
                         const checked = draftPatternIds.includes(p.id)
                         const row = pickScores.get(p.id)
                         const showHit = shouldShowHitBadge(row)

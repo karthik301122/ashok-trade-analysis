@@ -11,6 +11,7 @@ import {
   getSnapshotJobStatus,
   isSnapshotFresh,
   maybeStartBackgroundSnapshot,
+  maybeAutoRetryHighFailures,
   readBarsAsOf,
   readMarketSnapshotMeta,
   readMarketSnapshotRow,
@@ -21,6 +22,7 @@ import {
   runRebuildSnapshotFromCache,
   syncSnapshotPricesFromSeriesMeta,
   readLastPricesFromBars,
+  AUTO_RETRY_FAILED_THRESHOLD,
 } from './snapshotJob.mjs'
 import {
   createAlertRule,
@@ -197,6 +199,8 @@ export async function handleConnectApi(req, res, send) {
       })
       return true
     }
+    void maybeStartBackgroundSnapshot()
+    void maybeAutoRetryHighFailures()
     send(
       200,
       {
@@ -204,6 +208,8 @@ export async function handleConnectApi(req, res, send) {
         lastPrices: await readLastPricesFromBars(),
         browserUniverseFetch: browserUniverseFetchEnabled(),
         productionMode: isProductionMode(),
+        job: await getSnapshotJobStatus(),
+        autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
       },
       { 'Cache-Control': 'no-store, no-cache, must-revalidate', Pragma: 'no-cache' },
     )
@@ -258,11 +264,13 @@ export async function handleConnectApi(req, res, send) {
 
   if (url.pathname === '/api/snapshot/refresh') {
     if (req.method === 'GET') {
+      void maybeAutoRetryHighFailures()
       const row = await readMarketSnapshotRow()
       send(
         200,
         {
           job: await getSnapshotJobStatus(),
+          autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
           snapshot: row
             ? {
                 builtAt: row.builtAt,
@@ -413,6 +421,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/health') {
+    void maybeAutoRetryHighFailures()
     const snap = await readMarketSnapshotRow()
     const universeTotal = getUniverseCount()
     const snapMeta = snap
@@ -458,6 +467,7 @@ export async function handleConnectApi(req, res, send) {
       database: dbPath(),
       snapshot: snapMeta,
       job: await getSnapshotJobStatus(),
+      autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
       liveQuotes: await getLiveQuotesMeta(),
       alertEmailEnabled: alertEmailConfigured(),
     })
@@ -606,6 +616,7 @@ export function mountExpressApi(app) {
   app.get('/api/health', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     res.setHeader('Pragma', 'no-cache')
+    void maybeAutoRetryHighFailures()
     const snap = await readMarketSnapshotRow()
     const universeTotal = getUniverseCount()
     const snapMeta = snap
@@ -648,6 +659,7 @@ export function mountExpressApi(app) {
       database: dbPath(),
       snapshot: snapMeta,
       job: await getSnapshotJobStatus(),
+      autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
       liveQuotes: await getLiveQuotesMeta(),
       alertEmailEnabled: alertEmailConfigured(),
     })
@@ -990,11 +1002,15 @@ export function mountExpressApi(app) {
         hint: 'POST /api/snapshot/refresh or wait for background build',
       })
     }
+    void maybeStartBackgroundSnapshot()
+    void maybeAutoRetryHighFailures()
     return res.json({
       ...meta,
       lastPrices: await readLastPricesFromBars(),
       browserUniverseFetch: browserUniverseFetchEnabled(),
       productionMode: isProductionMode(),
+      job: await getSnapshotJobStatus(),
+      autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
     })
   })
 
@@ -1059,9 +1075,11 @@ export function mountExpressApi(app) {
   app.get('/api/snapshot/refresh', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     res.setHeader('Pragma', 'no-cache')
+    void maybeAutoRetryHighFailures()
     const row = await readMarketSnapshotRow()
     return res.json({
       job: await getSnapshotJobStatus(),
+      autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
       snapshot: row
         ? {
             builtAt: row.builtAt,

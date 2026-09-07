@@ -15,6 +15,7 @@ import { landscapeFormingScore, landscapePasses } from './landscapeDetect'
 import { rulesFromCustom } from './scanScript'
 import { detectLandscape } from './landscapeDetect'
 import { detectVcpBreakout, detectVcpSetup, vcpBreakoutPasses } from './vcpDetect'
+import { comparePatternHitsByScore } from './rankPatternHits'
 
 export type SpecialScanContext = {
   launchpad?: LaunchpadScanContext
@@ -156,5 +157,5 @@ export function scanOhlcForSpecialPatterns(
       hit,
     })
   }
-  return out
+  return out.sort(comparePatternHitsByScore)
 }

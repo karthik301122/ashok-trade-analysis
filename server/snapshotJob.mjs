@@ -25,6 +25,18 @@ const JOB_MAX_AGE_MS = () => {
   const n = Number(process.env.SNAPSHOT_JOB_MAX_AGE_MS)
   return Number.isFinite(n) && n > 0 ? n : 40 * 60 * 1000
 }
+/** Auto-start missing-ticker retry when failed count exceeds this. */
+export const AUTO_RETRY_FAILED_THRESHOLD = 300
+/** Min time between automatic high-failure retries (avoids meta-poll spam). */
+const AUTO_RETRY_INTERVAL_MS = () => {
+  const n = Number(process.env.SNAPSHOT_AUTO_RETRY_INTERVAL_MS)
+  return Number.isFinite(n) && n > 0 ? n : 15 * 60 * 1000
+}
+
+/** @type {number} */
+let lastAutoRetryAt = 0
+/** @type {'auto-failed' | 'manual' | null} */
+let lastJobTrigger = null
 
 /** @type {Promise<unknown> | null} */
 let runningJob = null
@@ -155,15 +167,25 @@ export async function getSnapshotJobStatus() {
   await recoverStaleSnapshotJob()
   await reconcileAcceptableSnapshotJob()
   const row = await sqlOne('SELECT * FROM snapshot_job WHERE id = 1')
-  if (!row) return { status: 'idle' }
+  if (!row) {
+    return {
+      status: 'idle',
+      autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
+      trigger: null,
+    }
+  }
+  const status = row.status
   return {
-    status: row.status,
+    status,
     startedAt: row.started_at,
     finishedAt: row.finished_at,
     message: row.message,
     loaded: row.loaded,
     failed: row.failed,
     total: row.total,
+    autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
+    /** Set while a job is in-flight so clients can show “auto-retry…” for everyone. */
+    trigger: status === 'running' ? lastJobTrigger : null,
   }
 }
 
@@ -666,9 +688,10 @@ async function retryFailedTickers(
   if (!tickers.length || isEodhdDailyLimitExceeded()) return tickers
 
   console.log(`[snapshot] retry pass for ${tickers.length} tickers (cooldown ${RETRY_COOLDOWN_MS / 1000}s)…`)
+  const retryLabel = lastJobTrigger === 'auto-failed' ? 'Auto-retrying' : 'Retrying'
   await setJob('running', {
     started_at: started,
-    message: `Cooldown before retry (${tickers.length} tickers)`,
+    message: `${retryLabel} ${tickers.length.toLocaleString()} failed stocks (brief pause)…`,
     loaded: Object.keys(stocks).length,
     failed: totalUniverse - Object.keys(stocks).length,
     total: totalUniverse,
@@ -694,7 +717,7 @@ async function retryFailedTickers(
       if (done % 25 === 0 || done === tickers.length) {
         await setJob('running', {
           started_at: started,
-          message: `Retrying ${done}/${tickers.length}`,
+          message: `${retryLabel} ${done.toLocaleString()}/${tickers.length.toLocaleString()} failed stocks…`,
           loaded,
           failed: totalUniverse - loaded,
           total: totalUniverse,
@@ -722,7 +745,7 @@ function snapshotFetchPacing() {
 
 /**
  * Build full-universe CachedPerf map into SQLite.
- * @param {{ force?: boolean, concurrency?: number, retryFailed?: boolean, skipRetryPass?: boolean }} [opts]
+ * @param {{ force?: boolean, concurrency?: number, retryFailed?: boolean, skipRetryPass?: boolean, autoRetry?: boolean }} [opts]
  */
 export async function runUniverseSnapshot(opts = {}) {
   await recoverStaleSnapshotJob()
@@ -731,6 +754,7 @@ export async function runUniverseSnapshot(opts = {}) {
   const force = Boolean(opts.force)
   const retryFailedOnly = Boolean(opts.retryFailed)
   const skipRetryPass = Boolean(opts.skipRetryPass)
+  const autoRetry = Boolean(opts.autoRetry)
   const pacing = snapshotFetchPacing()
   const concurrency = Number(opts.concurrency) || pacing.concurrency
   const poolDelayMs = pacing.delayMs
@@ -752,6 +776,8 @@ export async function runUniverseSnapshot(opts = {}) {
     existing &&
     snapshotNeedsMoreWork(existing)
 
+  lastJobTrigger = autoRetry ? 'auto-failed' : 'manual'
+
   runningJob = (async () => {
     const universe = loadUniverse()
     const allTickers = universe.map((u) => u.ticker)
@@ -759,15 +785,19 @@ export async function runUniverseSnapshot(opts = {}) {
     const started = Date.now()
     const from2y = from2yIso()
     const from5y = from5yIso()
+    const failedCount = Number(existing?.failed ?? 0)
+    const startMessage = resumingIncomplete
+      ? 'Resuming interrupted universe build'
+      : retryFailedOnly
+        ? autoRetry
+          ? `Auto-retrying ${failedCount.toLocaleString()} failed stocks…`
+          : `Retrying ${failedCount.toLocaleString()} failed stocks…`
+        : 'Fetching market data via SQLite cache'
 
     await setJob('running', {
       started_at: started,
       finished_at: null,
-      message: resumingIncomplete
-        ? 'Resuming interrupted universe build'
-        : retryFailedOnly
-          ? 'Retrying failed tickers'
-          : 'Fetching market data via SQLite cache',
+      message: startMessage,
       loaded: existing?.loaded ?? 0,
       failed: existing?.failed ?? 0,
       total,
@@ -934,6 +964,7 @@ export async function runUniverseSnapshot(opts = {}) {
       throw err
     } finally {
       runningJob = null
+      lastJobTrigger = null
     }
   })()
 
@@ -952,8 +983,52 @@ export function runRebuildSnapshotFromCache() {
 }
 
 /** Retry only tickers missing from the last snapshot (slower, force refresh). */
-export function runRetryFailedSnapshot() {
-  return runUniverseSnapshot({ retryFailed: true })
+export function runRetryFailedSnapshot(opts = {}) {
+  return runUniverseSnapshot({
+    retryFailed: true,
+    autoRetry: Boolean(opts.autoRetry),
+  })
+}
+
+/**
+ * When failed names exceed AUTO_RETRY_FAILED_THRESHOLD, start a missing-only retry.
+ * Safe to call from meta/health/refresh polls (cooldown + eodhd-limit guarded).
+ */
+export async function maybeAutoRetryHighFailures() {
+  await recoverStaleSnapshotJob()
+  if (runningJob) return { started: false, reason: 'already-running' }
+  const job = await getSnapshotJobStatus()
+  if (job.status === 'running') return { started: false, reason: 'already-running' }
+  if (isEodhdDailyLimitExceeded()) return { started: false, reason: 'eodhd-limit' }
+
+  const existing = await readMarketSnapshotDbRow()
+  if (!existing) return { started: false, reason: 'no-snapshot' }
+  const failed = Number(existing.failed ?? 0)
+  if (failed <= AUTO_RETRY_FAILED_THRESHOLD) {
+    return { started: false, reason: 'below-threshold', failed }
+  }
+
+  const interval = AUTO_RETRY_INTERVAL_MS()
+  if (Date.now() - lastAutoRetryAt < interval) {
+    return {
+      started: false,
+      reason: 'cooldown',
+      failed,
+      nextInMs: interval - (Date.now() - lastAutoRetryAt),
+    }
+  }
+
+  lastAutoRetryAt = Date.now()
+  console.log(
+    `[snapshot] auto-retry: ${failed} failed > ${AUTO_RETRY_FAILED_THRESHOLD} — starting missing-only pass`,
+  )
+  void runRetryFailedSnapshot({ autoRetry: true }).catch((err) => {
+    console.error(
+      '[snapshot] auto-retry error:',
+      err instanceof Error ? err.message : String(err),
+    )
+  })
+  return { started: true, failed }
 }
 
 /**
@@ -970,6 +1045,7 @@ export async function runAsx200ForceRefresh() {
   }
 
   const myEpoch = jobEpoch
+  lastJobTrigger = 'manual'
   runningJob = (async () => {
     const universe = loadUniverse()
     const total = universe.length
@@ -1112,7 +1188,10 @@ export async function runAsx200ForceRefresh() {
       })
       throw err
     } finally {
-      if (myEpoch === jobEpoch) runningJob = null
+      if (myEpoch === jobEpoch) {
+        runningJob = null
+        lastJobTrigger = null
+      }
     }
   })()
 
@@ -1129,6 +1208,13 @@ export async function maybeStartBackgroundSnapshot() {
   const existing = await readMarketSnapshotDbRow()
   if (await snapshotLooksCurrent(existing)) return
 
+  // Prefer a clear auto-retry of missing names when failure count is very high.
+  if (existing && Number(existing.failed) > AUTO_RETRY_FAILED_THRESHOLD) {
+    await maybeAutoRetryHighFailures()
+    return
+  }
+
   console.log('[snapshot] starting background universe build…')
+  lastJobTrigger = 'manual'
   void runUniverseSnapshot({ force: false }).catch(() => {})
 }

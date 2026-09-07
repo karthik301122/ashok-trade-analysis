@@ -22,6 +22,7 @@ import type {
   PatternHit,
   PatternScanRow,
 } from './types'
+import { comparePatternHitsByScore, rankPatternHitsByScore } from './rankPatternHits'
 
 function cloneHit(hit: PatternHit, overrides: Partial<PatternHit>): PatternHit {
   return {
@@ -140,7 +141,7 @@ function buildStarredCategory(
     .sort((a, b) => {
       if (a.hit && !b.hit) return -1
       if (!a.hit && b.hit) return 1
-      if (a.hit && b.hit) return b.hit.endT - a.hit.endT
+      if (a.hit && b.hit) return comparePatternHitsByScore(a.hit, b.hit)
       return a.name.localeCompare(b.name)
     })
 
@@ -152,7 +153,7 @@ function buildStarredCategory(
     bullish: hits.filter((h) => h.bias === 'bullish').length,
     bearish: hits.filter((h) => h.bias === 'bearish').length,
     neutral: hits.filter((h) => h.bias === 'neutral').length,
-    hits: hits.sort((a, b) => b.endT - a.endT),
+    hits: rankPatternHitsByScore(hits),
     rows,
     analyzed: names.length,
     note:
@@ -237,7 +238,7 @@ function buildCustomCategory(
   rows.sort((a, b) => {
     if (a.hit && !b.hit) return -1
     if (!a.hit && b.hit) return 1
-    if (a.hit && b.hit) return b.hit.endT - a.hit.endT
+    if (a.hit && b.hit) return comparePatternHitsByScore(a.hit, b.hit)
     return a.name.localeCompare(b.name)
   })
 
@@ -249,7 +250,7 @@ function buildCustomCategory(
     bullish: hits.filter((h) => h.bias === 'bullish').length,
     bearish: hits.filter((h) => h.bias === 'bearish').length,
     neutral: hits.filter((h) => h.bias === 'neutral').length,
-    hits: hits.sort((a, b) => b.endT - a.endT),
+    hits: rankPatternHitsByScore(hits),
     rows,
     analyzed: customs.length,
     note:
