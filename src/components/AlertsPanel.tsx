@@ -18,6 +18,7 @@ import {
   type PatternScanStateRow,
 } from '../lib/patternScanApi'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
+import { PatternComboAlertsPanel } from './PatternComboAlertsPanel'
 
 /** Show hit % in the Alerts UI at or above this (email uses a separate user threshold). */
 const UI_HIT_MIN_SCORE = 60
@@ -113,6 +114,7 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
   const [pickTicker, setPickTicker] = useState<string | null>(null)
   const [draftPatternIds, setDraftPatternIds] = useState<string[]>([])
   const [browseMode, setBrowseMode] = useState<'stock' | 'pattern'>('stock')
+  const [alertsTab, setAlertsTab] = useState<'stocks' | 'combos'>('stocks')
   const [patternQuery, setPatternQuery] = useState('')
   const [pickPatternId, setPickPatternId] = useState<string | null>(null)
   const [patternHitRows, setPatternHitRows] = useState<PatternScanStateRow[]>([])
@@ -462,9 +464,8 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
             <Bell size={22} /> Alerts
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-[var(--color-ink-soft)]">
-            Browse by stock or by pattern. Pattern search lists every stock with ≥{UI_HIT_MIN_SCORE}% hit
-            score. Emails use your separate threshold (default 80%) — one email per stock/pattern that
-            crosses it.
+            Watch patterns on specific stocks, or build AND/OR combos across the market. Emails use
+            your threshold (default 80%) — one email per qualifying hit.
             {!emailEnabled && ' SMTP is not set up yet; events still show here.'}
           </p>
         </div>
@@ -479,6 +480,34 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
         </button>
       </div>
 
+      <div className="flex rounded-lg border border-[var(--color-border)] text-xs font-bold">
+        <button
+          type="button"
+          onClick={() => setAlertsTab('stocks')}
+          className={`flex-1 rounded-l-lg px-3 py-2 ${
+            alertsTab === 'stocks'
+              ? 'bg-teal-700 text-white'
+              : 'bg-[var(--color-surface)] text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]'
+          }`}
+        >
+          Stock watches
+        </button>
+        <button
+          type="button"
+          onClick={() => setAlertsTab('combos')}
+          className={`flex-1 rounded-r-lg px-3 py-2 ${
+            alertsTab === 'combos'
+              ? 'bg-teal-700 text-white'
+              : 'bg-[var(--color-surface)] text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]'
+          }`}
+        >
+          Pattern combos
+        </button>
+      </div>
+
+      {alertsTab === 'combos' ? (
+        <PatternComboAlertsPanel onMessage={setMsg} />
+      ) : (
       <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -807,6 +836,7 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
           )}
         </div>
       </div>
+      )}
 
       {canReceiveAlertEmail && (
         <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm">

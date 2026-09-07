@@ -117,6 +117,53 @@ export async function setPatternAlertIds(
   }
 }
 
+export type PatternComboAlertDto = {
+  id: string
+  name: string
+  op: 'and' | 'or'
+  timeframe: 'daily' | 'weekly' | 'mixed'
+  patternIds: string[]
+  enabled: boolean
+  minScore: number
+}
+
+export async function fetchPatternComboAlerts(): Promise<
+  { ok: true; combos: PatternComboAlertDto[] } | { ok: false; error: string }
+> {
+  try {
+    const res = await fetch('/api/auth/pattern-alert-prefs', { credentials: 'include' })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return { ok: false, error: (json as { error?: string }).error || 'Could not load combos' }
+    }
+    const combos = (json as { patternComboAlerts?: PatternComboAlertDto[] }).patternComboAlerts
+    return { ok: true, combos: Array.isArray(combos) ? combos : [] }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
+export async function setPatternComboAlerts(
+  combos: PatternComboAlertDto[],
+): Promise<{ ok: true; combos: PatternComboAlertDto[] } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/auth/pattern-alert-prefs', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ combos }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return { ok: false, error: (json as { error?: string }).error || 'Could not save combos' }
+    }
+    const saved = (json as { patternComboAlerts?: PatternComboAlertDto[] }).patternComboAlerts
+    return { ok: true, combos: Array.isArray(saved) ? saved : combos }
+  } catch {
+    return { ok: false, error: 'Network error' }
+  }
+}
+
 export async function setAlertEmailOptIn(
   optIn: boolean,
   minScore?: number,

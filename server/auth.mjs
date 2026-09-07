@@ -18,11 +18,13 @@ import {
   getAlertEmailOptIn,
   getPatternAlertIds,
   getPatternAlertWatches,
+  getPatternComboAlerts,
   isEmailLogin,
   setAlertEmailMinScore,
   setAlertEmailOptIn,
   setPatternAlertIds,
   setPatternAlertWatches,
+  setPatternComboAlerts,
 } from './userPrefs.mjs'
 
 export const COOKIE_NAME = 'asx_sid'
@@ -256,6 +258,7 @@ export async function handleAuthApi(req, res, send) {
     return send(200, {
       patternAlertIds: await getPatternAlertIds(user),
       patternAlertWatches: await getPatternAlertWatches(user),
+      patternComboAlerts: await getPatternComboAlerts(user),
     })
   }
 
@@ -270,6 +273,15 @@ export async function handleAuthApi(req, res, send) {
       body = await readJsonBody(req)
     } catch {
       return send(400, { error: 'Invalid JSON' })
+    }
+    const rawCombos = body?.combos ?? body?.patternComboAlerts
+    if (Array.isArray(rawCombos)) {
+      const saved = await setPatternComboAlerts(user, rawCombos)
+      return send(200, {
+        ok: true,
+        patternComboAlerts: saved,
+        patternAlertIds: await getPatternAlertIds(user),
+      })
     }
     const rawWatches = body?.watches ?? body?.patternAlertWatches
     if (Array.isArray(rawWatches)) {

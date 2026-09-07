@@ -36,11 +36,13 @@ import {
   getAlertEmailOptIn,
   getPatternAlertIds,
   getPatternAlertWatches,
+  getPatternComboAlerts,
   isEmailLogin,
   setAlertEmailMinScore,
   setAlertEmailOptIn,
   setPatternAlertIds,
   setPatternAlertWatches,
+  setPatternComboAlerts,
 } from './userPrefs.mjs'
 import { getFundamentals } from './fundamentals.mjs'
 import { getFilingsForTicker, getLargestDisclosedBuys } from './asxFilings.mjs'
@@ -714,6 +716,7 @@ export function mountExpressApi(app) {
     return res.json({
       patternAlertIds: await getPatternAlertIds(user),
       patternAlertWatches: await getPatternAlertWatches(user),
+      patternComboAlerts: await getPatternComboAlerts(user),
     })
   })
 
@@ -723,6 +726,15 @@ export function mountExpressApi(app) {
     }
     const user = getUserFromRequest(req)
     if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    const rawCombos = req.body?.combos ?? req.body?.patternComboAlerts
+    if (Array.isArray(rawCombos)) {
+      const saved = await setPatternComboAlerts(user, rawCombos)
+      return res.json({
+        ok: true,
+        patternComboAlerts: saved,
+        patternAlertIds: await getPatternAlertIds(user),
+      })
+    }
     const rawWatches = req.body?.watches ?? req.body?.patternAlertWatches
     if (Array.isArray(rawWatches)) {
       const saved = await setPatternAlertWatches(user, rawWatches)

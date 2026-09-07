@@ -124,7 +124,129 @@ export async function listAllSubscribedPatternIds() {
       for (const id of w.patternIds) out.add(id)
     }
   }
+  for (const id of await listAllComboPatternIds()) out.add(id)
   return [...out].sort()
+}
+
+function normalizeCombos(combos) {
+  if (!Array.isArray(combos)) return []
+  const out = []
+  const seen = new Set()
+  for (const raw of combos) {
+    const id = String(raw?.id || '').trim()
+    if (!id || seen.has(id)) continue
+    const op = raw.op === 'and' ? 'and' : 'or'
+    let timeframe =
+      raw.timeframe === 'daily' || raw.timeframe === 'weekly' || raw.timeframe === 'mixed'
+        ? raw.timeframe
+        : op === 'or'
+          ? 'mixed'
+          : 'daily'
+    if (op === 'and' && timeframe === 'mixed') timeframe = 'daily'
+    const patternIds = [
+      ...new Set((raw.patternIds || []).map((x) => String(x).trim()).filter(Boolean)),
+    ].sort()
+    if (patternIds.length < 2) continue
+    const name = String(raw.name || '').trim() || `Combo (${op.toUpperCase()})`
+    const ms = Number(raw.minScore)
+    out.push({
+      id,
+      name: name.slice(0, 80),
+      op,
+      timeframe,
+      patternIds,
+      enabled: raw.enabled !== false,
+      minScore: Number.isFinite(ms) ? Math.max(60, Math.min(100, Math.round(ms))) : 60,
+    })
+    seen.add(id)
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+export async function getPatternComboAlerts(username) {
+  const row = await sqlOne('SELECT pattern_combo_alerts_json FROM user_prefs WHERE username = ?', [
+    normalizeUsername(username),
+  ])
+  if (!row?.pattern_combo_alerts_json) return []
+  try {
+    const parsed = JSON.parse(row.pattern_combo_alerts_json)
+    return normalizeCombos(Array.isArray(parsed) ? parsed : parsed?.combos)
+  } catch {
+    return []
+  }
+}
+
+export async function setPatternComboAlerts(username, combos) {
+  const u = normalizeUsername(username)
+  const normalized = normalizeCombos(combos)
+  const now = Date.now()
+  await sqlRun(
+    `INSERT INTO user_prefs (username, pattern_combo_alerts_json, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(username) DO UPDATE SET
+       pattern_combo_alerts_json = excluded.pattern_combo_alerts_json,
+       updated_at = excluded.updated_at`,
+    [u, JSON.stringify(normalized), now],
+  )
+  const allIds = await listAllSubscribedPatternIds()
+  const { syncPatternAlertRules, syncPatternComboRules } = await import('./alerts.mjs')
+  await syncPatternAlertRules(allIds)
+  await syncPatternComboRules()
+  return normalized
+}
+
+export async function listAllComboPatternIds() {
+  const rows = await sqlAll(
+    'SELECT pattern_combo_alerts_json FROM user_prefs WHERE pattern_combo_alerts_json IS NOT NULL',
+  )
+  const out = new Set()
+  for (const row of rows) {
+    try {
+      const parsed = JSON.parse(row.pattern_combo_alerts_json)
+      const list = Array.isArray(parsed) ? parsed : parsed?.combos
+      for (const c of normalizeCombos(list || [])) {
+        if (!c.enabled) continue
+        for (const id of c.patternIds) out.add(id)
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return [...out].sort()
+}
+
+/** All enabled combos across users (for evaluate). */
+export async function listAllPatternComboAlerts() {
+  const rows = await sqlAll(
+    `SELECT username, pattern_combo_alerts_json FROM user_prefs
+     WHERE pattern_combo_alerts_json IS NOT NULL`,
+  )
+  const out = []
+  for (const row of rows) {
+    const username = normalizeUsername(row.username)
+    try {
+      const parsed = JSON.parse(row.pattern_combo_alerts_json)
+      const list = Array.isArray(parsed) ? parsed : parsed?.combos
+      for (const c of normalizeCombos(list || [])) {
+        if (!c.enabled) continue
+        out.push({ ...c, ownerUsername: username })
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return out
+}
+
+/** Whether a user owns a combo that includes this pattern (for event filtering). */
+export async function userOwnsComboWithPattern(username, patternId) {
+  const combos = await getPatternComboAlerts(username)
+  const pid = String(patternId)
+  if (pid.startsWith('combo:')) {
+    const comboId = pid.slice(6)
+    return combos.some((c) => c.id === comboId)
+  }
+  return combos.some((c) => c.enabled && c.patternIds.includes(pid))
 }
 
 /** Whether a user should receive an alert for ticker + pattern. */
@@ -147,6 +269,8 @@ export function clampAlertEmailMinScore(n) {
 
 export async function filterPatternAlertItemsForUser(username, items, minScore) {
   const prefs = await getPatternAlertPrefs(username)
+  const combos = await getPatternComboAlerts(username)
+  const comboIds = new Set(combos.filter((c) => c.enabled).map((c) => c.id))
   const legacy = new Set(prefs.legacyPatternIds || [])
   const watchMap = new Map(prefs.watches.map((w) => [w.ticker, new Set(w.patternIds)]))
   const threshold =
@@ -156,25 +280,35 @@ export async function filterPatternAlertItemsForUser(username, items, minScore) 
     const pid = String(item.patternId)
     const score = Number(item.score)
     if (Number.isFinite(score) && score < threshold) return false
+    if (pid.startsWith('combo:')) {
+      return comboIds.has(pid.slice(6)) || item.ownerUsername === normalizeUsername(username)
+    }
     if (legacy.has(pid)) return true
     const t = normalizeTicker(item.ticker)
     const patterns = watchMap.get(t)
-    return patterns?.has(pid) ?? false
+    if (patterns?.has(pid)) return true
+    return combos.some((c) => c.enabled && c.patternIds.includes(pid))
   })
 }
 
 export async function filterPatternAlertEventsForUser(username, events) {
   const prefs = await getPatternAlertPrefs(username)
+  const combos = await getPatternComboAlerts(username)
+  const comboIds = new Set(combos.filter((c) => c.enabled).map((c) => c.id))
   const legacy = new Set(prefs.legacyPatternIds || [])
   const watchMap = new Map(prefs.watches.map((w) => [w.ticker, new Set(w.patternIds)]))
   return events.filter((e) => {
     const pid = e.payload?.patternId
     if (!pid) return true
     const id = String(pid)
+    if (id.startsWith('combo:')) {
+      return comboIds.has(id.slice(6)) || e.payload?.ownerUsername === normalizeUsername(username)
+    }
     if (legacy.has(id)) return true
     const t = normalizeTicker(e.ticker)
     const patterns = watchMap.get(t)
-    return patterns?.has(id) ?? false
+    if (patterns?.has(id)) return true
+    return combos.some((c) => c.enabled && c.patternIds.includes(id))
   })
 }
 

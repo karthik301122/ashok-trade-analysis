@@ -8,7 +8,9 @@ import {
   listAlertEmailOptInUsers,
   filterPatternAlertEventsForUser,
   filterPatternAlertItemsForUser,
+  listAllPatternComboAlerts,
 } from './userPrefs.mjs'
+import { matchPatternCombo } from './patternComboMatch.mjs'
 import { log } from './log.mjs'
 
 /**
@@ -80,6 +82,34 @@ export async function syncPatternAlertRules(patternIds) {
   return ids.length
 }
 
+/** Sync auto pattern_combo rules from all users' saved combos. */
+export async function syncPatternComboRules() {
+  await sqlRun(
+    `DELETE FROM alert_rules
+     WHERE type = 'pattern_combo'
+       AND params_json LIKE '%"auto":true%'`,
+  )
+  const combos = await listAllPatternComboAlerts()
+  for (const c of combos) {
+    const tf = c.timeframe === 'mixed' ? 'daily+weekly' : c.timeframe
+    await createAlertRule({
+      name: `${c.name} (${c.op.toUpperCase()} · ${tf})`,
+      type: 'pattern_combo',
+      params: {
+        auto: true,
+        comboId: c.id,
+        op: c.op,
+        timeframe: c.timeframe,
+        patternIds: c.patternIds,
+        minScore: c.minScore,
+        ownerUsername: c.ownerUsername,
+      },
+      enabled: true,
+    })
+  }
+  return combos.length
+}
+
 export async function listAlertEvents(limit = 50, username = null) {
   const rows = await sqlAll(
     `SELECT e.*, r.name AS rule_name FROM alert_events e
@@ -133,6 +163,8 @@ export async function evaluateAlerts() {
   const stocks = snap?.stocks
     ? Object.entries(snap.stocks).map(([ticker, p]) => ({ ticker, ...p }))
     : []
+  // Keep combo auto-rules in sync with prefs before matching.
+  await syncPatternComboRules()
   const rules = (await listAlertRules()).filter((r) => r.enabled)
   const fired = []
   const emailQueue = []
@@ -141,6 +173,22 @@ export async function evaluateAlerts() {
     let matches = []
     if (rule.type === 'pattern_forming' || rule.type === 'pattern_confirmed') {
       matches = await matchPatternAlertRule(rule)
+    } else if (rule.type === 'pattern_combo') {
+      matches = await matchPatternCombo({
+        op: rule.params?.op,
+        patternIds: Array.isArray(rule.params?.patternIds) ? rule.params.patternIds : [],
+        minScore: rule.params?.minScore,
+        name: rule.name,
+        comboId: rule.params?.comboId,
+        timeframe: rule.params?.timeframe,
+      })
+      matches = matches.map((m) => ({
+        ...m,
+        payload: {
+          ...m.payload,
+          ownerUsername: rule.params?.ownerUsername || null,
+        },
+      }))
     } else {
       if (!stocks.length) continue
       matches = matchAlertRule(rule, stocks, snap)
@@ -169,6 +217,7 @@ export async function evaluateAlerts() {
           message: m.message,
           patternId: m.payload?.patternId ? String(m.payload.patternId) : null,
           score: Number.isFinite(Number(m.payload?.score)) ? Number(m.payload.score) : null,
+          ownerUsername: m.payload?.ownerUsername ? String(m.payload.ownerUsername) : null,
           delivered,
         })
       }

@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS user_prefs (
   alert_email_opt_in INTEGER NOT NULL DEFAULT 0,
   alert_email_min_score INTEGER NOT NULL DEFAULT 80,
   pattern_alert_ids_json TEXT,
+  pattern_combo_alerts_json TEXT,
   updated_at BIGINT NOT NULL
 );
 

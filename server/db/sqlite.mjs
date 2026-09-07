@@ -138,6 +138,7 @@ function openSqlite() {
       alert_email_opt_in INTEGER NOT NULL DEFAULT 0,
       alert_email_min_score INTEGER NOT NULL DEFAULT 80,
       pattern_alert_ids_json TEXT,
+      pattern_combo_alerts_json TEXT,
       updated_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS live_quotes (
@@ -197,6 +198,9 @@ function migrateUserPrefsColumns(db) {
   }
   if (!existing.has('alert_email_min_score')) {
     db.exec('ALTER TABLE user_prefs ADD COLUMN alert_email_min_score INTEGER NOT NULL DEFAULT 80')
+  }
+  if (!existing.has('pattern_combo_alerts_json')) {
+    db.exec('ALTER TABLE user_prefs ADD COLUMN pattern_combo_alerts_json TEXT')
   }
 }
 
