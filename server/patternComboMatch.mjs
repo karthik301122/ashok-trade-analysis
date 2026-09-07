@@ -69,6 +69,9 @@ export async function matchPatternCombo(combo) {
     const scores = hitIds.map((id) => hits.get(id).score)
     const minHit = Math.min(...scores)
     const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+    const allConfirmed = hitIds.every((id) => hits.get(id)?.confirmed)
+    // AND: weakest-link score. OR: average of patterns that hit.
+    const score = op === 'and' ? minHit : avg
     const labels = hitIds.join(', ')
     const message =
       op === 'and'
@@ -85,11 +88,20 @@ export async function matchPatternCombo(combo) {
         requiredPatternIds: patternIds,
         op,
         timeframe: combo.timeframe || null,
-        score: op === 'and' ? minHit : avg,
-        confirmed: hitIds.every((id) => hits.get(id)?.confirmed),
+        score,
+        confirmed: allConfirmed,
       },
     })
   }
+
+  // Strongest first: confirmed ahead of forming, then higher combo score, then ticker.
+  out.sort((a, b) => {
+    const ac = a.payload.confirmed ? 1 : 0
+    const bc = b.payload.confirmed ? 1 : 0
+    if (bc !== ac) return bc - ac
+    if (b.payload.score !== a.payload.score) return b.payload.score - a.payload.score
+    return String(a.ticker).localeCompare(String(b.ticker))
+  })
 
   return out.slice(0, 200)
 }
