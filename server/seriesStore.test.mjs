@@ -27,19 +27,26 @@ describe('expectedLastSessionUtcMs', () => {
 describe('isLastBarAcceptable', () => {
   it('accepts last bar on expected session', () => {
     const now = Date.parse('2026-09-04T12:00:00Z') // Fri afternoon UTC
-    expect(isLastBarAcceptable([barAtIso('2026-09-04')], now)).toBe(true)
+    expect(isLastBarAcceptable([barAtIso('2026-09-04')], now, 0)).toBe(true)
   })
 
-  it('rejects bars that are several sessions behind', () => {
+  it('rejects bars that are several sessions behind when slack is 0', () => {
     const now = Date.parse('2026-09-04T12:00:00Z')
-    expect(isLastBarAcceptable([barAtIso('2026-08-31')], now)).toBe(false)
-    expect(isLastBarAcceptable([barAtIso('2026-09-01')], now)).toBe(false)
+    expect(isLastBarAcceptable([barAtIso('2026-08-31')], now, 0)).toBe(false)
+    expect(isLastBarAcceptable([barAtIso('2026-09-01')], now, 0)).toBe(false)
   })
 
   it('rejects prior session when slack is 0', () => {
     const now = Date.parse('2026-09-04T12:00:00Z')
     // Expected Fri 4th; slack 0 → only Fri ok
-    expect(isLastBarAcceptable([barAtIso('2026-09-03')], now)).toBe(false)
-    expect(isLastBarAcceptable([barAtIso('2026-09-04')], now)).toBe(true)
+    expect(isLastBarAcceptable([barAtIso('2026-09-03')], now, 0)).toBe(false)
+    expect(isLastBarAcceptable([barAtIso('2026-09-04')], now, 0)).toBe(true)
+  })
+
+  it('default slack keeps illiquid names from a few sessions ago', () => {
+    const now = Date.parse('2026-09-04T12:00:00Z')
+    // Default slack (5) accepts Mon Sep 1 on Fri Sep 4
+    expect(isLastBarAcceptable([barAtIso('2026-09-01')], now)).toBe(true)
+    expect(isLastBarAcceptable([barAtIso('2026-09-03')], now)).toBe(true)
   })
 })

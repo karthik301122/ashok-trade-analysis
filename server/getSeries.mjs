@@ -75,7 +75,7 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
 
   if (cached) {
     const closes = cached.closes.filter((b) => b.t >= fromTs)
-    if (closes.length >= 15) {
+    if (closes.length >= 5) {
       const barsOk = isLastBarAcceptable(cached.closes)
       if (staleOk || barsOk) {
         const last = closes[closes.length - 1].c
@@ -143,16 +143,17 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
   }
 
   if (!merged?.length) {
-    if (cached?.closes?.length) {
-      const closes = cached.closes.filter((b) => b.t >= fromTs)
-      if (closes.length >= 15) {
+    const fallback = cached ?? (forceRefresh ? await readSeriesCache(seriesSymbol) : null)
+    if (fallback?.closes?.length) {
+      const closes = fallback.closes.filter((b) => b.t >= fromTs)
+      if (closes.length >= 5) {
         return {
-          symbol: cached.symbol,
+          symbol: fallback.symbol,
           closes,
           last: closes[closes.length - 1].c,
           high52: recomputeHigh52(closes),
           meta: {
-            ...(cached.meta || {}),
+            ...(fallback.meta || {}),
             cache: 'stale-fallback',
             lastBar: isoFromUnix(closes[closes.length - 1].t),
             store,

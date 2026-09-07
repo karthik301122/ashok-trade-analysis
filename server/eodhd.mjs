@@ -80,8 +80,11 @@ function parseEodDate(dateStr) {
 /**
  * @param {unknown} rows
  */
+/** Minimum EOD bars to accept a series (was 15 — dropped many thin/new listings). */
+export const MIN_EOD_BARS = 5
+
 function rowsToBars(rows) {
-  if (!Array.isArray(rows) || rows.length < 15) return null
+  if (!Array.isArray(rows) || rows.length < MIN_EOD_BARS) return null
   const closes = []
   for (const row of rows) {
     if (!row || typeof row.date !== 'string') continue
@@ -99,7 +102,7 @@ function rowsToBars(rows) {
       v: Number.isFinite(row.volume) ? Number(row.volume) : 0,
     })
   }
-  if (closes.length < 15) return null
+  if (closes.length < MIN_EOD_BARS) return null
   const last = closes[closes.length - 1].c
   const yearAgo = closes[closes.length - 1].t - 365 * 24 * 3600
   const lastYear = closes.filter((b) => b.t >= yearAgo)

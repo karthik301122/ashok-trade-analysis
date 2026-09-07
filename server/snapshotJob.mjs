@@ -633,8 +633,23 @@ async function loadSeriesForSnapshot(ticker, from2y, forceRefresh = false) {
   if (forceRefresh) {
     return getCachedSeries(ticker, from2y, { forceRefresh: true })
   }
-  // Prefer cached bars, but re-pull from EODHD when the last bar is multi-day stale.
-  return getCachedSeries(ticker, from2y, { staleOk: false })
+  // Prefer fresh bars; fall back to cached history so illiquids still populate the desk.
+  const fresh = await getCachedSeries(ticker, from2y, { staleOk: false })
+  if (fresh?.closes?.length) return fresh
+  return getCachedSeries(ticker, from2y, { staleOk: true })
+}
+
+function applySeriesToStocks(ticker, series, indexM3, stocks, failedTickers) {
+  if (!series?.closes?.length) {
+    failedTickers.push(ticker)
+    return
+  }
+  const perf = seriesToCachedPerf(series, indexM3)
+  if (!perf || typeof perf !== 'object') {
+    failedTickers.push(ticker)
+    return
+  }
+  stocks[ticker] = perf
 }
 
 /**
@@ -664,14 +679,14 @@ async function retryFailedTickers(
 
   await mapPool(
     tickers,
-    eodhdEnabled() ? 1 : 2,
+    eodhdEnabled() ? 2 : 2,
     async (ticker) => {
-      const series = await loadSeriesForSnapshot(ticker, from2y, true)
-      if (series?.closes?.length) {
-        stocks[ticker] = seriesToCachedPerf(series, indexPerf.m3)
-      } else {
-        stillFailed.push(ticker)
+      // Prefer any cached history first (illiquids), then force EODHD refresh.
+      let series = await getCachedSeries(ticker, from2y, { staleOk: true })
+      if (!series?.closes?.length) {
+        series = await loadSeriesForSnapshot(ticker, from2y, true)
       }
+      applySeriesToStocks(ticker, series, indexPerf.m3, stocks, stillFailed)
       return ticker
     },
     async (done) => {
@@ -699,8 +714,9 @@ function snapshotFetchPacing() {
   const concurrency = Number(process.env.EODHD_SNAPSHOT_CONCURRENCY)
   const delayMs = Number(process.env.EODHD_SNAPSHOT_DELAY_MS)
   return {
-    concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 1,
-    delayMs: Number.isFinite(delayMs) && delayMs >= 0 ? delayMs : 250,
+    // Throttle serializes HTTP; mild concurrency helps overlap DB/cache work.
+    concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 3,
+    delayMs: Number.isFinite(delayMs) && delayMs >= 0 ? delayMs : 40,
   }
 }
 
@@ -813,11 +829,7 @@ export async function runUniverseSnapshot(opts = {}) {
           concurrency,
           async (ticker) => {
             const series = await loadSeriesForSnapshot(ticker, from2y, force)
-            if (series?.closes?.length) {
-              stocks[ticker] = seriesToCachedPerf(series, indexPerf.m3)
-            } else {
-              failedTickers.push(ticker)
-            }
+            applySeriesToStocks(ticker, series, indexPerf.m3, stocks, failedTickers)
             return ticker
           },
           async (done) => {
@@ -1005,11 +1017,7 @@ export async function runAsx200ForceRefresh() {
           async (ticker) => {
             if (myEpoch !== jobEpoch) return ticker
             const series = await loadSeriesForSnapshot(ticker, from2y, true)
-            if (series?.closes?.length) {
-              stocks[ticker] = seriesToCachedPerf(series, indexPerf.m3)
-            } else {
-              failedTickers.push(ticker)
-            }
+            applySeriesToStocks(ticker, series, indexPerf.m3, stocks, failedTickers)
             return ticker
           },
           async (done) => {
@@ -1048,6 +1056,18 @@ export async function runAsx200ForceRefresh() {
       }
 
       if (myEpoch !== jobEpoch) return { aborted: true }
+
+      // Salvage: use any cached history for names EODHD skipped / 404'd this pass.
+      if (failedTickers.length > 0) {
+        const salvage = [...failedTickers]
+        failedTickers.length = 0
+        for (const ticker of salvage) {
+          if (myEpoch !== jobEpoch) break
+          if (stocks[ticker]) continue
+          const series = await getCachedSeries(ticker, from2y, { staleOk: true })
+          applySeriesToStocks(ticker, series, indexPerf.m3, stocks, failedTickers)
+        }
+      }
 
       const loaded = Object.keys(stocks).length
       const failed = total - loaded

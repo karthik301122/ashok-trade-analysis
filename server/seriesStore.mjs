@@ -3,8 +3,18 @@ import { sqlAll, sqlOne, withTransaction } from './db.mjs'
 /** Write-time hint for meta labels only — serving uses isLastBarAcceptable. */
 export const SERIES_FRESH_MS = 4 * 60 * 60 * 1000
 
-/** Extra trading sessions of lag allowed (ASX holidays / late EOD publish). */
-export const LAST_BAR_SLACK_SESSIONS = 0
+/**
+ * Extra trading sessions of lag allowed (ASX holidays / late EOD / illiquid names).
+ * Override with LAST_BAR_SLACK_SESSIONS env (integer ≥ 0).
+ * Default 5 keeps thinly traded stocks in the desk instead of marking them failed.
+ */
+function readSlackSessions() {
+  const n = Number(process.env.LAST_BAR_SLACK_SESSIONS)
+  if (Number.isFinite(n) && n >= 0) return Math.floor(n)
+  return 5
+}
+
+export const LAST_BAR_SLACK_SESSIONS = readSlackSessions()
 
 export function isSeriesFresh(updatedAt, now = Date.now()) {
   return Number.isFinite(updatedAt) && now - updatedAt < SERIES_FRESH_MS

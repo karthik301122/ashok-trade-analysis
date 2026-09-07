@@ -8,7 +8,8 @@ function sleep(ms) {
 
 const minGapMs = () => {
   const n = Number(process.env.EODHD_MIN_GAP_MS)
-  return Number.isFinite(n) && n > 0 ? n : 550
+  // All-in-One allows ~1000 req/min; 120ms ≈ 500/min with headroom.
+  return Number.isFinite(n) && n > 0 ? n : 120
 }
 
 const rateLimitBackoffMs = () => {
