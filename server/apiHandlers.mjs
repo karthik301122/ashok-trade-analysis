@@ -113,6 +113,11 @@ let seriesInFlight = 0
 let seriesShedUntil = 0
 /** @type {number[]} */
 const seriesRecentMs = []
+/** Per-IP series stamps — used to kill leftover browser-universe crawls. */
+/** @type {Map<string, number[]>} */
+const seriesHitsByIp = new Map()
+/** @type {Map<string, number>} */
+const seriesBanUntilByIp = new Map()
 
 function seriesMaxInFlight() {
   const n = Number(process.env.SERIES_MAX_IN_FLIGHT)
@@ -121,23 +126,62 @@ function seriesMaxInFlight() {
   return isProductionMode() ? 2 : 16
 }
 
+function seriesKillSwitchEnabled() {
+  const raw = process.env.SERIES_KILL_SWITCH?.trim().toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes'
+}
+
+/** Refuse /api/series globally for a while (does not close browser tabs; rejects their calls). */
+function killSeriesTraffic(reason, ms = 180_000) {
+  const until = Date.now() + Math.max(5_000, ms)
+  seriesShedUntil = Math.max(seriesShedUntil, until)
+  log('warn', 'series.killed', { reason, untilMs: until - Date.now() })
+}
+
 function noteSeriesLatency(ms) {
   const n = Number(ms)
   if (!Number.isFinite(n) || n < 0) return
   seriesRecentMs.push(n)
   if (seriesRecentMs.length > 20) seriesRecentMs.shift()
   if (n >= 2500) {
-    seriesShedUntil = Math.max(seriesShedUntil, Date.now() + 20_000)
+    killSeriesTraffic('slow-series', 45_000)
   } else if (seriesRecentMs.length >= 8) {
     const sorted = seriesRecentMs.slice().sort((a, b) => a - b)
     const p50 = sorted[Math.floor(sorted.length / 2)]
-    if (p50 >= 1200) seriesShedUntil = Math.max(seriesShedUntil, Date.now() + 12_000)
+    if (p50 >= 1200) killSeriesTraffic('series-p50-high', 30_000)
   }
 }
 
-function seriesAdmissionBlocked() {
+function noteSeriesHitFromIp(ip) {
+  const key = String(ip || 'unknown')
+  const now = Date.now()
+  const banUntil = seriesBanUntilByIp.get(key) || 0
+  if (banUntil > now) return 'ip-banned'
+
+  let hits = seriesHitsByIp.get(key)
+  if (!hits) {
+    hits = []
+    seriesHitsByIp.set(key, hits)
+  }
+  hits.push(now)
+  // Keep ~2 minutes of hits.
+  while (hits.length && now - hits[0] > 120_000) hits.shift()
+  // Alphabetical universe crawls blast dozens of series/min from one tab.
+  if (isProductionMode() && hits.length >= 40) {
+    seriesBanUntilByIp.set(key, now + 5 * 60_000)
+    log('warn', 'series.ip_banned', { ip: key, hits: hits.length, banMs: 5 * 60_000 })
+    killSeriesTraffic('crawl-detected', 60_000)
+    return 'ip-banned'
+  }
+  return null
+}
+
+function seriesAdmissionBlocked(req) {
+  if (seriesKillSwitchEnabled()) return 'kill-switch'
   if (seriesInFlight >= seriesMaxInFlight()) return 'busy'
   if (Date.now() < seriesShedUntil) return 'shedding'
+  const ipBlock = noteSeriesHitFromIp(clientKey(req))
+  if (ipBlock) return ipBlock
   return null
 }
 
@@ -247,7 +291,7 @@ export async function handleConnectApi(req, res, send) {
   if (url.pathname.startsWith('/api/series/')) {
     if (requireAuthConnect(req, send)) return true
     if (rateLimitOrSend(req, send, 'series', seriesRateLimitPerMinute())) return true
-    const blocked = seriesAdmissionBlocked()
+    const blocked = seriesAdmissionBlocked(req)
     if (blocked) {
       send(
         503,
@@ -324,6 +368,7 @@ export async function handleConnectApi(req, res, send) {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       log('error', 'snapshot.meta.error', { message, ms: Date.now() - started })
+      killSeriesTraffic('meta-timeout', 120_000)
       send(503, {
         error: 'Snapshot meta temporarily unavailable',
         hint: 'Retry in a few seconds',
@@ -1121,7 +1166,7 @@ export function mountExpressApi(app) {
     if (seriesRateLimitOrExpress(req, res)) {
       return
     }
-    const blocked = seriesAdmissionBlocked()
+    const blocked = seriesAdmissionBlocked(req)
     if (blocked) {
       res.setHeader('Retry-After', '2')
       return res.status(503).json({ error: 'Series busy', reason: blocked, retryAfterMs: 2000 })
@@ -1193,6 +1238,7 @@ export function mountExpressApi(app) {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       log('error', 'snapshot.meta.error', { message })
+      killSeriesTraffic('meta-timeout', 120_000)
       return res.status(503).json({
         error: 'Snapshot meta temporarily unavailable',
         hint: 'Retry in a few seconds',
