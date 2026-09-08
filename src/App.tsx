@@ -610,7 +610,7 @@ export default function App() {
             </h2>
             <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
               {deskConfig?.productionMode
-                ? 'Downloading the shared server snapshot. If a page stalls, the desk keeps retrying instead of giving up early.'
+                ? 'Downloading whatever the server snapshot currently has. Progress is against the server map, not a fixed 2571 target.'
                 : `First stocks show as they arrive, then it keeps filling all ${ASX_UNIVERSE_COUNT.toLocaleString()} names.`}
             </p>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-[var(--color-muted)]">

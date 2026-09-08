@@ -697,12 +697,23 @@ export async function readMarketSnapshotMeta() {
     }
   }
 
+  const mapSize = stocksPerfCache ? Object.keys(stocksPerfCache).length : null
+  if (mapSize != null && mapSize > 0 && mapSize < Number(row.loaded) * 0.5) {
+    console.warn('[snapshot] stock map smaller than DB loaded counter', {
+      mapSize,
+      dbLoaded: Number(row.loaded),
+    })
+  }
+
   return {
     builtAt,
     asOf: row.as_of,
     barsAsOf: barsAsOf?.iso ?? null,
     barsAsOfLabel: barsAsOf?.label ?? null,
-    loaded: Number(row.loaded),
+    // Prefer real map size when warm — DB loaded can drift after partial writes.
+    loaded: mapSize != null && mapSize > 0 ? mapSize : Number(row.loaded),
+    mapTotal: mapSize != null && mapSize > 0 ? mapSize : undefined,
+    dbLoaded: Number(row.loaded),
     failed: Number(row.failed),
     fresh: isSnapshotFresh(builtAt) && barsCurrent,
     indexPerf: JSON.parse(row.index_perf_json),

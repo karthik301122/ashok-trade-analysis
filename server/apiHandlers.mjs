@@ -24,6 +24,7 @@ import {
   syncSnapshotPricesFromSeriesMeta,
   peekCachedLastPrices,
   scheduleLastPricesCacheWarm,
+  ensureStocksPerfCacheWarm,
   AUTO_RETRY_FAILED_THRESHOLD,
 } from './snapshotJob.mjs'
 import {
@@ -209,6 +210,8 @@ async function buildSnapshotMetaPayload() {
   void syncSnapshotPricesFromSeriesMeta()
   void maybeStartBackgroundSnapshot()
   void maybeAutoRetryHighFailures()
+  // Warm stock map off the request path so later /stocks pages and mapTotal are accurate.
+  void ensureStocksPerfCacheWarm().catch(() => {})
 
   let job = {
     status: 'idle',

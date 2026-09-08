@@ -72,6 +72,8 @@ type ServerSnapshotJson = {
   indexPerf?: CachedPerf
   stocks?: Record<string, CachedPerf>
   store?: string
+  /** Actual stock-map size on the server (may be lower than universe / loaded column). */
+  mapTotal?: number
 }
 
 function minSnapshotRatio(config: DeskServerConfig, fromServerStore = false) {
@@ -83,6 +85,15 @@ function isServerStore(store?: string) {
   return store === 'sqlite' || store === 'postgres'
 }
 
+/**
+ * Accept a server snapshot when:
+ * - we have index + stock payloads, AND
+ * - either enough of the ASX universe, OR we downloaded essentially everything
+ *   the server actually has in its stock map (mapTotal).
+ *
+ * The stuck-at-100 bug: server map only had ~100 names, client downloaded all of
+ * them, then rejected because 100 < 15% of 2571 and retried offset=0 forever.
+ */
 function parseServerSnapshot(
   json: ServerSnapshotJson,
   tickers: string[],
@@ -90,26 +101,33 @@ function parseServerSnapshot(
   acceptStale: boolean,
 ): { stockPerfs: Map<string, CachedPerf>; indexPerf: CachedPerf; failed: number } | null {
   const fetchedCount = Object.keys(json.stocks || {}).length
-  const stockCount =
-    fetchedCount > 0
-      ? fetchedCount
+  if (!json.indexPerf || fetchedCount === 0) return null
+
+  const mapTotal =
+    typeof json.mapTotal === 'number' && json.mapTotal > 0
+      ? json.mapTotal
       : typeof json.loaded === 'number' && json.loaded > 0
         ? json.loaded
-        : 0
+        : fetchedCount
+
   const minRatio = minSnapshotRatio(config, isServerStore(json.store))
-  const enough = stockCount >= tickers.length * minRatio
+  const enoughOfUniverse = fetchedCount >= tickers.length * minRatio
+  // 95% of the server map (or all of a small map) counts as a complete download.
+  const enoughOfServerMap =
+    mapTotal > 0 && fetchedCount >= Math.max(1, Math.ceil(mapTotal * 0.95))
+  const enough = enoughOfUniverse || enoughOfServerMap
+
   const freshOk = Boolean(json.fresh) && enough
-  const staleOk = acceptStale && Boolean(json.indexPerf) && enough
-  const serverOk = isServerStore(json.store) && Boolean(json.indexPerf) && enough
-  if (!json.indexPerf || (!freshOk && !staleOk && !serverOk)) return null
-  // Need the actual stock payloads — loaded count alone is not enough to render.
-  if (fetchedCount === 0) return null
+  const staleOk = acceptStale && enough
+  const serverOk = isServerStore(json.store) && enough
+  if (!freshOk && !staleOk && !serverOk) return null
+
   const stockPerfs = new Map<string, CachedPerf>()
   for (const [t, p] of Object.entries(json.stocks || {})) stockPerfs.set(t, p)
   return {
     stockPerfs,
     indexPerf: json.indexPerf,
-    failed: json.failed ?? tickers.length - stockPerfs.size,
+    failed: json.failed ?? Math.max(0, tickers.length - stockPerfs.size),
   }
 }
 
@@ -211,15 +229,19 @@ async function fetchServerSnapshotJson(
   if (!meta?.indexPerf) return null
 
   const stocks: Record<string, CachedPerf> = {}
-  let stockTotal = Math.max(0, meta.loaded ?? 0)
-  // Smaller pages are less likely to time out / wedge the App Service mid-download.
+  // Prefer the real stock-map size once known. meta.loaded can be a stale DB counter
+  // that is much larger than stocks_perf_json (that mismatch caused the 100/2571 loop).
+  let stockTotal = Math.max(0, meta.mapTotal ?? meta.loaded ?? 0)
   const chunkSize = 200
   let offset = 0
   let emptyStreak = 0
   let stallRounds = 0
 
-  while (offset < stockTotal) {
+  while (offset < Math.max(stockTotal, 1) || (stockTotal === 0 && offset === 0)) {
     if (signal?.aborted) return null
+    // Guard: if meta had no loaded count, still pull page 0 to learn mapTotal.
+    if (stockTotal === 0 && offset > 0) break
+
     let chunk: {
       stocks?: Record<string, CachedPerf>
       count?: number
@@ -238,14 +260,13 @@ async function fetchServerSnapshotJson(
       }>(`/api/snapshot/stocks?${qs}`, signal, SNAPSHOT_FETCH_MS)
       if (chunk?.stocks) break
       if (signal?.aborted) return null
-      // Do not abandon after one failed page — this is what left users stuck ~100 deep.
       await sleep(2000 * Math.min(attempt + 1, 4))
     }
     if (!chunk?.stocks) {
       stallRounds += 1
       onProgress?.({
         done: Object.keys(stocks).length,
-        total,
+        total: Math.max(stockTotal, Object.keys(stocks).length) + 1,
         phase: 'cache',
         loaded: Object.keys(stocks).length,
         remaining: Math.max(0, stockTotal - Object.keys(stocks).length),
@@ -271,29 +292,28 @@ async function fetchServerSnapshotJson(
     emptyStreak = 0
     offset += pageCount
     const loaded = Object.keys(stocks).length
+    // Progress against the real server map size — not the 2571 universe list.
     onProgress?.({
       done: loaded,
-      total,
+      total: Math.max(stockTotal, loaded) + 1,
       phase: 'cache',
       loaded,
       remaining: Math.max(0, stockTotal - loaded),
     })
-    // Only stop early when we've reached the end — a short final page is normal,
-    // but pageCount < chunkSize must not abort while offset < stockTotal.
     if (offset >= stockTotal) break
   }
 
   if (Object.keys(stocks).length === 0) return null
 
   const loadedCount = Object.keys(stocks).length
-  const expectedLoaded = meta.loaded ?? loadedCount
   const failed =
-    loadedCount < expectedLoaded
-      ? expectedLoaded - loadedCount + (meta.failed ?? 0)
+    stockTotal > loadedCount
+      ? stockTotal - loadedCount + (meta.failed ?? 0)
       : meta.failed ?? 0
   return {
     builtAt: meta.builtAt,
     loaded: loadedCount,
+    mapTotal: stockTotal,
     failed,
     fresh: meta.fresh,
     asOf: meta.asOf,
