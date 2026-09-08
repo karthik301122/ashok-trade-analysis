@@ -239,7 +239,7 @@ async function fetchServerSnapshotJson(
         stocks?: Record<string, CachedPerf>
         count?: number
         total?: number
-      }>(`/api/snapshot/stocks?${qs}`, signal, 90_000)
+      }>(`/api/snapshot/stocks?${qs}`, signal, SNAPSHOT_FETCH_MS)
       if (chunk?.stocks) break
       if (signal?.aborted) return null
       // Do not abandon after one failed page — this is what left users stuck ~100 deep.
