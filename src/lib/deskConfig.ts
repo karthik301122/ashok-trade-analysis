@@ -21,8 +21,10 @@ export type DeskServerConfig = {
 }
 
 const DEFAULT_CONFIG: DeskServerConfig = {
-  productionMode: false,
-  browserUniverseFetch: true,
+  // Safe defaults when /api/health is unreachable: never fall back to a full
+  // browser universe crawl — that floods /api/series and wedges App Service.
+  productionMode: true,
+  browserUniverseFetch: false,
   isAdmin: false,
 }
 

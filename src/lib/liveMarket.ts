@@ -659,7 +659,14 @@ export async function loadLiveMarketSnapshot(
     )
   }
 
-  // Dev / local fallback: progressive browser fetch (never used when productionMode)
+  // Extra guard: even if a misconfigured health response flips the flag, never
+  // crawl the full universe from the browser on a known production host.
+  const host = typeof window !== 'undefined' ? window.location.hostname : ''
+  if (config.productionMode || /(^|\.)traderscope\.com$/i.test(host)) {
+    throw new Error(
+      'Server snapshot is still building. Wait a few minutes and reload — browser universe fetch is disabled in production mode.',
+    )
+  }
   if (!await probeDeskApi(signal)) {
     throw new Error(
       `Desk API is not available on ${window.location.origin} (GET /api/health failed or timed out). Stop other dev servers on this port and run npm run dev, or use npm run build && npm start. The app needs the Node API — not vite preview alone.`,
