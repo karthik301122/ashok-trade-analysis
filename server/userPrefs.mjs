@@ -188,10 +188,20 @@ export async function setPatternComboAlerts(username, combos) {
        updated_at = excluded.updated_at`,
     [u, JSON.stringify(normalized), now],
   )
-  const allIds = await listAllSubscribedPatternIds()
-  const { syncPatternAlertRules, syncPatternComboRules } = await import('./alerts.mjs')
-  await syncPatternAlertRules(allIds)
-  await syncPatternComboRules()
+  // Sync rules in the background so the Alerts UI save doesn't wait on a full rebuild.
+  void (async () => {
+    try {
+      const allIds = await listAllSubscribedPatternIds()
+      const { syncPatternAlertRules, syncPatternComboRules } = await import('./alerts.mjs')
+      await syncPatternAlertRules(allIds)
+      await syncPatternComboRules()
+    } catch (err) {
+      console.warn(
+        '[prefs] pattern combo rule sync failed:',
+        err instanceof Error ? err.message : String(err),
+      )
+    }
+  })()
   return normalized
 }
 

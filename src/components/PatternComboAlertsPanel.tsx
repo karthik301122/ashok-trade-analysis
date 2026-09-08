@@ -32,6 +32,8 @@ export function PatternComboAlertsPanel({ onMessage }: Props) {
 
   const [combos, setCombos] = useState<PatternComboAlert[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadKey, setLoadKey] = useState(0)
   const [saveBusy, setSaveBusy] = useState(false)
 
   const [name, setName] = useState('')
@@ -43,16 +45,26 @@ export function PatternComboAlertsPanel({ onMessage }: Props) {
     let cancelled = false
     void (async () => {
       setLoading(true)
-      const res = await fetchPatternComboAlerts()
-      if (cancelled) return
-      if (res.ok) setCombos(normalizePatternCombos(res.combos as PatternComboAlert[]))
-      else onMessage?.(res.error)
-      setLoading(false)
+      setLoadError(null)
+      try {
+        const res = await fetchPatternComboAlerts()
+        if (cancelled) return
+        if (res.ok) {
+          setCombos(normalizePatternCombos(res.combos as PatternComboAlert[]))
+        } else {
+          setLoadError(res.error)
+          onMessage?.(res.error)
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     })()
     return () => {
       cancelled = true
     }
-  }, [onMessage])
+    // loadKey retries; onMessage is notification-only (avoid reloading when parent re-renders)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
+  }, [loadKey])
 
   const pickerOptions = useMemo(() => {
     if (op === 'or') return { all: options, daily, weekly, mode: 'or' as const }
@@ -70,15 +82,18 @@ export function PatternComboAlertsPanel({ onMessage }: Props) {
 
   const persist = async (next: PatternComboAlert[]) => {
     setSaveBusy(true)
-    const res = await setPatternComboAlerts(next as PatternComboAlertDto[])
-    setSaveBusy(false)
-    if (!res.ok) {
-      onMessage?.(res.error)
-      return false
+    try {
+      const res = await setPatternComboAlerts(next as PatternComboAlertDto[])
+      if (!res.ok) {
+        onMessage?.(res.error)
+        return false
+      }
+      setCombos(normalizePatternCombos(res.combos as PatternComboAlert[]))
+      onMessage?.(`Saved ${res.combos.length} pattern combo${res.combos.length === 1 ? '' : 's'}.`)
+      return true
+    } finally {
+      setSaveBusy(false)
     }
-    setCombos(normalizePatternCombos(res.combos as PatternComboAlert[]))
-    onMessage?.(`Saved ${res.combos.length} pattern combo${res.combos.length === 1 ? '' : 's'}.`)
-    return true
   }
 
   const addCombo = async (e: FormEvent) => {
@@ -134,6 +149,18 @@ export function PatternComboAlertsPanel({ onMessage }: Props) {
 
   return (
     <div className="space-y-4">
+      {loadError && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          <span>{loadError}</span>
+          <button
+            type="button"
+            onClick={() => setLoadKey((k) => k + 1)}
+            className="rounded-md border border-amber-600 px-2 py-1 text-xs font-bold hover:bg-amber-100 dark:hover:bg-amber-900/40"
+          >
+            Retry
+          </button>
+        </div>
+      )}
       <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm">
         <div className="flex items-start gap-2">
           <Layers size={18} className="mt-0.5 text-teal-700 dark:text-teal-300" />

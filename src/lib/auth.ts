@@ -138,28 +138,42 @@ export type PatternComboAlertDto = {
 export async function fetchPatternComboAlerts(): Promise<
   { ok: true; combos: PatternComboAlertDto[] } | { ok: false; error: string }
 > {
+  const timeout = new AbortController()
+  const timer = setTimeout(() => timeout.abort(), 15_000)
   try {
-    const res = await fetch('/api/auth/pattern-alert-prefs', { credentials: 'include' })
+    const res = await fetch('/api/auth/pattern-alert-prefs', {
+      credentials: 'include',
+      signal: timeout.signal,
+      cache: 'no-store',
+    })
     const json = await res.json().catch(() => ({}))
     if (!res.ok) {
       return { ok: false, error: (json as { error?: string }).error || 'Could not load combos' }
     }
     const combos = (json as { patternComboAlerts?: PatternComboAlertDto[] }).patternComboAlerts
     return { ok: true, combos: Array.isArray(combos) ? combos : [] }
-  } catch {
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { ok: false, error: 'Timed out loading pattern combos — try again.' }
+    }
     return { ok: false, error: 'Network error' }
+  } finally {
+    clearTimeout(timer)
   }
 }
 
 export async function setPatternComboAlerts(
   combos: PatternComboAlertDto[],
 ): Promise<{ ok: true; combos: PatternComboAlertDto[] } | { ok: false; error: string }> {
+  const timeout = new AbortController()
+  const timer = setTimeout(() => timeout.abort(), 45_000)
   try {
     const res = await fetch('/api/auth/pattern-alert-prefs', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ combos }),
+      signal: timeout.signal,
     })
     const json = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -167,8 +181,13 @@ export async function setPatternComboAlerts(
     }
     const saved = (json as { patternComboAlerts?: PatternComboAlertDto[] }).patternComboAlerts
     return { ok: true, combos: Array.isArray(saved) ? saved : combos }
-  } catch {
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { ok: false, error: 'Timed out saving pattern combos — try again.' }
+    }
     return { ok: false, error: 'Network error' }
+  } finally {
+    clearTimeout(timer)
   }
 }
 

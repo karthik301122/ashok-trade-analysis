@@ -130,6 +130,7 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [emailEnabled, setEmailEnabled] = useState(false)
+  const [authUser, setAuthUser] = useState<string | null>(null)
   const [canReceiveAlertEmail, setCanReceiveAlertEmail] = useState(false)
   const [alertEmailOptIn, setAlertEmailOptInState] = useState(false)
   const [alertEmailMinScore, setAlertEmailMinScoreState] = useState(80)
@@ -144,15 +145,21 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
   }, [watchesProp])
 
   const refresh = useCallback(async () => {
-    const [r, e, cfg, me] = await Promise.all([
-      fetch('/api/alerts/rules', { credentials: 'include' }).then((x) => x.json()),
-      fetch('/api/alerts/events', { credentials: 'include' }).then((x) => x.json()),
-      fetchDeskServerConfig(),
+    // Keep email / auth prefs even if rules or events hang under load.
+    const [rulesRes, eventsRes, cfg, me] = await Promise.all([
+      fetch('/api/alerts/rules', { credentials: 'include' })
+        .then((x) => x.json())
+        .catch(() => ({ rules: [] })),
+      fetch('/api/alerts/events', { credentials: 'include' })
+        .then((x) => x.json())
+        .catch(() => ({ events: [] })),
+      fetchDeskServerConfig().catch(() => ({ alertEmailEnabled: false })),
       fetchAuthMe(),
     ])
-    setRules(r.rules || [])
-    setEvents(e.events || [])
+    setRules(rulesRes.rules || [])
+    setEvents(eventsRes.events || [])
     setEmailEnabled(Boolean(cfg.alertEmailEnabled))
+    setAuthUser(me.user ?? null)
     setCanReceiveAlertEmail(Boolean(me.canReceiveAlertEmail))
     setAlertEmailOptInState(Boolean(me.alertEmailOptIn))
     setAlertEmailMinScoreState(me.alertEmailMinScore ?? 80)
@@ -867,7 +874,7 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
       </div>
       )}
 
-      {canReceiveAlertEmail && (
+      {canReceiveAlertEmail ? (
         <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -919,7 +926,17 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
             </button>
           </div>
         </div>
-      )}
+      ) : authUser ? (
+        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm">
+          <h2 className="flex items-center gap-2 text-sm font-bold">
+            <Mail size={16} /> Pattern alert emails
+          </h2>
+          <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
+            Email alerts need an email-address login (you@domain.com). You’re signed in as{' '}
+            <span className="font-mono">{authUser}</span>.
+          </p>
+        </div>
+      ) : null}
 
       {msg && (
         <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm">
