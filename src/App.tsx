@@ -127,18 +127,34 @@ export default function App() {
     try {
       clearPerfCache()
       clearOhlcSessionCache()
-      const result = await loadLiveMarketSnapshot({
-        forceRefresh,
-        deskConfig: config,
-        signal: ac.signal,
-        onProgress: setProgress,
-        onPartial: (partial, loaded, failed) => {
-          if (ac.signal.aborted) return
-          setSnapshot(partial)
-          setMeta({ fromCache: false, loaded, failed })
-          setLoading(false)
-        },
-      })
+      const runOnce = () =>
+        loadLiveMarketSnapshot({
+          forceRefresh,
+          deskConfig: config,
+          signal: ac.signal,
+          onProgress: setProgress,
+          onPartial: (partial, loaded, failed) => {
+            if (ac.signal.aborted) return
+            setSnapshot(partial)
+            setMeta({ fromCache: false, loaded, failed })
+            setLoading(false)
+          },
+        })
+      let result
+      try {
+        result = await runOnce()
+      } catch (firstErr) {
+        if (ac.signal.aborted) return
+        // Stay on the loading screen and soft-retry once before the wait/error UI.
+        setProgress({ done: 0, total: ASX_UNIVERSE_COUNT + 1, phase: 'cache' })
+        await new Promise((r) => setTimeout(r, 4000))
+        if (ac.signal.aborted) return
+        try {
+          result = await runOnce()
+        } catch {
+          throw firstErr
+        }
+      }
       if (ac.signal.aborted) return
       setSnapshot(result.snapshot)
       setMeta({
@@ -589,12 +605,12 @@ export default function App() {
           <div className="mx-auto mt-16 max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-sm">
             <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-teal-200 border-t-teal-600" />
             <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold">
-              Loading full ASX universe
+              Loading market desk
             </h2>
             <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
               {deskConfig?.productionMode
-                ? 'Downloading server snapshot for the full ASX universe (shared for all users).'
-                : `First ~50 stocks show quickly, then it keeps filling all ${ASX_UNIVERSE_COUNT.toLocaleString()} names (can take several minutes).`}
+                ? 'Opening with the first ~100 stocks (ASX200 first), then filling the rest in the background.'
+                : `First ~100 stocks unlock the desk, then it keeps filling all ${ASX_UNIVERSE_COUNT.toLocaleString()} names.`}
             </p>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-[var(--color-muted)]">
               <div className="h-full bg-teal-600 transition-all" style={{ width: `${pct}%` }} />
@@ -604,10 +620,10 @@ export default function App() {
                 ? `${progress.phase} · ${progress.done}/${progress.total} (${pct}%)`
                 : 'Starting…'}
             </p>
-            {progress?.phase === 'cache' && progress.done === 0 && (
+            {progress?.phase === 'cache' && (progress.done ?? 0) < 100 && (
               <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
                 {deskConfig?.productionMode
-                  ? 'Waiting for the shared server snapshot… If this stays at 0%, try Refresh or reload in a minute.'
+                  ? 'Waiting for the shared server snapshot… Keeping this screen up while the server recovers — the desk opens once ~100 stocks arrive.'
                   : (
                     <>
                       Stuck at 0% usually means this URL has no desk API (wrong port or vite preview).
@@ -620,22 +636,23 @@ export default function App() {
             )}
           </div>
         ) : !snapshot ? (
-          <div className="mx-auto mt-16 max-w-lg rounded-2xl border border-rose-300 bg-[var(--color-surface)] p-6 shadow-sm dark:border-rose-800">
-            <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold text-rose-700 dark:text-rose-300">
-              Live data unavailable
+          <div className="mx-auto mt-16 max-w-lg rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-sm">
+            <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-amber-200 border-t-amber-600" />
+            <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold">
+              Still waiting for snapshot
             </h2>
             <p className="mt-2 text-sm text-[var(--color-ink-soft)]">
-              Could not load the shared server snapshot. In production mode the browser does not
-              crawl prices per user — retry after the server build finishes.
+              The desk opens after the first ~100 stocks arrive. The server was busy or recovering —
+              keep this tab open and retry; you should not need a full universe download to start.
             </p>
             {error && (
-              <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
+              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
                 {error}
               </p>
             )}
             <button
               type="button"
-              onClick={() => void refreshLive()}
+              onClick={() => void load(false)}
               className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-teal-600 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-800 dark:bg-teal-950/40 dark:text-teal-200"
             >
               <RefreshCw size={14} />

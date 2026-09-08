@@ -304,7 +304,8 @@ export async function handleConnectApi(req, res, send) {
     if (rateLimitOrSend(req, send, 'snapshot-stocks', snapshotStocksRateLimitPerMinute())) return true
     const offset = Number(url.searchParams.get('offset') || 0)
     const limit = Number(url.searchParams.get('limit') || 500)
-    const chunk = await readMarketSnapshotStocksChunk(offset, limit)
+    const prefer = url.searchParams.get('prefer') || ''
+    const chunk = await readMarketSnapshotStocksChunk(offset, limit, { prefer })
     if (!chunk) {
       send(404, { error: 'No snapshot yet', job: await getSnapshotJobStatus() })
       return true
@@ -1168,7 +1169,8 @@ export function mountExpressApi(app) {
     }
     const offset = Number(req.query.offset || 0)
     const limit = Number(req.query.limit || 500)
-    const chunk = await readMarketSnapshotStocksChunk(offset, limit)
+    const prefer = typeof req.query.prefer === 'string' ? req.query.prefer : ''
+    const chunk = await readMarketSnapshotStocksChunk(offset, limit, { prefer })
     if (!chunk) {
       return res.status(404).json({ error: 'No snapshot yet', job: await getSnapshotJobStatus() })
     }

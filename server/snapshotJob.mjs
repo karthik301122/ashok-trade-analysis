@@ -713,7 +713,7 @@ export async function readMarketSnapshotMeta() {
 }
 
 /** Paginated stock perfs for browsers that cannot download one giant /api/snapshot payload. */
-export async function readMarketSnapshotStocksChunk(offset, limit) {
+export async function readMarketSnapshotStocksChunk(offset, limit, opts = {}) {
   await ensureStocksPerfCacheWarm()
   let map = stocksPerfCache
   if (!map) {
@@ -721,7 +721,24 @@ export async function readMarketSnapshotStocksChunk(offset, limit) {
     if (!row) return null
     map = loadStocksPerfMap(Number(row.built_at), row.stocks_perf_json)
   }
-  const keys = Object.keys(map)
+  const prefer = String(opts.prefer || '').toLowerCase()
+  let keys = Object.keys(map)
+  if (prefer === 'asx200' || prefer === 'desk') {
+    const ranked = loadDeskBreadthTickers()
+    const inMap = new Set(keys)
+    const preferred = []
+    const seen = new Set()
+    for (const t of ranked) {
+      if (!inMap.has(t) || seen.has(t)) continue
+      seen.add(t)
+      preferred.push(t)
+    }
+    for (const t of keys) {
+      if (seen.has(t)) continue
+      preferred.push(t)
+    }
+    keys = preferred
+  }
   const safeOffset = Math.max(0, Math.min(offset, keys.length))
   const safeLimit = Math.max(1, Math.min(limit, 800))
   const slice = keys.slice(safeOffset, safeOffset + safeLimit)
@@ -733,6 +750,7 @@ export async function readMarketSnapshotStocksChunk(offset, limit) {
     limit: safeLimit,
     total: keys.length,
     count: slice.length,
+    prefer: prefer || undefined,
     stocks,
   }
 }
