@@ -50,8 +50,8 @@ export function useIndustryPatternScan(
   }, [tickers])
   const concurrency = fullUniverse
     ? import.meta.env.PROD
-      ? 4
-      : 6
+      ? 1
+      : 3
     : import.meta.env.PROD
       ? 1
       : 2

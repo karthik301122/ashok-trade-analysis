@@ -67,6 +67,8 @@ import {
   seriesRateLimitPerMinute,
   snapshotRateLimitPerMinute,
   snapshotStocksRateLimitPerMinute,
+  snapshotRefreshPostLimit,
+  snapshotRefreshPostWindowMs,
 } from './production.mjs'
 import { getLiveQuotesMeta } from './liveQuotes.mjs'
 import { runLiveQuoteRefresh } from './liveQuoteJob.mjs'
@@ -112,6 +114,8 @@ async function withTimeout(p, ms) {
 let seriesInFlight = 0
 /** After slow series responses, briefly refuse new series so snapshot/meta can recover. */
 let seriesShedUntil = 0
+/** Last time snapshot meta timed out — keep series shed until meta recovers. */
+let lastMetaTimeoutAt = 0
 /** @type {number[]} */
 const seriesRecentMs = []
 /** Per-IP series stamps — used to kill leftover browser-universe crawls. */
@@ -123,8 +127,8 @@ const seriesBanUntilByIp = new Map()
 function seriesMaxInFlight() {
   const n = Number(process.env.SERIES_MAX_IN_FLIGHT)
   if (Number.isFinite(n) && n > 0) return n
-  // Old browser-universe crawls used concurrency 4–6; keep this tiny in production.
-  return isProductionMode() ? 2 : 16
+  // Pattern scans + charts must not compete; 1 keeps meta/health alive on Azure.
+  return isProductionMode() ? 1 : 8
 }
 
 function seriesKillSwitchEnabled() {
@@ -167,12 +171,13 @@ function noteSeriesLatency(ms) {
   if (!Number.isFinite(n) || n < 0) return
   seriesRecentMs.push(n)
   if (seriesRecentMs.length > 20) seriesRecentMs.shift()
+  // Any multi-second series means the PG pool is congested — shed hard.
   if (n >= 2500) {
-    killSeriesTraffic('slow-series', 45_000)
-  } else if (seriesRecentMs.length >= 8) {
+    killSeriesTraffic('slow-series', 90_000)
+  } else if (seriesRecentMs.length >= 6) {
     const sorted = seriesRecentMs.slice().sort((a, b) => a - b)
     const p50 = sorted[Math.floor(sorted.length / 2)]
-    if (p50 >= 1200) killSeriesTraffic('series-p50-high', 30_000)
+    if (p50 >= 800) killSeriesTraffic('series-p50-high', 60_000)
   }
 }
 
@@ -190,11 +195,11 @@ function noteSeriesHitFromIp(ip) {
   hits.push(now)
   // Keep ~2 minutes of hits.
   while (hits.length && now - hits[0] > 120_000) hits.shift()
-  // Alphabetical universe crawls blast dozens of series/min from one tab.
-  if (isProductionMode() && hits.length >= 40) {
+  // Pattern full-universe scans + crawls — 25 admits / 2 min is plenty.
+  if (isProductionMode() && hits.length >= 25) {
     seriesBanUntilByIp.set(key, now + 5 * 60_000)
     log('warn', 'series.ip_banned', { ip: key, hits: hits.length, banMs: 5 * 60_000 })
-    killSeriesTraffic('crawl-detected', 60_000)
+    killSeriesTraffic('crawl-detected', 120_000)
     return 'ip-banned'
   }
   return null
@@ -204,6 +209,7 @@ function seriesAdmissionBlocked(req) {
   if (seriesKillSwitchEnabled()) return 'kill-switch'
   if (seriesInFlight >= seriesMaxInFlight()) return 'busy'
   if (Date.now() < seriesShedUntil) return 'shedding'
+  if (lastMetaTimeoutAt && Date.now() - lastMetaTimeoutAt < 120_000) return 'meta-recovering'
   const ipBlock = noteSeriesHitFromIp(clientKey(req))
   if (ipBlock) return ipBlock
   return null
@@ -212,6 +218,14 @@ function seriesAdmissionBlocked(req) {
 /** Short-lived meta payload so concurrent desk loads share one DB round-trip. */
 let snapshotMetaPayloadCache = /** @type {{ at: number, body: object } | null} */ (null)
 const SNAPSHOT_META_CACHE_MS = 2_000
+/** Last-good meta for emergency serve when DB is wedged. */
+let snapshotMetaLastGood = /** @type {{ at: number, body: object } | null} */ (null)
+
+function seriesHandlerTimeoutMs() {
+  const n = Number(process.env.SERIES_HANDLER_TIMEOUT_MS)
+  if (Number.isFinite(n) && n > 0) return n
+  return isProductionMode() ? 6_000 : 30_000
+}
 
 /**
  * Fail-fast snapshot meta for desk boot. Never awaits full lastPrices DB scan or
@@ -226,8 +240,34 @@ async function buildSnapshotMetaPayload() {
   const metaMs = Number(process.env.SNAPSHOT_META_DB_MS)
   const budget = Number.isFinite(metaMs) && metaMs > 0 ? metaMs : 2_500
 
-  const meta = await withTimeout(readMarketSnapshotMeta(), budget)
-  if (!meta) return null
+  let meta
+  try {
+    meta = await withTimeout(readMarketSnapshotMeta(), budget)
+  } catch (err) {
+    // Prefer last-good over failing the desk boot loop while series wedged Postgres.
+    if (snapshotMetaLastGood?.body) {
+      log('warn', 'snapshot.meta.stale_ok', {
+        ageMs: now - snapshotMetaLastGood.at,
+        message: err instanceof Error ? err.message : String(err),
+      })
+      return {
+        ...snapshotMetaLastGood.body,
+        metaStale: true,
+        metaStaleAgeMs: now - snapshotMetaLastGood.at,
+      }
+    }
+    throw err
+  }
+  if (!meta) {
+    if (snapshotMetaLastGood?.body) {
+      return {
+        ...snapshotMetaLastGood.body,
+        metaStale: true,
+        metaStaleAgeMs: now - snapshotMetaLastGood.at,
+      }
+    }
+    return null
+  }
 
   scheduleLastPricesCacheWarm()
   void syncSnapshotPricesFromSeriesMeta()
@@ -256,6 +296,7 @@ async function buildSnapshotMetaPayload() {
     autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
   }
   snapshotMetaPayloadCache = { at: Date.now(), body }
+  snapshotMetaLastGood = { at: Date.now(), body }
   return body
 }
 
@@ -293,6 +334,76 @@ function seriesRateLimitOrExpress(req, res) {
     res.setHeader('Retry-After', String(retrySec))
     res.status(429).json({
       error: 'Too many requests',
+      retryAfterMs: result.retryAfterMs,
+    })
+    return true
+  }
+  return false
+}
+
+/** How long a running job must age before force=1 may supersede it (hung recovery). */
+function snapshotRefreshSupersedeAfterMs() {
+  const n = Number(process.env.SNAPSHOT_REFRESH_SUPERSEDE_MS)
+  if (Number.isFinite(n) && n > 0) return n
+  return 40 * 60_000
+}
+
+/**
+ * True when we should reject starting another rebuild (spam / mid-job restart).
+ * force=1 only supersedes after the job looks hung.
+ */
+function shouldBlockSnapshotRefreshStart(status, { force = false } = {}) {
+  if (status?.status !== 'running') return false
+  const started = Number(status.startedAt) || 0
+  const age = started > 0 ? Date.now() - started : 0
+  if (force && age >= snapshotRefreshSupersedeAfterMs()) return false
+  return true
+}
+
+function snapshotRefreshPostRateLimitOrSend(req, send) {
+  pruneRateLimitBuckets()
+  const key = `${clientKey(req)}:snapshot-refresh-post`
+  const result = checkRateLimit(key, {
+    limit: snapshotRefreshPostLimit(),
+    windowMs: snapshotRefreshPostWindowMs(),
+  })
+  if (!result.ok) {
+    const retrySec = Math.max(1, Math.ceil((result.retryAfterMs ?? 60_000) / 1000))
+    log('warn', 'rate_limited', {
+      route: 'snapshot-refresh-post',
+      key: clientKey(req),
+      retryAfterMs: result.retryAfterMs,
+    })
+    send(
+      429,
+      {
+        error: 'Refresh cooldown — wait before starting another rebuild',
+        retryAfterMs: result.retryAfterMs,
+      },
+      { 'Retry-After': String(retrySec) },
+    )
+    return true
+  }
+  return false
+}
+
+function snapshotRefreshPostRateLimitOrExpress(req, res) {
+  pruneRateLimitBuckets()
+  const key = `${clientKey(req)}:snapshot-refresh-post`
+  const result = checkRateLimit(key, {
+    limit: snapshotRefreshPostLimit(),
+    windowMs: snapshotRefreshPostWindowMs(),
+  })
+  if (!result.ok) {
+    const retrySec = Math.max(1, Math.ceil((result.retryAfterMs ?? 60_000) / 1000))
+    log('warn', 'rate_limited', {
+      route: 'snapshot-refresh-post',
+      key: clientKey(req),
+      retryAfterMs: result.retryAfterMs,
+    })
+    res.setHeader('Retry-After', String(retrySec))
+    res.status(429).json({
+      error: 'Refresh cooldown — wait before starting another rebuild',
       retryAfterMs: result.retryAfterMs,
     })
     return true
@@ -341,9 +452,12 @@ export async function handleConnectApi(req, res, send) {
         send(400, { error: 'Invalid ticker' })
         return true
       }
-      const result = await loadSeriesForTicker(ticker, url.searchParams, {
-        skipForceRefresh: true,
-      })
+      const result = await withTimeout(
+        loadSeriesForTicker(ticker, url.searchParams, {
+          skipForceRefresh: true,
+        }),
+        seriesHandlerTimeoutMs(),
+      )
       if (result.status === 404) {
         log('info', 'series.miss', { ticker, ms: Date.now() - started })
         send(404, result.body)
@@ -367,7 +481,19 @@ export async function handleConnectApi(req, res, send) {
       return true
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      log('error', 'series.error', { message, ms: Date.now() - started })
+      const ms = Date.now() - started
+      if (message === 'timeout') {
+        noteSeriesLatency(ms)
+        killSeriesTraffic('series-timeout', 90_000)
+        log('warn', 'series.timeout', { ms })
+        send(
+          503,
+          { error: 'Series busy', reason: 'timeout', retryAfterMs: 5000 },
+          { 'Retry-After': '5' },
+        )
+        return true
+      }
+      log('error', 'series.error', { message, ms })
       send(500, { error: message })
       return true
     } finally {
@@ -402,7 +528,20 @@ export async function handleConnectApi(req, res, send) {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       log('error', 'snapshot.meta.error', { message, ms: Date.now() - started })
-      killSeriesTraffic('meta-timeout', 120_000)
+      lastMetaTimeoutAt = Date.now()
+      killSeriesTraffic('meta-timeout', 180_000)
+      if (snapshotMetaLastGood?.body) {
+        send(
+          200,
+          {
+            ...snapshotMetaLastGood.body,
+            metaStale: true,
+            metaStaleAgeMs: Date.now() - snapshotMetaLastGood.at,
+          },
+          { 'Cache-Control': 'no-store, no-cache, must-revalidate', Pragma: 'no-cache' },
+        )
+        return true
+      }
       send(503, {
         error: 'Snapshot meta temporarily unavailable',
         hint: 'Retry in a few seconds',
@@ -505,11 +644,22 @@ export async function handleConnectApi(req, res, send) {
       const priority = url.searchParams.get('priority')
       const deskPriority = priority === 'asx200' || priority === 'desk'
       const status = await getSnapshotJobStatus()
-      if (status.status === 'running' && !deskPriority && !force) {
-        log('info', 'snapshot.refresh', { alreadyRunning: true, force, priority })
-        send(202, { ok: true, job: status })
+      if (shouldBlockSnapshotRefreshStart(status, { force })) {
+        log('info', 'snapshot.refresh', {
+          alreadyRunning: true,
+          force,
+          priority,
+          startedAt: status.startedAt,
+        })
+        send(202, {
+          ok: true,
+          alreadyRunning: true,
+          job: status,
+          hint: 'A refresh is already running — wait for it to finish',
+        })
         return true
       }
+      if (snapshotRefreshPostRateLimitOrSend(req, send)) return true
       log('info', 'snapshot.refresh', { started: true, force, priority })
       if (deskPriority) {
         void runAsx200ForceRefresh().catch((err) => {
@@ -1218,7 +1368,10 @@ export function mountExpressApi(app) {
       if (!ticker || !/^[A-Z0-9.^=-]{1,20}$/.test(ticker)) {
         return res.status(400).json({ error: 'Invalid ticker' })
       }
-      const result = await loadSeriesForTicker(ticker, req.query, { skipForceRefresh: true })
+      const result = await withTimeout(
+        loadSeriesForTicker(ticker, req.query, { skipForceRefresh: true }),
+        seriesHandlerTimeoutMs(),
+      )
       if (result.status === 404) {
         log('info', 'series.miss', { ticker, ms: Date.now() - started })
         return res.status(404).json(result.body)
@@ -1239,7 +1392,15 @@ export function mountExpressApi(app) {
       return res.json(data)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      log('error', 'series.error', { message, ms: Date.now() - started })
+      const ms = Date.now() - started
+      if (message === 'timeout') {
+        noteSeriesLatency(ms)
+        killSeriesTraffic('series-timeout', 90_000)
+        log('warn', 'series.timeout', { ms })
+        res.setHeader('Retry-After', '5')
+        return res.status(503).json({ error: 'Series busy', reason: 'timeout', retryAfterMs: 5000 })
+      }
+      log('error', 'series.error', { message, ms })
       return res.status(500).json({ error: message })
     } finally {
       seriesInFlight -= 1
@@ -1279,7 +1440,15 @@ export function mountExpressApi(app) {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       log('error', 'snapshot.meta.error', { message })
-      killSeriesTraffic('meta-timeout', 120_000)
+      lastMetaTimeoutAt = Date.now()
+      killSeriesTraffic('meta-timeout', 180_000)
+      if (snapshotMetaLastGood?.body) {
+        return res.json({
+          ...snapshotMetaLastGood.body,
+          metaStale: true,
+          metaStaleAgeMs: Date.now() - snapshotMetaLastGood.at,
+        })
+      }
       return res.status(503).json({
         error: 'Snapshot meta temporarily unavailable',
         hint: 'Retry in a few seconds',
@@ -1395,10 +1564,21 @@ export function mountExpressApi(app) {
     const priority = typeof req.query.priority === 'string' ? req.query.priority : ''
     const deskPriority = priority === 'asx200' || priority === 'desk'
     const status = await getSnapshotJobStatus()
-    if (status.status === 'running' && !deskPriority && !force) {
-      log('info', 'snapshot.refresh', { alreadyRunning: true, force, priority })
-      return res.status(202).json({ ok: true, job: status })
+    if (shouldBlockSnapshotRefreshStart(status, { force })) {
+      log('info', 'snapshot.refresh', {
+        alreadyRunning: true,
+        force,
+        priority,
+        startedAt: status.startedAt,
+      })
+      return res.status(202).json({
+        ok: true,
+        alreadyRunning: true,
+        job: status,
+        hint: 'A refresh is already running — wait for it to finish',
+      })
     }
+    if (snapshotRefreshPostRateLimitOrExpress(req, res)) return
     log('info', 'snapshot.refresh', { started: true, force, priority })
     if (deskPriority) {
       void runAsx200ForceRefresh().catch((err) => {

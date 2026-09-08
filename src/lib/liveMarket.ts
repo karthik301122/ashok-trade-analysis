@@ -661,7 +661,7 @@ export async function loadLiveMarketSnapshot(
 
   if (!config.browserUniverseFetch) {
     if (forceRefresh && config.isAdmin) {
-      await fetch('/api/snapshot/refresh?force=1', {
+      await fetch('/api/snapshot/refresh?priority=desk', {
         method: 'POST',
         credentials: 'include',
         signal,

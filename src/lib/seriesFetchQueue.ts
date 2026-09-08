@@ -1,13 +1,16 @@
-/** Client-side throttle for `/api/series` — avoids tripping server rate limits during pattern scans. */
+/** Client-side throttle for `/api/series` — avoids wedging App Service during pattern scans. */
 
-const GAP_MS = import.meta.env.PROD ? 45 : 30
-const MAX_CONCURRENT = import.meta.env.PROD ? 6 : 6
-const FETCH_TIMEOUT_MS = 35_000
+const GAP_MS = import.meta.env.PROD ? 120 : 40
+/** Match server SERIES_MAX_IN_FLIGHT (prod default 1). Extra client concurrency just queues 503s. */
+const MAX_CONCURRENT = import.meta.env.PROD ? 1 : 3
+const FETCH_TIMEOUT_MS = import.meta.env.PROD ? 12_000 : 35_000
 
 let active = 0
 const waiters: Array<() => void> = []
 let lastStartAt = 0
 let chain: Promise<unknown> = Promise.resolve()
+/** Pause new starts after server shedding / timeouts. */
+let pauseUntil = 0
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
@@ -33,9 +36,26 @@ function releaseSlot() {
 }
 
 async function waitGap() {
+  const pause = pauseUntil - Date.now()
+  if (pause > 0) await sleep(pause)
   const wait = lastStartAt + GAP_MS - Date.now()
   if (wait > 0) await sleep(wait)
   lastStartAt = Date.now()
+}
+
+function noteServerBusy(res: Response, body?: { retryAfterMs?: number; reason?: string }) {
+  let waitMs = 5_000
+  const retryAfter = res.headers.get('retry-after')
+  if (retryAfter) {
+    const sec = Number(retryAfter)
+    if (Number.isFinite(sec) && sec > 0) waitMs = sec * 1000
+  } else if (typeof body?.retryAfterMs === 'number' && body.retryAfterMs > 0) {
+    waitMs = body.retryAfterMs
+  } else if (body?.reason === 'shedding' || body?.reason === 'timeout') {
+    waitMs = 15_000
+  }
+  pauseUntil = Math.max(pauseUntil, Date.now() + waitMs)
+  return waitMs
 }
 
 /**
@@ -55,25 +75,21 @@ export async function fetchSeriesQueued(url: string, init?: RequestInit): Promis
             credentials: 'include',
             signal: controller.signal,
           })
-          if (res.status !== 429) return res
-          let waitMs = 10_000
-          const retryAfter = res.headers.get('retry-after')
-          if (retryAfter) {
-            const sec = Number(retryAfter)
-            if (Number.isFinite(sec) && sec > 0) waitMs = sec * 1000
-          } else {
+          if (res.status === 429 || res.status === 503) {
+            let body: { retryAfterMs?: number; reason?: string } | undefined
             try {
-              const json = await res.clone().json()
-              if (typeof json?.retryAfterMs === 'number' && json.retryAfterMs > 0) {
-                waitMs = json.retryAfterMs
-              }
+              body = (await res.clone().json()) as { retryAfterMs?: number; reason?: string }
             } catch {
               /* ignore */
             }
+            const waitMs = noteServerBusy(res, body)
+            await sleep(waitMs)
+            continue
           }
-          await sleep(waitMs)
+          return res
         } catch (err) {
           if (attempt >= 4) throw err
+          pauseUntil = Math.max(pauseUntil, Date.now() + 3_000)
           await sleep(1500)
         } finally {
           clearTimeout(timer)

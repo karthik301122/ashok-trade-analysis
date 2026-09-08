@@ -19,6 +19,8 @@ import { PrewarmSnapshotPatterns } from './components/PrewarmSnapshotPatterns'
 import { PanelErrorBoundary } from './components/PanelErrorBoundary'
 import { AppNavContext, type AppPage } from './lib/appPage'
 
+const REFRESH_COOLDOWN_MS = 5 * 60_000
+
 export default function App() {
   const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark')
   const [authChecking, setAuthChecking] = useState(true)
@@ -64,6 +66,25 @@ export default function App() {
   )
   const abortRef = useRef<AbortController | null>(null)
   const startedLoad = useRef(false)
+  const lastManualRefreshAt = useRef(0)
+  const [refreshCooldownUntil, setRefreshCooldownUntil] = useState(0)
+  const [cooldownNow, setCooldownNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (refreshCooldownUntil <= Date.now()) return
+    const id = window.setInterval(() => setCooldownNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [refreshCooldownUntil])
+
+  const refreshBlocked =
+    backfilling ||
+    retryingFailed ||
+    snapshotJob?.status === 'running' ||
+    refreshCooldownUntil > cooldownNow
+  const refreshCooldownSec = Math.max(
+    0,
+    Math.ceil((refreshCooldownUntil - cooldownNow) / 1000),
+  )
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
@@ -239,10 +260,27 @@ export default function App() {
 
   const startAsx200ForceRefresh = useCallback(async () => {
     const startedAfter = Date.now()
-    const res = await fetch('/api/snapshot/refresh?force=1&priority=desk', {
+    // Avoid force=1 on every click — that used to supersede (restart) the desk job.
+    const jobAge = snapshotJob?.startedAt
+      ? Date.now() - Number(snapshotJob.startedAt)
+      : 0
+    const hung =
+      snapshotJob?.status === 'running' && Number.isFinite(jobAge) && jobAge >= 40 * 60_000
+    const qs = hung ? 'force=1&priority=desk' : 'priority=desk'
+    const res = await fetch(`/api/snapshot/refresh?${qs}`, {
       method: 'POST',
       credentials: 'include',
     })
+    if (res.status === 429) {
+      const body = await res.json().catch(() => ({}))
+      const waitMs = Number(body?.retryAfterMs) || REFRESH_COOLDOWN_MS
+      setRefreshCooldownUntil(Date.now() + waitMs)
+      throw new Error(
+        typeof body?.error === 'string'
+          ? body.error
+          : 'Refresh cooldown — wait before starting another rebuild',
+      )
+    }
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       throw new Error(
@@ -251,13 +289,21 @@ export default function App() {
           : `Refresh failed (${res.status}) — admin access required in production`,
       )
     }
+    const body = (await res.json().catch(() => ({}))) as {
+      alreadyRunning?: boolean
+      job?: { startedAt?: number; message?: string; status?: string }
+    }
+    if (body.job) setSnapshotJob(body.job)
+    const waitFrom = body.alreadyRunning
+      ? Number(body.job?.startedAt || 0) || startedAfter
+      : startedAfter
     // Unlock UI once ASX200 is usable; mid/small keep running on the server.
-    await waitForSnapshotJob(startedAfter, {
+    await waitForSnapshotJob(waitFrom, {
       readyOn: 'asx200',
       onStatus: setRefreshStatus,
     })
-    return startedAfter
-  }, [waitForSnapshotJob])
+    return waitFrom
+  }, [waitForSnapshotJob, snapshotJob?.status, snapshotJob?.startedAt])
 
   const retryFailedLoads = useCallback(async () => {
     setRetryingFailed(true)
@@ -312,6 +358,27 @@ export default function App() {
   }, [load, waitForSnapshotJob])
 
   const refreshLive = useCallback(async () => {
+    const now = Date.now()
+    if (
+      backfilling ||
+      retryingFailed ||
+      snapshotJob?.status === 'running' ||
+      now < lastManualRefreshAt.current + REFRESH_COOLDOWN_MS
+    ) {
+      if (snapshotJob?.status === 'running' || backfilling) {
+        setRefreshStatus('Refresh already in progress — wait for it to finish')
+      } else {
+        const remain = Math.max(
+          0,
+          Math.ceil((lastManualRefreshAt.current + REFRESH_COOLDOWN_MS - now) / 1000),
+        )
+        if (remain > 0) setRefreshStatus(`Wait ${remain}s before refreshing again`)
+      }
+      return
+    }
+    lastManualRefreshAt.current = now
+    setRefreshCooldownUntil(now + REFRESH_COOLDOWN_MS)
+
     const config = deskConfig ?? await fetchDeskServerConfig()
     if (!deskConfig) setDeskConfig(config)
     setError(null)
@@ -339,7 +406,14 @@ export default function App() {
       return
     }
     await load(true)
-  }, [deskConfig, load, startAsx200ForceRefresh, waitForSnapshotJob])
+  }, [
+    deskConfig,
+    load,
+    startAsx200ForceRefresh,
+    backfilling,
+    retryingFailed,
+    snapshotJob?.status,
+  ])
 
   const passwordResetPending = (() => {
     try {
@@ -738,12 +812,23 @@ export default function App() {
               )}
               <button
                 type="button"
-                disabled={backfilling || retryingFailed}
+                disabled={refreshBlocked}
                 onClick={() => void refreshLive()}
+                title={
+                  snapshotJob?.status === 'running' || backfilling
+                    ? 'A refresh is already running'
+                    : refreshCooldownSec > 0
+                      ? `Wait ${refreshCooldownSec}s before refreshing again`
+                      : 'Refresh market snapshot'
+                }
                 className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-teal-600 bg-teal-50 px-2.5 py-1 font-semibold text-teal-800 disabled:opacity-50 dark:bg-teal-950/40 dark:text-teal-200"
               >
                 <RefreshCw size={12} className={backfilling ? 'animate-spin' : ''} />
-                {backfilling ? 'Refreshing…' : 'Refresh'}
+                {backfilling || snapshotJob?.status === 'running'
+                  ? 'Refreshing…'
+                  : refreshCooldownSec > 0
+                    ? `Wait ${refreshCooldownSec}s`
+                    : 'Refresh'}
               </button>
             </div>
 

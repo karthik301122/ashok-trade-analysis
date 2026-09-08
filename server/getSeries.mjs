@@ -3,6 +3,7 @@ import { seriesSymbolCount, dbStoreLabel } from './db.mjs'
 import {
   readSeriesCache,
   writeSeriesCache,
+  updateSeriesMetaLast,
   mergeBars,
   recomputeHigh52,
   isSeriesFresh,
@@ -83,14 +84,7 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
         const last = closes[closes.length - 1].c
         // Repair meta.last if it drifted from the bars table (overview sync depends on it too).
         if (Number(cached.last) !== last) {
-          void writeSeriesCache({
-            symbol: cached.symbol,
-            updatedAt: cached.updatedAt || Date.now(),
-            closes: cached.closes,
-            last,
-            high52: recomputeHigh52(cached.closes),
-            meta: cached.meta || {},
-          }).catch(() => {})
+          void updateSeriesMetaLast(cached.symbol, last, recomputeHigh52(closes)).catch(() => {})
         }
         // Do not patch stocks_perf here — that used to JSON.parse the whole snapshot
         // on every chart hit and starve the App Service.

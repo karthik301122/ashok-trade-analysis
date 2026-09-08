@@ -20,7 +20,10 @@ export async function createPostgresBackend(connectionString) {
     ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false },
     max: Number(process.env.PG_POOL_MAX) || 10,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS) || 60_000,
+    // Fail fast when the pool is wedged by slow series/snapshot work (was 60s).
+    connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS) || 8_000,
+    // Bound individual queries so one stuck bars SELECT cannot hold a client forever.
+    query_timeout: Number(process.env.PG_QUERY_TIMEOUT_MS) || 20_000,
   })
 
   const schemaSql = fs.readFileSync(path.join(__dirname, 'schema.postgres.sql'), 'utf8')

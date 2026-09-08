@@ -1,4 +1,4 @@
-import { sqlAll, sqlOne, withTransaction } from './db.mjs'
+import { sqlAll, sqlOne, sqlRun, withTransaction } from './db.mjs'
 
 /** Write-time hint for meta labels only — serving uses isLastBarAcceptable. */
 export const SERIES_FRESH_MS = 4 * 60 * 60 * 1000
@@ -114,6 +114,20 @@ export function coerceOhlcRow(row) {
     c: close,
     v: Number.isFinite(v) ? v : 0,
   }
+}
+
+/**
+ * Cheap meta-only patch — never rewrite hundreds of bars on the chart hot path.
+ * (Full writeSeriesCache does one INSERT per bar and can wedge the PG pool.)
+ */
+export async function updateSeriesMetaLast(symbol, last, high52) {
+  if (!symbol || !Number.isFinite(last)) return
+  await sqlRun(
+    `UPDATE series_meta
+     SET last = ?, high52 = COALESCE(?, high52)
+     WHERE symbol = ?`,
+    [last, Number.isFinite(high52) ? high52 : null, symbol],
+  )
 }
 
 /**

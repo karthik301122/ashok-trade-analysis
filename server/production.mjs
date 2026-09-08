@@ -77,9 +77,8 @@ export async function requireAdminOrSend(req, send) {
 export function seriesRateLimitPerMinute() {
   const n = Number(process.env.SERIES_RATE_LIMIT ?? process.env.API_RATE_LIMIT)
   if (Number.isFinite(n) && n > 0) return n
-  // Keep low enough that a full-universe browser crawl cannot melt Postgres.
-  // Charts + modest pattern scans still fit; alphabetical universe crawl does not.
-  return isProductionMode() ? 90 : 180
+  // Keep low enough that pattern scans cannot melt Postgres / starve meta.
+  return isProductionMode() ? 45 : 180
 }
 
 export function snapshotRateLimitPerMinute() {
@@ -95,6 +94,19 @@ export function snapshotStocksRateLimitPerMinute() {
   const n = Number(process.env.SNAPSHOT_STOCKS_RATE_LIMIT)
   if (Number.isFinite(n) && n > 0) return n
   return isProductionMode() ? 600 : 300
+}
+
+/** Manual POST /api/snapshot/refresh — stop spam rebuilds (per IP / admin key). */
+export function snapshotRefreshPostLimit() {
+  const n = Number(process.env.SNAPSHOT_REFRESH_POST_LIMIT)
+  if (Number.isFinite(n) && n > 0) return n
+  return 2
+}
+
+export function snapshotRefreshPostWindowMs() {
+  const n = Number(process.env.SNAPSHOT_REFRESH_POST_WINDOW_MS)
+  if (Number.isFinite(n) && n > 0) return n
+  return 15 * 60 * 1000
 }
 
 export function minSnapshotStockRatio() {
