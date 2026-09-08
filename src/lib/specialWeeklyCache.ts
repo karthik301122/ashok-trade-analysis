@@ -1,4 +1,5 @@
 import type { KarthikPatternId } from './patterns/karthikWeekly'
+import { rankPatternHitsByScore } from './patterns/rankPatternHits'
 
 export type WeeklySpecialHit = {
   patternId: KarthikPatternId
@@ -12,6 +13,9 @@ export type WeeklySpecialHit = {
   /** Pattern start (oldest week) — preferred for display */
   weekStartT: number | null
   weekEndT: number | null
+  /** 0–100 pattern score (forming or confirmed) */
+  score?: number
+  confirmed?: boolean
 }
 
 export type TickerWeeklySpecialCache = {
@@ -71,7 +75,14 @@ export function aggregateWeeklyHits(
       if (h.patternId === patternId) out.push(h)
     }
   }
-  return out.sort((a, b) => (b.weekStartT ?? b.weekEndT ?? 0) - (a.weekStartT ?? a.weekEndT ?? 0))
+  return rankPatternHitsByScore(
+    out.map((h) => ({
+      ...h,
+      score: typeof h.score === 'number' ? h.score : 100,
+      confirmed: h.confirmed ?? true,
+      endT: h.weekEndT ?? h.weekStartT ?? 0,
+    })),
+  )
 }
 
 export function countWeeklyHits(tickers: string[], patternId: KarthikPatternId): number {

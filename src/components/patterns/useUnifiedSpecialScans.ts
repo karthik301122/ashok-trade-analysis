@@ -14,7 +14,11 @@ import type { LivermoreScores } from '../../lib/patterns/livermoreScores'
 import { getTickerScriptScan, setManyTickerScriptScan } from '../../lib/specialScriptCache'
 import type { ScriptScanHit } from '../../lib/specialScriptCache'
 import { scanOhlcForSpecialPatterns } from '../../lib/patterns/specialScriptScan'
-import { collectOhlcPatternUploadRows, collectSnapshotPatternUploadRows } from '../../lib/patterns/patternAlertScores'
+import {
+  collectOhlcPatternUploadRows,
+  collectSnapshotPatternUploadRows,
+  karthikAlertScore,
+} from '../../lib/patterns/patternAlertScores'
 import { postPatternScanBatch, type PatternScanUploadRow } from '../../lib/patternScanApi'
 
 const CONCURRENCY = 6
@@ -246,21 +250,23 @@ export function useUnifiedSpecialScans(
             if (needWeekly && meta) {
               const hits: WeeklySpecialHit[] = []
               for (const pid of PATTERN_IDS) {
+                const scored = karthikAlertScore(ohlc, pid)
+                if (scored.score < 60) continue
                 const r = karthikPatternHit(ohlc, pid)
-                if (r.hit) {
-                  hits.push({
-                    patternId: pid,
-                    ticker: meta.ticker,
-                    name: meta.name,
-                    sector: meta.sector,
-                    industry: meta.industry,
-                    rs: meta.rs,
-                    relativeVolume: meta.relativeVolume,
-                    tightness: r.tightness,
-                    weekStartT: r.weekStartT,
-                    weekEndT: r.weekEndT,
-                  })
-                }
+                hits.push({
+                  patternId: pid,
+                  ticker: meta.ticker,
+                  name: meta.name,
+                  sector: meta.sector,
+                  industry: meta.industry,
+                  rs: meta.rs,
+                  relativeVolume: meta.relativeVolume,
+                  tightness: r.tightness,
+                  weekStartT: r.weekStartT ?? r.weekEndT,
+                  weekEndT: r.weekEndT,
+                  score: scored.score,
+                  confirmed: scored.confirmed,
+                })
               }
               pendingWeekly[key] = hits
             }

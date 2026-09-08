@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { StockMetrics } from '../../data/types'
 import { fetchDeskOhlcForPatternScan } from '../../lib/deskSeries'
 import { karthikPatternHit, type KarthikPatternId } from '../../lib/patterns/karthikWeekly'
+import { karthikAlertScore } from '../../lib/patterns/patternAlertScores'
 import { KARTHIK_WEEKLY_PATTERNS } from '../../lib/patterns/specialCatalog'
 import {
   getTickerWeeklySpecial,
@@ -89,21 +90,23 @@ export function useKarthikWeeklyScan(stocks: StockMetrics[], enabled: boolean) {
           if (ohlc?.length && meta) {
             const hits: WeeklySpecialHit[] = []
             for (const pid of PATTERN_IDS) {
+              const scored = karthikAlertScore(ohlc, pid)
+              if (scored.score < 60) continue
               const r = karthikPatternHit(ohlc, pid)
-              if (r.hit) {
-                hits.push({
-                  patternId: pid,
-                  ticker: meta.ticker,
-                  name: meta.name,
-                  sector: meta.sector,
-                  industry: meta.industry,
-                  rs: meta.rs,
-                  relativeVolume: meta.relativeVolume,
-                  tightness: r.tightness,
-                  weekStartT: r.weekStartT,
-                  weekEndT: r.weekEndT,
-                })
-              }
+              hits.push({
+                patternId: pid,
+                ticker: meta.ticker,
+                name: meta.name,
+                sector: meta.sector,
+                industry: meta.industry,
+                rs: meta.rs,
+                relativeVolume: meta.relativeVolume,
+                tightness: r.tightness,
+                weekStartT: r.weekStartT ?? r.weekEndT,
+                weekEndT: r.weekEndT,
+                score: scored.score,
+                confirmed: scored.confirmed,
+              })
             }
             pendingWrites[ticker.toUpperCase()] = hits
             if (Object.keys(pendingWrites).length >= BATCH_WRITE) flushWrites()

@@ -52,17 +52,30 @@ describe('specialDetect', () => {
     expect(evaluateSpecialPattern('volume-surge-long', hit, ctx)).toBe(true)
   })
 
-  it('scanSpecialPattern returns sorted hits', () => {
+  it('scanSpecialPattern returns score-ranked hits with scores', () => {
     const pattern = specialPatternById('star-3m')!
     const hits = scanSpecialPattern(
       pattern,
       [
         stock({ ticker: 'A', star: true, m3: 10 }),
-        stock({ ticker: 'B', star: false, m3: 12 }),
+        stock({ ticker: 'B', star: false, m3: 12, rs: 55 }),
         stock({ ticker: 'C', star: true, m3: 15 }),
       ],
       ctx,
     )
-    expect(hits.map((h) => h.ticker)).toEqual(['C', 'A'])
+    expect(hits.map((h) => h.ticker)).toEqual(['A', 'C'])
+    expect(hits.every((h) => h.score === 100 && h.confirmed)).toBe(true)
+    // Forming RS leader (not confirmed) ranks below confirmed stars when mixed patterns aren't used;
+    // rs-leader forming at 60+ can appear for B:
+    const rsHits = scanSpecialPattern(specialPatternById('rs-leader')!, [
+      stock({ ticker: 'X', rs: 75 }),
+      stock({ ticker: 'Y', rs: 60 }),
+      stock({ ticker: 'Z', rs: 40 }),
+    ], ctx)
+    expect(rsHits.map((h) => h.ticker)).toEqual(['X', 'Y'])
+    expect(rsHits[0].score).toBe(100)
+    expect(rsHits[0].confirmed).toBe(true)
+    expect(rsHits[1].score).toBeGreaterThanOrEqual(60)
+    expect(rsHits[1].confirmed).toBe(false)
   })
 })

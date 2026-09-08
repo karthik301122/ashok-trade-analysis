@@ -19,7 +19,7 @@ import {
 } from '../lib/patternScanApi'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
 import { PatternComboAlertsPanel } from './PatternComboAlertsPanel'
-import { comparePatternHitsByScore } from '../lib/patterns/rankPatternHits'
+import { comparePatternHitsByScore, rankPatternHitsByScore } from '../lib/patterns/rankPatternHits'
 
 /** Show hit % in the Alerts UI at or above this (email uses a separate user threshold). */
 const UI_HIT_MIN_SCORE = 60
@@ -217,7 +217,7 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
     setPatternHitsBusy(true)
     void fetchPatternScanByPattern(pickPatternId, UI_HIT_MIN_SCORE).then((rows) => {
       if (cancelled) return
-      const sorted = [...rows].sort((a, b) => b.score - a.score)
+      const sorted = rankPatternHitsByScore(rows)
       setPatternHitRows(sorted)
       setDraftHitTickers(sorted.map((r) => r.ticker))
       setPatternHitsBusy(false)

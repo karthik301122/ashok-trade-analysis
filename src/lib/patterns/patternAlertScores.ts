@@ -10,8 +10,6 @@ import {
 } from './specialCatalog'
 import {
   buildSpecialScanContext,
-  evaluateSpecialPattern,
-  type SpecialScanContext as SnapshotScanContext,
 } from './specialDetect'
 import {
   detectThreeWeeksTight,
@@ -181,81 +179,9 @@ export function livermoreAlertScore(
   }
 }
 
-const snapshotPartialChecks: Record<
-  string,
-  (s: StockMetrics, ctx: SnapshotScanContext) => boolean[]
-> = {
-  'star-3m': (s) => [s.star],
-  'rs-leader': (s) => [(s.rs ?? 0) >= 50, (s.rs ?? 0) >= 60, (s.rs ?? 0) >= 70],
-  'momentum-thrust': (s, ctx) => [s.m3 > 5, s.m3 > 8, s.m1 > 0, vsIndex3m(s, ctx.indexM3) > 5],
-  'rs-laggard': (s) => [(s.rs ?? 0) < 50, (s.rs ?? 0) < 40, s.m3 < 0],
-  'volume-surge-long': (s) => [
-    (s.relativeVolume ?? 0) >= 1.5,
-    (s.relativeVolume ?? 0) >= 2,
-    s.m1 > 0,
-    s.above20ma,
-  ],
-  'volume-breakdown': (s) => [
-    (s.relativeVolume ?? 0) >= 1.5,
-    (s.relativeVolume ?? 0) >= 2,
-    s.m1 < 0,
-  ],
-  'dollar-flow': (s, ctx) => [
-    (s.relativeVolume ?? 0) >= 1.2,
-    (s.relativeVolume ?? 0) >= 1.5,
-    (s.dollarVolume ?? 0) >= ctx.dollarVolP90 * 0.8,
-    (s.dollarVolume ?? 0) >= ctx.dollarVolP90,
-  ],
-  'triple-ma-stack': (s) => [s.above20ma, s.above50ma, s.above200ma],
-  'ma-reset': (s) => [s.above50ma, s.m1 > 0, s.m3 > 0, s.from52wHigh > -8],
-  'near-52w-high': (s) => [s.above50ma, s.from52wHigh >= -8, s.from52wHigh >= -3],
-  'below-200-warning': (s) => [!s.above200ma, s.m3 < 0],
-  'bullish-mood': (s, ctx) => {
-    const v = vsIndex3m(s, ctx.indexM3)
-    return [v > 0, v > 2, s.above20ma]
-  },
-  'bearish-mood': (s, ctx) => {
-    const v = vsIndex3m(s, ctx.indexM3)
-    return [v < 0, v < -2, !s.above20ma]
-  },
-  'early-cycle': (s, ctx) => [
-    s.cycle === 'early',
-    vsIndex3m(s, ctx.indexM3) >= 0,
-    vsIndex3m(s, ctx.indexM3) >= 2,
-  ],
-  'mid-cycle-leader': (s) => [
-    s.cycle === 'mid',
-    (s.rs ?? 0) >= 50,
-    (s.rs ?? 0) >= 60,
-    s.above50ma,
-  ],
-  'late-extended': (s) => [
-    s.cycle === 'late',
-    s.from52wHigh > -10,
-    s.from52wHigh > -5,
-    s.m1 < 2,
-  ],
-  'rsi-oversold-bounce': (s) => [
-    (s.rsi ?? 50) <= 40,
-    (s.rsi ?? 50) <= 35,
-    s.above200ma,
-  ],
-  'rsi-overbought': (s) => [(s.rsi ?? 50) >= 60, (s.rsi ?? 50) >= 70],
-}
-
-export function snapshotAlertScore(
-  patternId: string,
-  stock: StockMetrics,
-  ctx: SnapshotScanContext,
-): PatternAlertScore {
-  const confirmed = evaluateSpecialPattern(patternId, stock, ctx)
-  if (confirmed) return { score: 100, confirmed: true }
-  const checks = snapshotPartialChecks[patternId]
-  if (!checks) return { score: 0, confirmed: false }
-  return { score: scoreFromFlags(checks(stock, ctx)), confirmed: false }
-}
-
 const DAILY_SCAN_PATTERNS = [...VCP_PATTERNS, ...LAUNCHPAD_PATTERNS, ...LANDSCAPE_PATTERNS]
+
+export { snapshotAlertScore } from './specialDetect'
 
 export function collectOhlcPatternUploadRows(
   ticker: string,

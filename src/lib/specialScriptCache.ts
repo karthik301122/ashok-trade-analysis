@@ -1,3 +1,5 @@
+import { rankPatternHitsByScore } from './patterns/rankPatternHits'
+
 export type ScriptScanHit = {
   patternId: string
   startT: number
@@ -22,6 +24,8 @@ export type ScriptScanRow = {
   m3: number
   startT: number
   endT: number
+  score: number
+  confirmed: boolean
 }
 
 const KEY = 'asx-special-script-v1'
@@ -97,9 +101,11 @@ export function aggregateScriptHits(
       m3: s.m3,
       startT: hit.startT,
       endT: hit.endT,
+      score: typeof hit.score === 'number' ? hit.score : hit.confirmed === false ? 60 : 100,
+      confirmed: hit.confirmed ?? (typeof hit.score === 'number' ? hit.score >= 85 : true),
     })
   }
-  return out.sort((a, b) => b.rs - a.rs)
+  return rankPatternHitsByScore(out)
 }
 
 /** Hit counts per pattern id — single localStorage read. */

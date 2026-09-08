@@ -38,8 +38,33 @@ function biasClass(bias: string) {
 function biasBadge(bias: string) {
   if (bias === 'bullish')
     return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'
-  if (bias === 'bearish') return 'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-200'
-  return 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-100'
+  if (bias === 'bearish')
+    return 'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-200'
+  return 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200'
+}
+
+function PatternScoreBadge({
+  score,
+  confirmed,
+}: {
+  score?: number | null
+  confirmed?: boolean
+}) {
+  const pct = Math.round(Number(score) || 0)
+  const hit = confirmed || pct >= 85
+  return (
+    <span
+      className={`inline-flex shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${
+        hit
+          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'
+          : 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-100'
+      }`}
+      title={hit ? 'Confirmed / hit' : 'Forming'}
+    >
+      {hit && pct < 100 ? 'Hit · ' : ''}
+      {pct}%
+    </span>
+  )
 }
 
 function formatWeekDate(t: number | null) {
@@ -639,8 +664,8 @@ function WeeklyHitsTable({
   priceForTicker: (ticker: string) => number | null
 }) {
   const headers = showTightness
-    ? ['Stock', 'Price', 'Sector', 'RS', 'RVOL', 'Tightness', 'Pattern started', 'Bias']
-    : ['Stock', 'Price', 'Sector', 'RS', 'RVOL', 'Pattern started', 'Bias']
+    ? ['Stock', 'Score', 'Price', 'Sector', 'RS', 'RVOL', 'Tightness', 'Pattern started', 'Bias']
+    : ['Stock', 'Score', 'Price', 'Sector', 'RS', 'RVOL', 'Pattern started', 'Bias']
 
   const open = (h: WeeklySpecialHit) => {
     const startT = h.weekStartT ?? h.weekEndT ?? Math.floor(Date.now() / 1000)
@@ -691,6 +716,9 @@ function WeeklyHitsTable({
                   {h.ticker}
                 </button>
                 <div className="text-[10px] text-[var(--color-ink-soft)]">{h.name}</div>
+              </td>
+              <td className="px-3 py-2">
+                <PatternScoreBadge score={h.score} confirmed={h.confirmed} />
               </td>
               <td className="px-3 py-2 tabular-nums font-semibold">
                 {formatPrice(priceForTicker(h.ticker) ?? 0)}
@@ -877,7 +905,7 @@ function ScriptHitsTable({
     <table className="min-w-[720px] w-full border-collapse text-left text-xs">
       <thead className="sticky top-0 bg-[var(--color-muted)] text-[10px] uppercase tracking-wide text-[var(--color-ink-soft)]">
         <tr>
-          {['Stock', 'Price', 'Sector', 'RS', '3M', 'RVOL', 'RSI', 'Pattern started', 'Bias'].map((h) => (
+          {['Stock', 'Score', 'Price', 'Sector', 'RS', '3M', 'RVOL', 'RSI', 'Pattern started', 'Bias'].map((h) => (
             <th key={h} className="whitespace-nowrap px-3 py-2.5 font-semibold">
               {h}
             </th>
@@ -887,7 +915,7 @@ function ScriptHitsTable({
       <tbody>
         {!hits.length ? (
           <tr>
-            <td colSpan={9} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
+            <td colSpan={10} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
               {scanning
                 ? 'Scanning daily OHLC across the universe…'
                 : priceFilterActive
@@ -911,6 +939,9 @@ function ScriptHitsTable({
                   {h.ticker}
                 </button>
                 <div className="text-[10px] text-[var(--color-ink-soft)]">{h.name}</div>
+              </td>
+              <td className="px-3 py-2">
+                <PatternScoreBadge score={h.score} confirmed={h.confirmed} />
               </td>
               <td className="px-3 py-2 tabular-nums font-semibold">
                 {formatPrice(priceForTicker(h.ticker) ?? 0)}
@@ -970,7 +1001,7 @@ function SnapshotHitsTable({
     <table className="min-w-[720px] w-full border-collapse text-left text-xs">
       <thead className="sticky top-0 bg-[var(--color-muted)] text-[10px] uppercase tracking-wide text-[var(--color-ink-soft)]">
         <tr>
-          {['Stock', 'Price', 'Sector', 'RS', '3M', 'RVOL', 'RSI', 'Bias'].map((h) => (
+          {['Stock', 'Score', 'Price', 'Sector', 'RS', '3M', 'RVOL', 'RSI', 'Bias'].map((h) => (
             <th key={h} className="whitespace-nowrap px-3 py-2.5 font-semibold">
               {h}
             </th>
@@ -980,7 +1011,7 @@ function SnapshotHitsTable({
       <tbody>
         {!hits.length ? (
           <tr>
-            <td colSpan={8} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
+            <td colSpan={9} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
               {priceFilterActive
                 ? 'No pattern hits in this price range.'
                 : 'No stocks match this pattern in the loaded universe right now.'}
@@ -1002,6 +1033,9 @@ function SnapshotHitsTable({
                   {h.ticker}
                 </button>
                 <div className="text-[10px] text-[var(--color-ink-soft)]">{h.name}</div>
+              </td>
+              <td className="px-3 py-2">
+                <PatternScoreBadge score={h.score} confirmed={h.confirmed} />
               </td>
               <td className="px-3 py-2 tabular-nums font-semibold">
                 {formatPrice(priceForTicker(h.ticker) ?? 0)}
