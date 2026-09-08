@@ -109,10 +109,36 @@ async function withTimeout(p, ms) {
 
 /** Cap concurrent /api/series work so chart storms cannot starve meta/health. */
 let seriesInFlight = 0
+/** After slow series responses, briefly refuse new series so snapshot/meta can recover. */
+let seriesShedUntil = 0
+/** @type {number[]} */
+const seriesRecentMs = []
+
 function seriesMaxInFlight() {
   const n = Number(process.env.SERIES_MAX_IN_FLIGHT)
   if (Number.isFinite(n) && n > 0) return n
-  return isProductionMode() ? 8 : 24
+  // Old browser-universe crawls used concurrency 4–6; keep this tiny in production.
+  return isProductionMode() ? 2 : 16
+}
+
+function noteSeriesLatency(ms) {
+  const n = Number(ms)
+  if (!Number.isFinite(n) || n < 0) return
+  seriesRecentMs.push(n)
+  if (seriesRecentMs.length > 20) seriesRecentMs.shift()
+  if (n >= 2500) {
+    seriesShedUntil = Math.max(seriesShedUntil, Date.now() + 20_000)
+  } else if (seriesRecentMs.length >= 8) {
+    const sorted = seriesRecentMs.slice().sort((a, b) => a - b)
+    const p50 = sorted[Math.floor(sorted.length / 2)]
+    if (p50 >= 1200) seriesShedUntil = Math.max(seriesShedUntil, Date.now() + 12_000)
+  }
+}
+
+function seriesAdmissionBlocked() {
+  if (seriesInFlight >= seriesMaxInFlight()) return 'busy'
+  if (Date.now() < seriesShedUntil) return 'shedding'
+  return null
 }
 
 /** Short-lived meta payload so concurrent desk loads share one DB round-trip. */
@@ -221,8 +247,13 @@ export async function handleConnectApi(req, res, send) {
   if (url.pathname.startsWith('/api/series/')) {
     if (requireAuthConnect(req, send)) return true
     if (rateLimitOrSend(req, send, 'series', seriesRateLimitPerMinute())) return true
-    if (seriesInFlight >= seriesMaxInFlight()) {
-      send(503, { error: 'Series busy', retryAfterMs: 500 }, { 'Retry-After': '1' })
+    const blocked = seriesAdmissionBlocked()
+    if (blocked) {
+      send(
+        503,
+        { error: 'Series busy', reason: blocked, retryAfterMs: 2000 },
+        { 'Retry-After': '2' },
+      )
       return true
     }
     seriesInFlight += 1
@@ -232,9 +263,8 @@ export async function handleConnectApi(req, res, send) {
         send(400, { error: 'Invalid ticker' })
         return true
       }
-      const skipForce = false
       const result = await loadSeriesForTicker(ticker, url.searchParams, {
-        skipForceRefresh: skipForce,
+        skipForceRefresh: true,
       })
       if (result.status === 404) {
         log('info', 'series.miss', { ticker, ms: Date.now() - started })
@@ -246,12 +276,14 @@ export async function handleConnectApi(req, res, send) {
         return true
       }
       const data = result.body
+      const ms = Date.now() - started
+      noteSeriesLatency(ms)
       log('info', 'series.ok', {
         ticker,
         bars: data.closes?.length,
         cache: data.meta?.cache,
         interval: data.meta?.interval,
-        ms: Date.now() - started,
+        ms,
       })
       send(200, data)
       return true
@@ -1089,9 +1121,10 @@ export function mountExpressApi(app) {
     if (seriesRateLimitOrExpress(req, res)) {
       return
     }
-    if (seriesInFlight >= seriesMaxInFlight()) {
-      res.setHeader('Retry-After', '1')
-      return res.status(503).json({ error: 'Series busy', retryAfterMs: 500 })
+    const blocked = seriesAdmissionBlocked()
+    if (blocked) {
+      res.setHeader('Retry-After', '2')
+      return res.status(503).json({ error: 'Series busy', reason: blocked, retryAfterMs: 2000 })
     }
     seriesInFlight += 1
     try {
@@ -1099,7 +1132,7 @@ export function mountExpressApi(app) {
       if (!ticker || !/^[A-Z0-9.^=-]{1,20}$/.test(ticker)) {
         return res.status(400).json({ error: 'Invalid ticker' })
       }
-      const result = await loadSeriesForTicker(ticker, req.query, { skipForceRefresh: false })
+      const result = await loadSeriesForTicker(ticker, req.query, { skipForceRefresh: true })
       if (result.status === 404) {
         log('info', 'series.miss', { ticker, ms: Date.now() - started })
         return res.status(404).json(result.body)
@@ -1108,12 +1141,14 @@ export function mountExpressApi(app) {
         return res.status(400).json(result.body)
       }
       const data = result.body
+      const ms = Date.now() - started
+      noteSeriesLatency(ms)
       log('info', 'series.ok', {
         ticker,
         bars: data.closes?.length,
         cache: data.meta?.cache,
         interval: data.meta?.interval,
-        ms: Date.now() - started,
+        ms,
       })
       return res.json(data)
     } catch (err) {

@@ -54,11 +54,11 @@ describe('production mode', () => {
     expect(await isAdminRequest({ headers: { 'x-admin-key': 'wrong' } })).toBe(false)
   })
 
-  it('raises series rate limit in production', () => {
+  it('caps series rate limit in production to stop universe crawls', () => {
     delete process.env.SERIES_RATE_LIMIT
     delete process.env.API_RATE_LIMIT
     process.env.PRODUCTION_MODE = 'true'
-    expect(seriesRateLimitPerMinute()).toBe(2000)
+    expect(seriesRateLimitPerMinute()).toBe(90)
   })
 
   it('honors SERIES_RATE_LIMIT override', () => {

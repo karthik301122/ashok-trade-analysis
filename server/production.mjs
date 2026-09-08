@@ -77,7 +77,9 @@ export async function requireAdminOrSend(req, send) {
 export function seriesRateLimitPerMinute() {
   const n = Number(process.env.SERIES_RATE_LIMIT ?? process.env.API_RATE_LIMIT)
   if (Number.isFinite(n) && n > 0) return n
-  return isProductionMode() ? 2000 : 180
+  // Keep low enough that a full-universe browser crawl cannot melt Postgres.
+  // Charts + modest pattern scans still fit; alphabetical universe crawl does not.
+  return isProductionMode() ? 90 : 180
 }
 
 export function snapshotRateLimitPerMinute() {
