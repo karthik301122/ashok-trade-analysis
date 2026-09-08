@@ -195,10 +195,10 @@ async function refreshStaleUniverseBars(tickers, maxPulls = 80) {
   let pulled = 0
   await mapPool(
     stale,
-    2,
+    1,
     async (ticker) => {
       try {
-        await getCachedSeries(ticker, fromIso, { staleOk: false })
+        await getCachedSeries(ticker, fromIso, { staleOk: true })
         pulled++
       } catch {
         /* keep going */
@@ -206,7 +206,7 @@ async function refreshStaleUniverseBars(tickers, maxPulls = 80) {
       return ticker
     },
     undefined,
-    80,
+    maxPulls,
   )
   if (pulled > 0) {
     console.log(`[breadth] refreshed ${pulled}/${stale.length} stale series for chart history`)
@@ -234,8 +234,11 @@ export async function computeBreadthChartHistory(universeId, stocks, builtAt, da
   const { symbol: indexSymbol } = universeChartIndex(universeId)
   // Mid/small often lag ASX200 — catch up bars before reading (and before cache hit).
   // Cap pulls so /api/breadth/daily stays under gateway timeouts; full catch-up is Refresh.
-  const maxPulls = universeId === 'asx200' ? 25 : 45
-  await refreshStaleUniverseBars([indexSymbol, ...tickers], maxPulls)
+  // Keep catch-up tiny — forced series pulls here compete with user chart loads.
+  const maxPulls = universeId === 'asx200' ? 8 : 12
+  if (process.env.BREADTH_STALE_REFRESH !== '0') {
+    await refreshStaleUniverseBars([indexSymbol, ...tickers], maxPulls)
+  }
 
   const indexCached = await readSeriesCache(indexSymbol)
   const indexLast =

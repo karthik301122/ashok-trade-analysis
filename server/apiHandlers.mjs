@@ -615,9 +615,44 @@ export function mountExpressApi(app) {
   app.get('/api/health', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     res.setHeader('Pragma', 'no-cache')
-    // Ultra-light: desk boots call this repeatedly. Avoid file scans, user counts,
-    // job reconcile, and anything that can stall the event loop.
-    const snap = await readMarketSnapshotLightMeta()
+    // Hard deadline so Azure health probes never hang on Postgres under series load.
+    const withTimeout = async (p, ms) => {
+      let timer
+      try {
+        return await Promise.race([
+          p,
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('health-db-timeout')), ms)
+          }),
+        ])
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+    let snap = null
+    let job = { status: 'unknown', autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD, trigger: null }
+    let liveQuotes = { enabled: false }
+    let admin = false
+    try {
+      snap = await withTimeout(readMarketSnapshotLightMeta(), 800)
+    } catch {
+      /* keep null */
+    }
+    try {
+      job = await withTimeout(peekSnapshotJobStatus(), 800)
+    } catch {
+      /* keep stub */
+    }
+    try {
+      liveQuotes = await withTimeout(getLiveQuotesMeta(), 800)
+    } catch {
+      /* keep stub */
+    }
+    try {
+      admin = await withTimeout(isAdminRequest(req), 500)
+    } catch {
+      /* false */
+    }
     const universeTotal = getUniverseCount()
     const snapMeta = snap
       ? {
@@ -628,8 +663,7 @@ export function mountExpressApi(app) {
         }
       : null
     const readiness = readinessFromSnapshot(snapMeta || {}, universeTotal)
-    const admin = await isAdminRequest(req)
-    res.json({
+    res.status(200).json({
       ok: true,
       provider: seriesProviderName(),
       eodhd: Boolean(process.env.EODHD_API_TOKEN?.trim()),
@@ -654,9 +688,9 @@ export function mountExpressApi(app) {
       store: dbStoreLabel(),
       database: dbPath(),
       snapshot: snapMeta,
-      job: await peekSnapshotJobStatus(),
+      job,
       autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
-      liveQuotes: await getLiveQuotesMeta(),
+      liveQuotes,
       alertEmailEnabled: alertEmailConfigured(),
     })
   })

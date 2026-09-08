@@ -1,6 +1,5 @@
 import { fetchChartCloses, fetchIntradayCloses, isIntradayInterval } from './fetchSeries.mjs'
 import { seriesSymbolCount, dbStoreLabel } from './db.mjs'
-import { sqlOne, sqlRun } from './db.mjs'
 import {
   readSeriesCache,
   writeSeriesCache,
@@ -36,23 +35,26 @@ function appTickerFromSeriesSymbol(symbol) {
 }
 
 /** Keep Markets overview Price in sync when a chart/series pull advances the last close. */
+let lastSnapshotPricePatchAt = 0
+const SNAPSHOT_PRICE_PATCH_MIN_MS = 30_000
+/** @type {Set<string>} */
+const pendingPricePatches = new Set()
+
 async function patchSnapshotLastPrice(seriesSymbol, lastPrice) {
   const ticker = appTickerFromSeriesSymbol(seriesSymbol)
   if (!ticker || !Number.isFinite(lastPrice) || lastPrice <= 0) return
+  // Never sync-JSON.parse the giant stocks_perf blob on the series hot path —
+  // that was starving Azure health probes under chart load.
+  pendingPricePatches.add(`${ticker}|${lastPrice}`)
+  const now = Date.now()
+  if (now - lastSnapshotPricePatchAt < SNAPSHOT_PRICE_PATCH_MIN_MS) return
+  lastSnapshotPricePatchAt = now
+  const batch = [...pendingPricePatches]
+  pendingPricePatches.clear()
+  if (!batch.length) return
   try {
-    const row = await sqlOne('SELECT stocks_perf_json FROM market_snapshot WHERE id = 1')
-    if (!row?.stocks_perf_json) return
-    const stocks = JSON.parse(row.stocks_perf_json)
-    const perf = stocks[ticker]
-    if (!perf || typeof perf !== 'object') return
-    const next = Math.round(lastPrice * 10000) / 10000
-    if (Number(perf.lastPrice) === next) return
-    stocks[ticker] = { ...perf, lastPrice: next }
-    await sqlRun('UPDATE market_snapshot SET stocks_perf_json = ? WHERE id = 1', [
-      JSON.stringify(stocks),
-    ])
-    const { clearStocksPerfCache } = await import('./snapshotJob.mjs')
-    clearStocksPerfCache()
+    const { applyLastPricePatchesFromWarmCache } = await import('./snapshotJob.mjs')
+    await applyLastPricePatchesFromWarmCache(batch)
   } catch {
     /* best-effort */
   }
@@ -90,7 +92,8 @@ export async function getCachedSeries(ticker, from = '2023-01-01', opts = {}) {
             meta: cached.meta || {},
           }).catch(() => {})
         }
-        void patchSnapshotLastPrice(seriesSymbol, last)
+        // Do not patch stocks_perf here — that used to JSON.parse the whole snapshot
+        // on every chart hit and starve the App Service.
         return {
           symbol: cached.symbol,
           closes,

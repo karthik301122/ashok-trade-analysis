@@ -289,6 +289,35 @@ export function clearStocksPerfCache() {
 }
 
 /**
+ * Apply batched ticker→lastPrice updates using the warm in-memory map only.
+ * Skips entirely when cache is cold (UI still has lastPrices overlay).
+ * @param {string[]} batch entries like "CBA|185.2"
+ */
+export async function applyLastPricePatchesFromWarmCache(batch) {
+  if (!stocksPerfCache || !Array.isArray(batch) || !batch.length) return { updated: 0 }
+  let updated = 0
+  const next = { ...stocksPerfCache }
+  for (const entry of batch) {
+    const [ticker, priceRaw] = String(entry).split('|')
+    const price = Number(priceRaw)
+    if (!ticker || !Number.isFinite(price) || price <= 0) continue
+    const perf = next[ticker]
+    if (!perf || typeof perf !== 'object') continue
+    const rounded = Math.round(price * 10000) / 10000
+    if (Math.round(Number(perf.lastPrice) * 10000) === Math.round(rounded * 10000)) continue
+    next[ticker] = { ...perf, lastPrice: rounded }
+    updated++
+  }
+  if (!updated) return { updated: 0 }
+  await sqlRun('UPDATE market_snapshot SET stocks_perf_json = ? WHERE id = 1', [
+    JSON.stringify(next),
+  ])
+  stocksPerfCache = next
+  lastPricesCache = null
+  return { updated }
+}
+
+/**
  * Parse stocks_perf_json once per process (shared across concurrent chunk requests).
  * Uses a worker thread — never sync-JSON.parses the giant blob on the request thread.
  * @returns {Promise<boolean>}
@@ -345,7 +374,16 @@ let lastPricesCache = null
 const LAST_PRICES_CACHE_MS = 20 * 1000
 /** @type {number} */
 let lastStalePricePullAt = 0
-const STALE_PRICE_PULL_MS = 10 * 60 * 1000
+/** Default off — this job flooded EODHD/series and starved health checks in Azure. */
+const STALE_PRICE_PULL_ENABLED = process.env.SNAPSHOT_STALE_BAR_REFRESH === '1'
+const STALE_PRICE_PULL_MS = Math.max(
+  30 * 60 * 1000,
+  Number(process.env.SNAPSHOT_STALE_BAR_REFRESH_MS || 60 * 60 * 1000) || 60 * 60 * 1000,
+)
+const STALE_PRICE_PULL_MAX = Math.min(
+  15,
+  Math.max(1, Number(process.env.SNAPSHOT_STALE_BAR_REFRESH_MAX || 5) || 5),
+)
 /** @type {boolean} */
 let stalePricePullRunning = false
 
@@ -353,6 +391,9 @@ let stalePricePullRunning = false
  * Align Markets overview lastPrice with the latest bar close (same value charts use).
  * Prefer bars over series_meta.last — meta can lag behind the bars table.
  * When both JNS.AX and JNS.AU exist, keep the bar with the latest session timestamp.
+ *
+ * Hot path safe: never JSON.parse stocks_perf_json unless the in-memory cache is warm.
+ * Client already receives lastPrices overlay from series_meta.
  */
 export async function syncSnapshotPricesFromSeriesMeta(opts = {}) {
   const force = Boolean(opts.force)
@@ -363,32 +404,41 @@ export async function syncSnapshotPricesFromSeriesMeta(opts = {}) {
   lastPriceSyncAt = now
 
   try {
-    const row = await sqlOne('SELECT stocks_perf_json FROM market_snapshot WHERE id = 1')
-    if (!row?.stocks_perf_json) return { updated: 0 }
-    const stocks = JSON.parse(row.stocks_perf_json)
-    // Prefer accurate bars for background sync; HTTP path uses series_meta (fast).
-    scheduleStaleLastBarRefresh(Object.keys(stocks))
-    const lastPrices = await readLastPricesFromBars({ fromBars: true })
+    // Optional catch-up only when explicitly enabled (was melting the App Service).
+    if (STALE_PRICE_PULL_ENABLED) {
+      scheduleStaleLastBarRefresh()
+    }
+
+    // Prefer warm cache — never parse ~MB stocks_perf_json on the request path.
+    const stocks = stocksPerfCache
+    if (!stocks) {
+      // Overlay lastPrices on meta/stocks responses is enough for the UI.
+      return { skipped: true, updated: 0, reason: 'no-warm-cache' }
+    }
+
+    const lastPrices = await readLastPricesFromBars({ fromBars: false })
     if (!lastPrices || !Object.keys(lastPrices).length) return { updated: 0 }
 
     let updated = 0
+    const nextStocks = { ...stocks }
     for (const [ticker, last] of Object.entries(lastPrices)) {
-      const perf = stocks[ticker]
+      const perf = nextStocks[ticker]
       if (!perf || typeof perf !== 'object') continue
       const next = Math.round(Number(last) * 10000) / 10000
       if (!Number.isFinite(next) || next <= 0) continue
       if (Math.round(Number(perf.lastPrice) * 10000) === Math.round(next * 10000)) continue
-      stocks[ticker] = { ...perf, lastPrice: next }
+      nextStocks[ticker] = { ...perf, lastPrice: next }
       updated++
     }
 
     if (updated === 0) return { updated: 0 }
 
     await sqlRun('UPDATE market_snapshot SET stocks_perf_json = ? WHERE id = 1', [
-      JSON.stringify(stocks),
+      JSON.stringify(nextStocks),
     ])
-    clearStocksPerfCache()
-    console.log(`[snapshot] synced ${updated} lastPrices from bars`)
+    stocksPerfCache = nextStocks
+    lastPricesCache = null
+    console.log(`[snapshot] synced ${updated} lastPrices from series_meta`)
     return { updated }
   } catch (err) {
     console.warn(
@@ -400,11 +450,13 @@ export async function syncSnapshotPricesFromSeriesMeta(opts = {}) {
 }
 
 /**
- * Background-only: re-pull a capped set of series whose last bar is behind so the next
- * meta/snapshot overlay can show the real close (without blocking /api/snapshot/meta).
+ * Background-only: re-pull a small capped set of series whose last bar is behind.
+ * Disabled unless SNAPSHOT_STALE_BAR_REFRESH=1 — otherwise it queues dozens of
+ * forced EODHD pulls and drives series latency to 30–70s (Azure unhealthy).
  * @param {string[]} [preferTickers]
  */
 export function scheduleStaleLastBarRefresh(preferTickers = []) {
+  if (!STALE_PRICE_PULL_ENABLED) return
   const now = Date.now()
   if (stalePricePullRunning) return
   if (now - lastStalePricePullAt < STALE_PRICE_PULL_MS) return
@@ -449,10 +501,11 @@ export function scheduleStaleLastBarRefresh(preferTickers = []) {
       const from = new Date()
       from.setUTCFullYear(from.getUTCFullYear() - 2)
       const fromIso = from.toISOString().slice(0, 10)
-      const toPull = stale.slice(0, 40)
+      const toPull = stale.slice(0, STALE_PRICE_PULL_MAX)
+      // Serial pulls — concurrency 2 still saturates a small App Service under load.
       await mapPool(
         toPull,
-        2,
+        1,
         async (ticker) => {
           try {
             await getCachedSeries(ticker, fromIso, { staleOk: false })
@@ -462,7 +515,7 @@ export function scheduleStaleLastBarRefresh(preferTickers = []) {
           return ticker
         },
         undefined,
-        40,
+        STALE_PRICE_PULL_MAX,
       )
       lastPricesCache = null
       await syncSnapshotPricesFromSeriesMeta({ force: true })
