@@ -605,12 +605,12 @@ export default function App() {
           <div className="mx-auto mt-16 max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-sm">
             <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-teal-200 border-t-teal-600" />
             <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold">
-              Loading market desk
+              Loading ASX universe
             </h2>
             <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
               {deskConfig?.productionMode
-                ? 'Opening with the first ~100 stocks (ASX200 first), then filling the rest in the background.'
-                : `First ~100 stocks unlock the desk, then it keeps filling all ${ASX_UNIVERSE_COUNT.toLocaleString()} names.`}
+                ? 'Downloading the shared server snapshot. If a page stalls, the desk keeps retrying instead of giving up early.'
+                : `First stocks show as they arrive, then it keeps filling all ${ASX_UNIVERSE_COUNT.toLocaleString()} names.`}
             </p>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-[var(--color-muted)]">
               <div className="h-full bg-teal-600 transition-all" style={{ width: `${pct}%` }} />
@@ -620,10 +620,10 @@ export default function App() {
                 ? `${progress.phase} · ${progress.done}/${progress.total} (${pct}%)`
                 : 'Starting…'}
             </p>
-            {progress?.phase === 'cache' && (progress.done ?? 0) < 100 && (
+            {progress?.phase === 'cache' && (progress.done ?? 0) === 0 && (
               <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
                 {deskConfig?.productionMode
-                  ? 'Waiting for the shared server snapshot… Keeping this screen up while the server recovers — the desk opens once ~100 stocks arrive.'
+                  ? 'Waiting for the shared server snapshot… Keeping this screen up while the server recovers.'
                   : (
                     <>
                       Stuck at 0% usually means this URL has no desk API (wrong port or vite preview).
@@ -642,8 +642,9 @@ export default function App() {
               Still waiting for snapshot
             </h2>
             <p className="mt-2 text-sm text-[var(--color-ink-soft)]">
-              The desk opens after the first ~100 stocks arrive. The server was busy or recovering —
-              keep this tab open and retry; you should not need a full universe download to start.
+              Could not finish downloading the shared server snapshot (often after a mid-load network
+              drop). Retry — the desk will resume chunk downloads instead of starting over from zero
+              when possible.
             </p>
             {error && (
               <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">

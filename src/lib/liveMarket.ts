@@ -23,8 +23,6 @@ import {
 } from './deskSeries'
 
 const INDEX_SYMBOL = '^AXJO'
-/** Unlock the Markets desk as soon as this many names arrive (rest backfills). */
-export const DESK_BOOT_STOCKS = 100
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
@@ -90,7 +88,6 @@ function parseServerSnapshot(
   tickers: string[],
   config: DeskServerConfig,
   acceptStale: boolean,
-  opts?: { bootMin?: number },
 ): { stockPerfs: Map<string, CachedPerf>; indexPerf: CachedPerf; failed: number } | null {
   const fetchedCount = Object.keys(json.stocks || {}).length
   const stockCount =
@@ -99,10 +96,8 @@ function parseServerSnapshot(
       : typeof json.loaded === 'number' && json.loaded > 0
         ? json.loaded
         : 0
-  const bootMin = opts?.bootMin ?? 0
   const minRatio = minSnapshotRatio(config, isServerStore(json.store))
-  const enough =
-    (bootMin > 0 && stockCount >= bootMin) || stockCount >= tickers.length * minRatio
+  const enough = stockCount >= tickers.length * minRatio
   const freshOk = Boolean(json.fresh) && enough
   const staleOk = acceptStale && Boolean(json.indexPerf) && enough
   const serverOk = isServerStore(json.store) && Boolean(json.indexPerf) && enough
@@ -201,9 +196,6 @@ async function fetchServerSnapshotJson(
   signal?: AbortSignal,
   onProgress?: (p: LiveLoadProgress) => void,
   total = 0,
-  opts?: {
-    onBootChunk?: (partial: ServerSnapshotJson) => void
-  },
 ): Promise<ServerSnapshotJson | null> {
   // Retry meta — keep the loading screen up; never fall straight to monolithic /api/snapshot.
   let meta: ServerSnapshotJson | null = null
@@ -224,55 +216,49 @@ async function fetchServerSnapshotJson(
 
   const stocks: Record<string, CachedPerf> = {}
   let stockTotal = Math.max(0, meta.loaded ?? 0)
-  const bootSize = DESK_BOOT_STOCKS
-  const chunkSize = 400
+  // Smaller pages are less likely to time out / wedge the App Service mid-download.
+  const chunkSize = 200
   let offset = 0
   let emptyStreak = 0
-  let bootNotified = false
-
-  const emitBootIfReady = () => {
-    if (bootNotified || !opts?.onBootChunk) return
-    const loaded = Object.keys(stocks).length
-    if (loaded < bootSize && loaded < stockTotal) return
-    bootNotified = true
-    opts.onBootChunk({
-      builtAt: meta!.builtAt,
-      loaded,
-      failed: meta!.failed ?? 0,
-      fresh: meta!.fresh,
-      asOf: meta!.asOf,
-      barsAsOf: meta!.barsAsOf,
-      barsAsOfLabel: meta!.barsAsOfLabel,
-      lastPrices: meta!.lastPrices,
-      indexPerf: meta!.indexPerf,
-      stocks: { ...stocks },
-      store: meta!.store || 'sqlite',
-    })
-  }
+  let stallRounds = 0
 
   while (offset < stockTotal) {
-    const pageLimit = offset === 0 ? bootSize : chunkSize
+    if (signal?.aborted) return null
     let chunk: {
       stocks?: Record<string, CachedPerf>
       count?: number
       total?: number
     } | null = null
-    for (let attempt = 0; attempt < 4; attempt++) {
-      // Keep prefer=asx200 for every page so offset pagination stays in the same key order.
+    for (let attempt = 0; attempt < 6; attempt++) {
       const qs = new URLSearchParams({
         offset: String(offset),
-        limit: String(pageLimit),
+        limit: String(chunkSize),
         prefer: 'asx200',
       })
       chunk = await fetchDeskJson<{
         stocks?: Record<string, CachedPerf>
         count?: number
         total?: number
-      }>(`/api/snapshot/stocks?${qs}`, signal, SNAPSHOT_FETCH_MS)
+      }>(`/api/snapshot/stocks?${qs}`, signal, 90_000)
       if (chunk?.stocks) break
-      if (attempt < 3) await sleep(2000 * (attempt + 1))
+      if (signal?.aborted) return null
+      // Do not abandon after one failed page — this is what left users stuck ~100 deep.
+      await sleep(2000 * Math.min(attempt + 1, 4))
     }
-    if (!chunk?.stocks) break
+    if (!chunk?.stocks) {
+      stallRounds += 1
+      onProgress?.({
+        done: Object.keys(stocks).length,
+        total,
+        phase: 'cache',
+        loaded: Object.keys(stocks).length,
+        remaining: Math.max(0, stockTotal - Object.keys(stocks).length),
+      })
+      if (stallRounds >= 8) break
+      await sleep(5000)
+      continue
+    }
+    stallRounds = 0
     if (typeof chunk.total === 'number' && chunk.total >= 0) {
       stockTotal = chunk.total
     }
@@ -283,7 +269,7 @@ async function fetchServerSnapshotJson(
     if (pageCount <= 0 || added <= 0) {
       emptyStreak += 1
       if (emptyStreak >= 2) break
-      offset += pageLimit
+      offset += chunkSize
       continue
     }
     emptyStreak = 0
@@ -296,13 +282,10 @@ async function fetchServerSnapshotJson(
       loaded,
       remaining: Math.max(0, stockTotal - loaded),
     })
-    emitBootIfReady()
-    if (pageCount < pageLimit) break
+    if (pageCount < chunkSize) break
   }
 
   if (Object.keys(stocks).length === 0) return null
-
-  emitBootIfReady()
 
   const loadedCount = Object.keys(stocks).length
   const expectedLoaded = meta.loaded ?? loadedCount
@@ -608,7 +591,6 @@ export async function loadLiveMarketSnapshot(
     fromCache: boolean,
     asOfLabel?: string | null,
     lastPrices?: Record<string, number> | null,
-    opts?: { final?: boolean },
   ) => {
     if (lastPrices) {
       for (const [ticker, px] of Object.entries(lastPrices)) {
@@ -626,24 +608,14 @@ export async function loadLiveMarketSnapshot(
       asOfLabel,
     )
     // Production never reads browser perf cache — skip huge localStorage writes that can hang.
-    if (!config.productionMode && opts?.final !== false) persist(parsed.stockPerfs, parsed.indexPerf)
-    if (opts?.final !== false) {
-      onProgress?.({
-        done: total,
-        total,
-        phase: 'done',
-        loaded: parsed.stockPerfs.size,
-        remaining: 0,
-      })
-    } else {
-      onProgress?.({
-        done: parsed.stockPerfs.size,
-        total,
-        phase: 'cache',
-        loaded: parsed.stockPerfs.size,
-        remaining: Math.max(0, tickers.length - parsed.stockPerfs.size),
-      })
-    }
+    if (!config.productionMode) persist(parsed.stockPerfs, parsed.indexPerf)
+    onProgress?.({
+      done: total,
+      total,
+      phase: 'done',
+      loaded: parsed.stockPerfs.size,
+      remaining: 0,
+    })
     onPartial?.(snapshot, parsed.stockPerfs.size, parsed.failed)
     return {
       snapshot,
@@ -655,33 +627,12 @@ export async function loadLiveMarketSnapshot(
   }
 
   const tryServer = async (acceptStale: boolean) => {
-    let bootResult: {
-      snapshot: MarketSnapshot
-      fromCache: boolean
-      loaded: number
-      failed: number
-      source?: 'server-sqlite' | 'browser-series'
-    } | null = null
-
-    const json = await fetchServerSnapshotJson(signal, onProgress, total, {
-      onBootChunk: (partial) => {
-        const parsed = parseServerSnapshot(partial, tickers, config, acceptStale, {
-          bootMin: DESK_BOOT_STOCKS,
-        })
-        if (!parsed) return
-        const asOfLabel = partial.barsAsOfLabel || partial.asOf || null
-        bootResult = finishFromServer(parsed, !forceRefresh, asOfLabel, partial.lastPrices, {
-          final: false,
-        })
-      },
-    })
-    if (!json) return bootResult
-    const parsed = parseServerSnapshot(json, tickers, config, acceptStale, {
-      bootMin: DESK_BOOT_STOCKS,
-    })
-    if (!parsed) return bootResult
+    const json = await fetchServerSnapshotJson(signal, onProgress, total)
+    if (!json) return null
+    const parsed = parseServerSnapshot(json, tickers, config, acceptStale)
+    if (!parsed) return null
     const asOfLabel = json.barsAsOfLabel || json.asOf || null
-    return finishFromServer(parsed, !forceRefresh, asOfLabel, json.lastPrices, { final: true })
+    return finishFromServer(parsed, !forceRefresh, asOfLabel, json.lastPrices)
   }
 
   if (!forceRefresh) {
