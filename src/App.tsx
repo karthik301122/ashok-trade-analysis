@@ -369,6 +369,7 @@ export default function App() {
         const res = await fetch(`/api/snapshot/refresh?_=${Date.now()}`, {
           credentials: 'include',
           cache: 'no-store',
+          signal: AbortSignal.timeout(10_000),
         })
         if (!res.ok || cancelled) return
         const json = (await res.json()) as {

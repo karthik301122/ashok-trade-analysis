@@ -356,12 +356,23 @@ export async function handleConnectApi(req, res, send) {
 
   if (url.pathname === '/api/snapshot/refresh') {
     if (req.method === 'GET') {
-      void maybeAutoRetryHighFailures()
-      const snap = await readMarketSnapshotLightMeta()
+      // Poll path — must stay cheap. Never await recover/reconcile here (hangs desk load).
+      let snap = null
+      let job = { status: 'idle', autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD, trigger: null }
+      try {
+        snap = await withTimeout(readMarketSnapshotLightMeta(), 800)
+      } catch {
+        /* null */
+      }
+      try {
+        job = await withTimeout(peekSnapshotJobStatus(), 800)
+      } catch {
+        /* stub */
+      }
       send(
         200,
         {
-          job: await getSnapshotJobStatus(),
+          job,
           autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
           snapshot: snap
             ? {
@@ -1223,10 +1234,21 @@ export function mountExpressApi(app) {
   app.get('/api/snapshot/refresh', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     res.setHeader('Pragma', 'no-cache')
-    void maybeAutoRetryHighFailures()
-    const snap = await readMarketSnapshotLightMeta()
+    // Poll path — peek only. getSnapshotJobStatus recover/reconcile wedged this for minutes.
+    let snap = null
+    let job = { status: 'idle', autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD, trigger: null }
+    try {
+      snap = await withTimeout(readMarketSnapshotLightMeta(), 800)
+    } catch {
+      /* null */
+    }
+    try {
+      job = await withTimeout(peekSnapshotJobStatus(), 800)
+    } catch {
+      /* stub */
+    }
     return res.json({
-      job: await getSnapshotJobStatus(),
+      job,
       autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
       snapshot: snap
         ? {

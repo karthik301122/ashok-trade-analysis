@@ -137,27 +137,31 @@ async function waitForServerSnapshotJob(
   source?: 'server-sqlite' | 'browser-series'
 } | null> {
   // Keep the loading UI up longer — do not jump to "Live data unavailable" after a
-  // few 503s. When the job is already done, back off so we don't rate-limit ourselves.
+  // few 503s. Never hang forever on /api/snapshot/refresh (that was the 100/2571 stall).
+  let bestLoaded = 0
   for (let i = 0; i < 90; i++) {
     if (signal?.aborted) throw new Error('Aborted')
 
-    const res = await fetch(`/api/snapshot/refresh?_=${Date.now()}`, {
-      credentials: 'include',
-      cache: 'no-store',
-      signal,
-    }).catch(() => null)
+    // Prefer downloading stocks over waiting on a hung job poll.
+    if (tryReady && (i === 0 || i % 2 === 0)) {
+      const ready = await tryReady()
+      if (ready) return ready
+    }
+
+    const res = await fetchDeskJson<{
+      job?: { status?: string; loaded?: number; total?: number; message?: string }
+      snapshot?: { loaded?: number } | null
+    }>('/api/snapshot/refresh', signal, 8_000)
     let jobStatus = ''
-    let loaded = 0
     let jobTotal = total
-    if (res?.ok) {
-      const json = (await res.json()) as {
-        job?: { status?: string; loaded?: number; total?: number; message?: string }
-        snapshot?: { loaded?: number } | null
-      }
-      jobStatus = String(json.job?.status || '')
-      loaded = json.job?.loaded ?? json.snapshot?.loaded ?? 0
-      jobTotal = json.job?.total ?? total
-      if (jobStatus === 'running' || loaded > 0) {
+    if (res) {
+      jobStatus = String(res.job?.status || '')
+      const loaded = res.job?.loaded ?? res.snapshot?.loaded ?? 0
+      jobTotal = res.job?.total ?? total
+      if (loaded > bestLoaded) bestLoaded = loaded
+      // Only mirror job progress while a build is actually running — otherwise a stale
+      // job.loaded≈100 freezes the UI and hides real stocks download progress.
+      if (jobStatus === 'running') {
         onProgress?.({
           done: loaded,
           total: jobTotal > 0 ? jobTotal + 1 : total,
@@ -166,28 +170,20 @@ async function waitForServerSnapshotJob(
           remaining: Math.max(0, jobTotal - loaded),
         })
       }
-    } else {
-      onProgress?.({
-        done: loaded,
-        total,
-        phase: 'cache',
-        loaded,
-        remaining: Math.max(0, total - 1),
-      })
     }
 
-    const jobDone = jobStatus === 'done' || jobStatus === 'error' || jobStatus === 'idle'
-    // While building: try often. Once done: try a few times with long gaps (avoid 429).
-    const shouldTry =
-      Boolean(tryReady) && (i === 0 || jobStatus === 'running' || !jobStatus || (jobDone && i % 3 === 0))
-    if (shouldTry && tryReady) {
-      const ready = await tryReady()
-      if (ready) return ready
-    }
-
+    const jobDone = jobStatus === 'done' || jobStatus === 'error' || jobStatus === 'idle' || !jobStatus
     if (!jobDone && (i === 0 || i % 5 === 0)) maybeStartBackgroundSnapshotClient()
 
-    await sleep(jobDone ? 8000 : res?.ok ? 2000 : 4000)
+    onProgress?.({
+      done: bestLoaded,
+      total,
+      phase: 'cache',
+      loaded: bestLoaded,
+      remaining: Math.max(0, total - 1 - bestLoaded),
+    })
+
+    await sleep(jobStatus === 'running' ? 2000 : 3000)
   }
   return null
 }
@@ -282,7 +278,9 @@ async function fetchServerSnapshotJson(
       loaded,
       remaining: Math.max(0, stockTotal - loaded),
     })
-    if (pageCount < chunkSize) break
+    // Only stop early when we've reached the end — a short final page is normal,
+    // but pageCount < chunkSize must not abort while offset < stockTotal.
+    if (offset >= stockTotal) break
   }
 
   if (Object.keys(stocks).length === 0) return null
