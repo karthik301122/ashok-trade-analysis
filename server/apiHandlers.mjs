@@ -132,6 +132,29 @@ function seriesKillSwitchEnabled() {
   return raw === '1' || raw === 'true' || raw === 'yes'
 }
 
+/**
+ * Production requires desk=1 (current client). Old browser-universe crawls omit it,
+ * so we can refuse them without anyone closing remote tabs.
+ */
+function seriesHasDeskToken(req) {
+  try {
+    const url = new URL(req.url || '/', 'http://localhost')
+    if (url.searchParams.get('desk') === '1') return true
+  } catch {
+    /* ignore */
+  }
+  const header = req.headers?.['x-traderscope-desk']
+  return header === '1' || header === 'true'
+}
+
+function seriesClientAllowed(req) {
+  if (!isProductionMode()) return true
+  const raw = process.env.SERIES_REQUIRE_DESK_TOKEN?.trim().toLowerCase()
+  // Default ON in production — set SERIES_REQUIRE_DESK_TOKEN=0 to disable.
+  if (raw === '0' || raw === 'false' || raw === 'no') return true
+  return seriesHasDeskToken(req)
+}
+
 /** Refuse /api/series globally for a while (does not close browser tabs; rejects their calls). */
 function killSeriesTraffic(reason, ms = 180_000) {
   const until = Date.now() + Math.max(5_000, ms)
@@ -293,6 +316,14 @@ export async function handleConnectApi(req, res, send) {
 
   if (url.pathname.startsWith('/api/series/')) {
     if (requireAuthConnect(req, send)) return true
+    if (!seriesClientAllowed(req)) {
+      log('warn', 'series.rejected_legacy_client', { key: clientKey(req) })
+      send(403, {
+        error: 'Legacy client blocked',
+        hint: 'Hard-refresh TradersScope on this device — old tabs cannot crawl /api/series',
+      })
+      return true
+    }
     if (rateLimitOrSend(req, send, 'series', seriesRateLimitPerMinute())) return true
     const blocked = seriesAdmissionBlocked(req)
     if (blocked) {
@@ -1166,6 +1197,13 @@ export function mountExpressApi(app) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     const started = Date.now()
+    if (!seriesClientAllowed(req)) {
+      log('warn', 'series.rejected_legacy_client', { key: clientKey(req) })
+      return res.status(403).json({
+        error: 'Legacy client blocked',
+        hint: 'Hard-refresh TradersScope on this device — old tabs cannot crawl /api/series',
+      })
+    }
     if (seriesRateLimitOrExpress(req, res)) {
       return
     }

@@ -72,6 +72,11 @@ export function rangeToFromIso(range = '2y'): string {
   return d.toISOString().slice(0, 10)
 }
 
+function withDeskToken(url: string): string {
+  if (url.includes('desk=1')) return url
+  return url.includes('?') ? `${url}&desk=1` : `${url}?desk=1`
+}
+
 /**
  * Fetch daily closes via desk /api/series (EODHD when configured, SQLite cache on server).
  * Honors `range` via ?from= (server also disk-caches + incremental refresh).
@@ -83,7 +88,7 @@ export async function fetchDeskSeries(
   // Keep futures/crypto symbols intact (GC=F, BTC-USD). Only strip .AX for ASX equities.
   const ticker = /\.AX$/i.test(symbol) ? symbol.replace(/\.AX$/i, '') : symbol
   const from = rangeToFromIso(range)
-  const url = `/api/series/${encodeURIComponent(ticker)}?from=${from}`
+  const url = withDeskToken(`/api/series/${encodeURIComponent(ticker)}?from=${from}`)
   try {
     const res = await fetchSeriesQueued(url)
     if (!res.ok) return null
@@ -148,6 +153,7 @@ export async function fetchDeskOhlc(
   const params = new URLSearchParams({ from })
   if (opts?.staleOk) params.set('stale_ok', '1')
   if (opts?.refresh) params.set('refresh', '1')
+  params.set('desk', '1')
   const url = `/api/series/${encodeURIComponent(ticker)}?${params}`
   try {
     const res = await fetchSeriesQueued(url)
@@ -156,7 +162,7 @@ export async function fetchDeskOhlc(
     let bars = parseOhlcBars(json)
     // If daily history is behind, force a server re-pull once (fixes stuck Sept-1 caches).
     if (bars && !opts?.staleOk && !opts?.refresh && !lastBarLooksCurrent(bars)) {
-      const retryParams = new URLSearchParams({ from, refresh: '1' })
+      const retryParams = new URLSearchParams({ from, refresh: '1', desk: '1' })
       const retry = await fetchSeriesQueued(
         `/api/series/${encodeURIComponent(ticker)}?${retryParams}`,
       )
@@ -223,6 +229,7 @@ export async function fetchDeskIntraday(
     interval,
     from_ts: String(Math.floor(fromTs)),
     to_ts: String(Math.floor(toTs)),
+    desk: '1',
   })
   const url = `/api/series/${encodeURIComponent(ticker)}?${params}`
   try {

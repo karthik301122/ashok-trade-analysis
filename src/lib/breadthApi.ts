@@ -73,7 +73,7 @@ export async function fetchIndexBarsForChart(
 ): Promise<BreadthIndexBar[]> {
   try {
     const res = await fetch(
-      `/api/series/${encodeURIComponent(indexSymbol)}?from=${encodeURIComponent(fromIso)}`,
+      `/api/series/${encodeURIComponent(indexSymbol)}?from=${encodeURIComponent(fromIso)}&desk=1`,
       { credentials: 'include', cache: 'no-store' },
     )
     if (!res.ok) return []
