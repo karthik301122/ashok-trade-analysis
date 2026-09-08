@@ -38,10 +38,13 @@ await initDb()
 
 mountExpressApi(app)
 
-// Warm stocks_perf parse so the first desk load does not time out mid-chunk.
-void import('./snapshotJob.mjs')
-  .then((m) => m.ensureStocksPerfCacheWarm())
-  .catch(() => {})
+// Defer stocks_perf warm well after listen — sync JSON.parse blocks the whole
+// event loop (ping/auth/me hang) if we warm immediately on boot.
+setTimeout(() => {
+  void import('./snapshotJob.mjs')
+    .then((m) => m.ensureStocksPerfCacheWarm())
+    .catch(() => {})
+}, 30_000)
 
 app.use(express.static(dist))
 
@@ -60,5 +63,5 @@ app.listen(port, '0.0.0.0', () => {
     maybeStartIndexMembersScheduler()
     maybeStartAsxFilingsScheduler()
     maybeStartDeskSyncScheduler()
-  }, 5000)
+  }, 45_000)
 })

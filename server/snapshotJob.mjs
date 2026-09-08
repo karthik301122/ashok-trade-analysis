@@ -259,8 +259,11 @@ export async function ensureStocksPerfCacheWarm() {
   if (stocksPerfWarmPromise) return stocksPerfWarmPromise
   stocksPerfWarmPromise = (async () => {
     try {
+      // Yield so /api/ping and /api/auth/me can answer before we fetch the blob.
+      await new Promise((r) => setImmediate(r))
       const row = await sqlOne('SELECT built_at, stocks_perf_json FROM market_snapshot WHERE id = 1')
       if (!row?.stocks_perf_json) return false
+      await new Promise((r) => setImmediate(r))
       loadStocksPerfMap(Number(row.built_at), row.stocks_perf_json)
       return true
     } catch (err) {
@@ -523,8 +526,8 @@ export async function readBarsAsOf() {
 
 /** Fast metadata without parsing the large stocks JSON column. */
 export async function readMarketSnapshotMeta() {
-  // Await warm so the first stocks chunk does not re-hit Postgres for the giant JSON.
-  await ensureStocksPerfCacheWarm()
+  // Do not warm stocks_perf here — JSON.parse of that blob blocks the event loop
+  // and hung /api/health + /api/auth/me for everyone. Chunks warm on demand.
   const row = await sqlOne(
     'SELECT built_at, as_of, loaded, failed, index_perf_json FROM market_snapshot WHERE id = 1',
   )
