@@ -189,10 +189,27 @@ async function fetchServerSnapshotJson(
   onProgress?: (p: LiveLoadProgress) => void,
   total = 0,
 ): Promise<ServerSnapshotJson | null> {
-  const meta = await fetchDeskJson<ServerSnapshotJson>('/api/snapshot/meta', signal, 90_000)
+  // Retry meta briefly — never fall straight through to monolithic /api/snapshot
+  // on a transient 503/timeout (that path can wedge the App Service again).
+  let meta: ServerSnapshotJson | null = null
+  for (let attempt = 0; attempt < 4; attempt++) {
+    meta = await fetchDeskJson<ServerSnapshotJson>('/api/snapshot/meta', signal, 25_000)
+    if (meta?.indexPerf) break
+    if (signal?.aborted) return null
+    if (attempt < 3) await sleep(1500 * (attempt + 1))
+  }
   if (!meta?.indexPerf) {
-    // Older servers without /meta — fall back to monolithic snapshot.
-    return fetchDeskJson<ServerSnapshotJson>('/api/snapshot', signal, SNAPSHOT_FETCH_MS)
+    // Last resort for very old servers only — keep a short timeout.
+    meta = await fetchDeskJson<ServerSnapshotJson>('/api/snapshot', signal, 45_000)
+    if (!meta?.indexPerf) return null
+    onProgress?.({
+      done: Object.keys(meta.stocks || {}).length,
+      total,
+      phase: 'cache',
+      loaded: Object.keys(meta.stocks || {}).length,
+      remaining: 0,
+    })
+    return meta
   }
 
   const stocks: Record<string, CachedPerf> = {}

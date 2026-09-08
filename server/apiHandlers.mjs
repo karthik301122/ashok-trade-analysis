@@ -13,7 +13,6 @@ import {
   isSnapshotFresh,
   maybeStartBackgroundSnapshot,
   maybeAutoRetryHighFailures,
-  readBarsAsOf,
   readMarketSnapshotMeta,
   readMarketSnapshotLightMeta,
   readMarketSnapshotRow,
@@ -23,7 +22,8 @@ import {
   runRetryFailedSnapshot,
   runRebuildSnapshotFromCache,
   syncSnapshotPricesFromSeriesMeta,
-  readLastPricesFromBars,
+  peekCachedLastPrices,
+  scheduleLastPricesCacheWarm,
   AUTO_RETRY_FAILED_THRESHOLD,
 } from './snapshotJob.mjs'
 import {
@@ -92,6 +92,77 @@ function snapshotStockCount(stocks) {
   return Object.keys(stocks).length
 }
 
+/** Hard deadline for DB work on boot/critical paths. */
+async function withTimeout(p, ms) {
+  let timer
+  try {
+    return await Promise.race([
+      p,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timeout')), ms)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** Cap concurrent /api/series work so chart storms cannot starve meta/health. */
+let seriesInFlight = 0
+function seriesMaxInFlight() {
+  const n = Number(process.env.SERIES_MAX_IN_FLIGHT)
+  if (Number.isFinite(n) && n > 0) return n
+  return isProductionMode() ? 8 : 24
+}
+
+/** Short-lived meta payload so concurrent desk loads share one DB round-trip. */
+let snapshotMetaPayloadCache = /** @type {{ at: number, body: object } | null} */ (null)
+const SNAPSHOT_META_CACHE_MS = 2_000
+
+/**
+ * Fail-fast snapshot meta for desk boot. Never awaits full lastPrices DB scan or
+ * job recover/reconcile — those run in the background after the response.
+ */
+async function buildSnapshotMetaPayload() {
+  const now = Date.now()
+  if (snapshotMetaPayloadCache && now - snapshotMetaPayloadCache.at < SNAPSHOT_META_CACHE_MS) {
+    return snapshotMetaPayloadCache.body
+  }
+
+  const metaMs = Number(process.env.SNAPSHOT_META_DB_MS)
+  const budget = Number.isFinite(metaMs) && metaMs > 0 ? metaMs : 2_500
+
+  const meta = await withTimeout(readMarketSnapshotMeta(), budget)
+  if (!meta) return null
+
+  scheduleLastPricesCacheWarm()
+  void syncSnapshotPricesFromSeriesMeta()
+  void maybeStartBackgroundSnapshot()
+  void maybeAutoRetryHighFailures()
+
+  let job = {
+    status: 'idle',
+    autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
+    trigger: null,
+  }
+  try {
+    job = await withTimeout(peekSnapshotJobStatus(), 600)
+  } catch {
+    /* stub */
+  }
+
+  const body = {
+    ...meta,
+    lastPrices: peekCachedLastPrices(),
+    browserUniverseFetch: browserUniverseFetchEnabled(),
+    productionMode: isProductionMode(),
+    job,
+    autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
+  }
+  snapshotMetaPayloadCache = { at: Date.now(), body }
+  return body
+}
+
 function requireAuthConnect(req, send) {
   return requireAuthOrSend(req, send)
 }
@@ -150,6 +221,11 @@ export async function handleConnectApi(req, res, send) {
   if (url.pathname.startsWith('/api/series/')) {
     if (requireAuthConnect(req, send)) return true
     if (rateLimitOrSend(req, send, 'series', seriesRateLimitPerMinute())) return true
+    if (seriesInFlight >= seriesMaxInFlight()) {
+      send(503, { error: 'Series busy', retryAfterMs: 500 }, { 'Retry-After': '1' })
+      return true
+    }
+    seriesInFlight += 1
     try {
       const ticker = decodeURIComponent(url.pathname.replace('/api/series/', '')).toUpperCase()
       if (!ticker || !/^[A-Z0-9.^=-]{1,20}$/.test(ticker)) {
@@ -184,38 +260,44 @@ export async function handleConnectApi(req, res, send) {
       log('error', 'series.error', { message, ms: Date.now() - started })
       send(500, { error: message })
       return true
+    } finally {
+      seriesInFlight -= 1
     }
   }
 
   if (url.pathname === '/api/snapshot/meta' && req.method === 'GET') {
     if (rateLimitOrSend(req, send, 'snapshot', snapshotRateLimitPerMinute())) return true
-    // Never block meta on price sync / bars scan — that timed out production loads.
-    void syncSnapshotPricesFromSeriesMeta()
-    const meta = await readMarketSnapshotMeta()
-    if (!meta) {
-      void maybeStartBackgroundSnapshot()
-      send(404, {
-        error: 'No snapshot yet',
-        job: await getSnapshotJobStatus(),
-        hint: 'POST /api/snapshot/refresh or wait for background build',
+    try {
+      const body = await buildSnapshotMetaPayload()
+      if (!body) {
+        void maybeStartBackgroundSnapshot()
+        let job = { status: 'idle', autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD, trigger: null }
+        try {
+          job = await withTimeout(peekSnapshotJobStatus(), 600)
+        } catch {
+          /* stub */
+        }
+        send(404, {
+          error: 'No snapshot yet',
+          job,
+          hint: 'POST /api/snapshot/refresh or wait for background build',
+        })
+        return true
+      }
+      send(200, body, {
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        Pragma: 'no-cache',
+      })
+      return true
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log('error', 'snapshot.meta.error', { message, ms: Date.now() - started })
+      send(503, {
+        error: 'Snapshot meta temporarily unavailable',
+        hint: 'Retry in a few seconds',
       })
       return true
     }
-    void maybeStartBackgroundSnapshot()
-    void maybeAutoRetryHighFailures()
-    send(
-      200,
-      {
-        ...meta,
-        lastPrices: await readLastPricesFromBars(),
-        browserUniverseFetch: browserUniverseFetchEnabled(),
-        productionMode: isProductionMode(),
-        job: await getSnapshotJobStatus(),
-        autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
-      },
-      { 'Cache-Control': 'no-store, no-cache, must-revalidate', Pragma: 'no-cache' },
-    )
-    return true
   }
 
   if (url.pathname === '/api/snapshot/stocks' && req.method === 'GET') {
@@ -235,12 +317,19 @@ export async function handleConnectApi(req, res, send) {
     if (req.method === 'GET') {
       if (rateLimitOrSend(req, send, 'snapshot', snapshotRateLimitPerMinute())) return true
       void syncSnapshotPricesFromSeriesMeta()
+      scheduleLastPricesCacheWarm()
       const row = await readMarketSnapshotRow()
       if (!row) {
         void maybeStartBackgroundSnapshot()
+        let job = { status: 'idle', autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD, trigger: null }
+        try {
+          job = await withTimeout(peekSnapshotJobStatus(), 600)
+        } catch {
+          /* stub */
+        }
         send(404, {
           error: 'No snapshot yet',
-          job: await getSnapshotJobStatus(),
+          job,
           hint: 'POST /api/snapshot/refresh or wait for background build',
         })
         return true
@@ -253,7 +342,7 @@ export async function handleConnectApi(req, res, send) {
         fresh: isSnapshotFresh(row.builtAt),
         indexPerf: row.indexPerf,
         stocks: row.stocks,
-        lastPrices: await readLastPricesFromBars(),
+        lastPrices: peekCachedLastPrices(),
         store: dbStoreLabel(),
         browserUniverseFetch: browserUniverseFetchEnabled(),
         productionMode: isProductionMode(),
@@ -425,7 +514,30 @@ export async function handleConnectApi(req, res, send) {
   if (url.pathname === '/api/health') {
     // Ultra-light: desk boots call this repeatedly. Avoid file scans, user counts,
     // job reconcile, and anything that can stall the event loop.
-    const snap = await readMarketSnapshotLightMeta()
+    let snap = null
+    let job = { status: 'unknown', autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD, trigger: null }
+    let liveQuotes = { enabled: false }
+    let admin = false
+    try {
+      snap = await withTimeout(readMarketSnapshotLightMeta(), 800)
+    } catch {
+      /* keep null */
+    }
+    try {
+      job = await withTimeout(peekSnapshotJobStatus(), 800)
+    } catch {
+      /* keep stub */
+    }
+    try {
+      liveQuotes = await withTimeout(getLiveQuotesMeta(), 800)
+    } catch {
+      /* keep stub */
+    }
+    try {
+      admin = await withTimeout(isAdminRequest(req), 500)
+    } catch {
+      /* false */
+    }
     const universeTotal = getUniverseCount()
     const snapMeta = snap
       ? {
@@ -439,7 +551,6 @@ export async function handleConnectApi(req, res, send) {
       snapMeta ? { ...snapMeta, fresh: snapMeta.fresh } : {},
       universeTotal,
     )
-    const admin = await isAdminRequest(req)
     send(200, {
       ok: true,
       provider: seriesProviderName(),
@@ -465,9 +576,9 @@ export async function handleConnectApi(req, res, send) {
       store: dbStoreLabel(),
       database: dbPath(),
       snapshot: snapMeta,
-      job: await peekSnapshotJobStatus(),
+      job,
       autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
-      liveQuotes: await getLiveQuotesMeta(),
+      liveQuotes,
       alertEmailEnabled: alertEmailConfigured(),
     })
     return true
@@ -616,19 +727,6 @@ export function mountExpressApi(app) {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     res.setHeader('Pragma', 'no-cache')
     // Hard deadline so Azure health probes never hang on Postgres under series load.
-    const withTimeout = async (p, ms) => {
-      let timer
-      try {
-        return await Promise.race([
-          p,
-          new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error('health-db-timeout')), ms)
-          }),
-        ])
-      } finally {
-        clearTimeout(timer)
-      }
-    }
     let snap = null
     let job = { status: 'unknown', autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD, trigger: null }
     let liveQuotes = { enabled: false }
@@ -979,6 +1077,11 @@ export function mountExpressApi(app) {
     if (seriesRateLimitOrExpress(req, res)) {
       return
     }
+    if (seriesInFlight >= seriesMaxInFlight()) {
+      res.setHeader('Retry-After', '1')
+      return res.status(503).json({ error: 'Series busy', retryAfterMs: 500 })
+    }
+    seriesInFlight += 1
     try {
       const ticker = decodeURIComponent(req.params.ticker).toUpperCase()
       if (!ticker || !/^[A-Z0-9.^=-]{1,20}$/.test(ticker)) {
@@ -1005,6 +1108,8 @@ export function mountExpressApi(app) {
       const message = err instanceof Error ? err.message : String(err)
       log('error', 'series.error', { message, ms: Date.now() - started })
       return res.status(500).json({ error: message })
+    } finally {
+      seriesInFlight -= 1
     }
   })
 
@@ -1021,27 +1126,31 @@ export function mountExpressApi(app) {
     ) {
       return
     }
-    // Never block meta on price sync — large stocks_perf JSON + bars scan timed out loads.
-    void syncSnapshotPricesFromSeriesMeta()
-    const meta = await readMarketSnapshotMeta()
-    if (!meta) {
-      void maybeStartBackgroundSnapshot()
-      return res.status(404).json({
-        error: 'No snapshot yet',
-        job: await getSnapshotJobStatus(),
-        hint: 'POST /api/snapshot/refresh or wait for background build',
+    try {
+      const body = await buildSnapshotMetaPayload()
+      if (!body) {
+        void maybeStartBackgroundSnapshot()
+        let job = { status: 'idle', autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD, trigger: null }
+        try {
+          job = await withTimeout(peekSnapshotJobStatus(), 600)
+        } catch {
+          /* stub */
+        }
+        return res.status(404).json({
+          error: 'No snapshot yet',
+          job,
+          hint: 'POST /api/snapshot/refresh or wait for background build',
+        })
+      }
+      return res.json(body)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log('error', 'snapshot.meta.error', { message })
+      return res.status(503).json({
+        error: 'Snapshot meta temporarily unavailable',
+        hint: 'Retry in a few seconds',
       })
     }
-    void maybeStartBackgroundSnapshot()
-    void maybeAutoRetryHighFailures()
-    return res.json({
-      ...meta,
-      lastPrices: await readLastPricesFromBars(),
-      browserUniverseFetch: browserUniverseFetchEnabled(),
-      productionMode: isProductionMode(),
-      job: await getSnapshotJobStatus(),
-      autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
-    })
   })
 
   app.get('/api/snapshot/stocks', async (req, res) => {
@@ -1078,12 +1187,19 @@ export function mountExpressApi(app) {
       return
     }
     void syncSnapshotPricesFromSeriesMeta()
+    scheduleLastPricesCacheWarm()
     const row = await readMarketSnapshotRow()
     if (!row) {
       void maybeStartBackgroundSnapshot()
+      let job = { status: 'idle', autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD, trigger: null }
+      try {
+        job = await withTimeout(peekSnapshotJobStatus(), 600)
+      } catch {
+        /* stub */
+      }
       return res.status(404).json({
         error: 'No snapshot yet',
-        job: await getSnapshotJobStatus(),
+        job,
         hint: 'POST /api/snapshot/refresh or run npm run snapshot',
       })
     }
@@ -1095,7 +1211,7 @@ export function mountExpressApi(app) {
       fresh: isSnapshotFresh(row.builtAt),
       indexPerf: row.indexPerf,
       stocks: row.stocks,
-      lastPrices: await readLastPricesFromBars(),
+      lastPrices: peekCachedLastPrices(),
       store: dbStoreLabel(),
       browserUniverseFetch: browserUniverseFetchEnabled(),
       productionMode: isProductionMode(),

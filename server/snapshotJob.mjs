@@ -372,6 +372,37 @@ const PRICE_SYNC_MIN_MS = 15 * 1000
 /** @type {{ at: number, prices: Record<string, number>, key?: string } | null} */
 let lastPricesCache = null
 const LAST_PRICES_CACHE_MS = 20 * 1000
+/** @type {Promise<Record<string, number>> | null} */
+let lastPricesWarmPromise = null
+/** @type {number} */
+let lastMaybeBackgroundAt = 0
+const MAYBE_BACKGROUND_DEBOUNCE_MS = 60_000
+
+/** Instant — never hits DB. Used by /api/snapshot/meta so desk load cannot hang. */
+export function peekCachedLastPrices() {
+  return lastPricesCache?.prices && typeof lastPricesCache.prices === 'object'
+    ? lastPricesCache.prices
+    : {}
+}
+
+/** Warm series_meta last-prices in the background (shared across callers). */
+export function scheduleLastPricesCacheWarm() {
+  if (lastPricesCache && Date.now() - lastPricesCache.at < LAST_PRICES_CACHE_MS) return
+  if (lastPricesWarmPromise) return
+  lastPricesWarmPromise = readLastPricesFromBars()
+    .catch(() => ({}))
+    .finally(() => {
+      lastPricesWarmPromise = null
+    })
+}
+
+function snapshotAutoBackgroundEnabled() {
+  const raw =
+    process.env.SNAPSHOT_AUTO_BACKGROUND?.trim().toLowerCase() ||
+    process.env.SNAPSHOT_BACKGROUND_ON_BOOT?.trim().toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes'
+}
+
 /** @type {number} */
 let lastStalePricePullAt = 0
 /** Default off — this job flooded EODHD/series and starved health checks in Azure. */
@@ -621,7 +652,11 @@ export async function readBarsAsOf() {
   }
 }
 
-/** Fast metadata without parsing the large stocks JSON column. */
+/**
+ * Fast metadata without parsing the large stocks JSON column.
+ * Optional enrichment (bars as-of / live quotes) is hard-capped so meta never
+ * hangs the desk loader when Postgres or series_meta is under load.
+ */
 export async function readMarketSnapshotMeta() {
   // Do not warm stocks_perf here — JSON.parse of that blob blocks the event loop
   // and hung /api/health + /api/auth/me for everyone. Chunks warm on demand.
@@ -630,8 +665,38 @@ export async function readMarketSnapshotMeta() {
   )
   if (!row) return null
   const builtAt = Number(row.built_at)
-  const barsAsOf = await readBarsAsOf()
-  const barsCurrent = await isSnapshotBarsCurrent()
+
+  let barsAsOf = /** @type {{ iso: string, label: string } | null} */ (null)
+  let barsCurrent = true
+  let liveQuotes = { enabled: false, count: 0, updatedAt: 0, fresh: false, usable: false, marketOpen: false }
+
+  const enrichMs = Number(process.env.SNAPSHOT_META_ENRICH_MS)
+  const enrichBudget = Number.isFinite(enrichMs) && enrichMs >= 0 ? enrichMs : 400
+  if (enrichBudget > 0) {
+    let timer
+    try {
+      await Promise.race([
+        (async () => {
+          const [asOf, current, lq] = await Promise.all([
+            readBarsAsOf(),
+            isSnapshotBarsCurrent(),
+            getLiveQuotesMeta(),
+          ])
+          barsAsOf = asOf
+          barsCurrent = current
+          liveQuotes = lq
+        })(),
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, enrichBudget)
+        }),
+      ])
+    } catch {
+      /* keep clock-only freshness */
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
   return {
     builtAt,
     asOf: row.as_of,
@@ -642,7 +707,7 @@ export async function readMarketSnapshotMeta() {
     fresh: isSnapshotFresh(builtAt) && barsCurrent,
     indexPerf: JSON.parse(row.index_perf_json),
     store: dbStoreLabel(),
-    liveQuotes: await getLiveQuotesMeta(),
+    liveQuotes,
     stocksCacheWarm: Boolean(stocksPerfCache),
   }
 }
@@ -1315,20 +1380,56 @@ export async function runAsx200ForceRefresh() {
   return runningJob
 }
 
-/** Kick a background refresh if snapshot is missing/stale/incomplete. */
+/**
+ * Kick a background refresh if snapshot is missing/stale/incomplete.
+ * Safe to call from meta polls: debounced, uses light meta only (never parses
+ * stocks_perf), and full universe rebuild is opt-in via SNAPSHOT_AUTO_BACKGROUND
+ * (or SNAPSHOT_BACKGROUND_ON_BOOT). Meta polls previously melted Azure by
+ * parsing the giant snapshot blob and starting rebuilds on every page load.
+ */
 export async function maybeStartBackgroundSnapshot() {
-  await recoverStaleSnapshotJob()
+  const now = Date.now()
   if (runningJob) return
-  const job = await getSnapshotJobStatus()
+  if (now - lastMaybeBackgroundAt < MAYBE_BACKGROUND_DEBOUNCE_MS) return
+  lastMaybeBackgroundAt = now
+
+  try {
+    await recoverStaleSnapshotJob()
+  } catch {
+    /* ignore — never block callers */
+  }
+  if (runningJob) return
+
+  let job
+  try {
+    job = await peekSnapshotJobStatus()
+  } catch {
+    return
+  }
   if (job.status === 'running') return
 
-  const existing = await readMarketSnapshotDbRow()
-  if (await snapshotLooksCurrent(existing)) return
+  let existing
+  try {
+    existing = await readMarketSnapshotLightMeta()
+  } catch {
+    return
+  }
 
   // Prefer a clear auto-retry of missing names when failure count is very high.
   const failed = Number(existing?.failed ?? 0)
   if (existing && failed > AUTO_RETRY_FAILED_THRESHOLD && autoRetryEnabled()) {
-    await maybeAutoRetryHighFailures()
+    void maybeAutoRetryHighFailures().catch(() => {})
+    return
+  }
+
+  if (existing && (await snapshotLooksCurrent(existing))) return
+
+  if (!snapshotAutoBackgroundEnabled()) {
+    if (!existing) {
+      console.log(
+        '[snapshot] no snapshot yet — auto background disabled (set SNAPSHOT_AUTO_BACKGROUND=1 or use admin Refresh)',
+      )
+    }
     return
   }
 
