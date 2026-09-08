@@ -113,6 +113,8 @@ export function threeWeeksTightAt(
 
 /**
  * Prefer longest window 5→3 from week 0 within threshold.
+ * When not confirmed, still return measured tightness of the tightest 3–5 week window
+ * so forming scores can rank by how close the coil is to 5%.
  * weekStartT = oldest week; weekEndT = newest.
  */
 export function threeWeeksTightFormationWeek(
@@ -140,7 +142,37 @@ export function threeWeeksTightFormationWeek(
       }
     }
   }
-  return { hit: false, tightness: null, weekStartT: null, weekEndT: null, weekCount: null }
+  // Not confirmed — measure best (tightest) 3–5 week close range from the latest week.
+  let best: {
+    tightness: number
+    weekStartT: number | null
+    weekEndT: number | null
+    weekCount: number
+  } | null = null
+  for (const n of [3, 4, 5] as const) {
+    if (weeks.length < n) continue
+    const closes = Array.from({ length: n }, (_, k) => weeks[k].c)
+    const t = closeTightness(closes)
+    if (!Number.isFinite(t)) continue
+    if (!best || t < best.tightness) {
+      best = {
+        tightness: t,
+        weekStartT: weeks[n - 1]?.t ?? null,
+        weekEndT: weeks[0]?.t ?? null,
+        weekCount: n,
+      }
+    }
+  }
+  if (!best) {
+    return { hit: false, tightness: null, weekStartT: null, weekEndT: null, weekCount: null }
+  }
+  return {
+    hit: false,
+    tightness: best.tightness,
+    weekStartT: best.weekStartT,
+    weekEndT: best.weekEndT,
+    weekCount: best.weekCount,
+  }
 }
 
 export function detectThreeWeeksTight(

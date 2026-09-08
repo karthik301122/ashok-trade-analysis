@@ -8,10 +8,7 @@ import {
   SNAPSHOT_PATTERN_CATALOG,
   VCP_PATTERNS,
 } from './specialCatalog'
-import {
-  buildSpecialScanContext,
-  snapshotAlertScore,
-} from './specialDetect'
+import { buildSpecialScanContext, snapshotAlertScore } from './specialDetect'
 import {
   detectThreeWeeksTight,
   isWeeklyHammer,
@@ -27,15 +24,16 @@ import {
   type PatternScanResult,
   type SpecialScanContext as OhlcScanContext,
 } from './specialScriptScan'
-import { scoreFromFlags } from './patternFormingScore'
+import { blendScores, clampScore, rampDown, rampUp } from './patternFormingScore'
 import type { PatternScanUploadRow } from '../patternScanApi'
 
 export type PatternAlertScore = { score: number; confirmed: boolean }
 
-function clampScore(n: number): number {
-  return Math.max(0, Math.min(100, Math.round(n)))
+function barRange(b: OhlcBar): number {
+  return Math.max(b.h - b.l, 1e-9)
 }
 
+/** Continuous Stage-2 quality from MA stack + rising slopes + price location. */
 function stage2WeeklyProgress(weeks: OhlcBar[], i = 0): number {
   const need = 42
   if (weeks.length < need + i) return 0
@@ -49,14 +47,21 @@ function stage2WeeklyProgress(weeks: OhlcBar[], i = 0): number {
   if (ma10 == null || ma30 == null || ma40 == null || ma30Prev == null || ma40Prev == null) {
     return 0
   }
-  return scoreFromFlags([
-    ma10 > ma30,
-    ma30 > ma40,
-    ma30 > ma30Prev,
-    ma40 > ma40Prev,
-    c > ma10,
-    c > ma30,
-    c > ma40,
+  const stack10 = (ma10 - ma30) / Math.max(Math.abs(ma30), 1e-9)
+  const stack30 = (ma30 - ma40) / Math.max(Math.abs(ma40), 1e-9)
+  const rise30 = (ma30 - ma30Prev) / Math.max(Math.abs(ma30Prev), 1e-9)
+  const rise40 = (ma40 - ma40Prev) / Math.max(Math.abs(ma40Prev), 1e-9)
+  const above10 = (c - ma10) / Math.max(Math.abs(ma10), 1e-9)
+  const above30 = (c - ma30) / Math.max(Math.abs(ma30), 1e-9)
+  const above40 = (c - ma40) / Math.max(Math.abs(ma40), 1e-9)
+  return blendScores([
+    { score: rampUp(stack10, 0, 0.02), weight: 1.2 },
+    { score: rampUp(stack30, 0, 0.02), weight: 1.2 },
+    { score: rampUp(rise30, 0, 0.01), weight: 1 },
+    { score: rampUp(rise40, 0, 0.01), weight: 1 },
+    { score: rampUp(above10, 0, 0.02), weight: 1 },
+    { score: rampUp(above30, 0, 0.02), weight: 1 },
+    { score: rampUp(above40, 0, 0.03), weight: 1 },
   ])
 }
 
@@ -68,6 +73,40 @@ function tightnessFormingScore(tightness: number | null): number {
     return clampScore(100 - ((tightness - threshold) / threshold) * 35)
   }
   return clampScore(55 - (tightness - threshold * 2) * 120)
+}
+
+/** Inside-bar quality from containment + range compression + volume dry-up. */
+function weeklyInsideBarFormingScore(baby: OhlcBar, mother: OhlcBar): number {
+  const contained = baby.h <= mother.h && baby.l >= mother.l
+  const rangeRatio = barRange(baby) / barRange(mother)
+  const mv = mother.v ?? 0
+  const bv = baby.v ?? 0
+  const volRatio = mv > 0 ? bv / mv : bv > 0 ? 1 : 0
+  return blendScores([
+    { score: contained ? 100 : 0, weight: 1.4 },
+    { score: rampDown(rangeRatio, 0.5, 1), weight: 1.6 },
+    { score: rampDown(volRatio, 0.75, 1.05), weight: 1 },
+  ])
+}
+
+/** Hammer quality from lower-wick dominance + small upper wick + prior down week. */
+function weeklyHammerFormingScore(weeks: OhlcBar[], i: number): number {
+  if (i < 0 || i >= weeks.length) return 0
+  const b = weeks[i]
+  const body = Math.abs(b.c - b.o)
+  const rng = barRange(b)
+  const lw = Math.min(b.o, b.c) - b.l
+  const uw = b.h - Math.max(b.o, b.c)
+  const prior = weeks[i + 1]
+  const wickVsBody = lw / Math.max(body, rng * 0.02)
+  const upperFrac = uw / rng
+  const closeInTop = (Math.max(b.o, b.c) - b.l) / rng
+  return blendScores([
+    { score: rampUp(wickVsBody, 1, 2), weight: 1.5 },
+    { score: rampDown(upperFrac, 0.08, 0.35), weight: 1.2 },
+    { score: rampUp(closeInTop, 0.55, 0.72), weight: 1 },
+    { score: prior && prior.c > b.c ? 100 : prior ? 35 : 0, weight: 1 },
+  ])
 }
 
 export function karthikAlertScore(
@@ -85,10 +124,9 @@ export function karthikAlertScore(
 
   if (!contextOk) {
     const rally = weeklyReturnOver(weeks, 0, 13)
-    const contextProgress = scoreFromFlags([
-      stage2,
-      rally != null && rally >= 20,
-      rally != null && rally >= 30,
+    const contextProgress = blendScores([
+      { score: stage2 ? 100 : stage2WeeklyProgress(weeks, 0), weight: 1.2 },
+      { score: rampUp(rally ?? 0, 10, 30), weight: 1 },
     ])
     if (contextProgress < 34) return { score: contextProgress, confirmed: false }
   }
@@ -98,34 +136,41 @@ export function karthikAlertScore(
       const formed = detectThreeWeeksTight(daily)
       if (formed.hit) return { score: 100, confirmed: true }
       const score = tightnessFormingScore(formed.tightness)
-      return { score: contextOk ? Math.max(score, 40) : score, confirmed: false }
+      if (!contextOk && score > 0) return { score: Math.min(score, 55), confirmed: false }
+      return { score, confirmed: false }
     }
     case 'weekly-inside-bar': {
-      const hit = isWeeklyInsideBar(weeks, 0)
-      if (hit) return { score: 100, confirmed: true }
+      if (isWeeklyInsideBar(weeks, 0)) return { score: 100, confirmed: true }
       if (weeks.length < 2) return { score: 0, confirmed: false }
-      const baby = weeks[0]
-      const mother = weeks[1]
-      const partial = scoreFromFlags([
-        baby.h <= mother.h && baby.l >= mother.l,
-        baby.h - baby.l < 0.5 * (mother.h - mother.l),
-        (baby.v ?? 0) < (mother.v ?? 0),
-      ])
-      return { score: contextOk ? partial : Math.min(partial, 50), confirmed: false }
+      const score = weeklyInsideBarFormingScore(weeks[0], weeks[1])
+      return { score: contextOk ? score : Math.min(score, 55), confirmed: false }
     }
     case 'double-inside-bar': {
-      const inside0 = weeks.length >= 2 && isWeeklyInsideBar(weeks, 0)
-      const inside1 = weeks.length >= 3 && isWeeklyInsideBar(weeks, 1)
-      if (inside0 && inside1) return { score: 100, confirmed: true }
-      const partial = scoreFromFlags([inside0, inside1, contextOk])
-      return { score: partial >= 67 ? 85 : partial, confirmed: false }
+      if (weeks.length >= 3 && isWeeklyInsideBar(weeks, 0) && isWeeklyInsideBar(weeks, 1)) {
+        return { score: 100, confirmed: true }
+      }
+      if (weeks.length < 3) return { score: 0, confirmed: false }
+      const s0 = weeklyInsideBarFormingScore(weeks[0], weeks[1])
+      const s1 = weeklyInsideBarFormingScore(weeks[1], weeks[2])
+      const score = blendScores([
+        { score: s0, weight: 1 },
+        { score: s1, weight: 1 },
+        { score: contextOk ? 100 : 40, weight: 0.4 },
+      ])
+      return { score, confirmed: false }
     }
     case 'double-hammer': {
-      const h0 = weeks.length >= 1 && isWeeklyHammer(weeks, 0)
-      const h1 = weeks.length >= 2 && isWeeklyHammer(weeks, 1)
-      if (h0 && h1) return { score: 100, confirmed: true }
-      const partial = scoreFromFlags([h0, h1, contextOk])
-      return { score: partial >= 67 ? 85 : partial, confirmed: false }
+      if (weeks.length >= 2 && isWeeklyHammer(weeks, 0) && isWeeklyHammer(weeks, 1)) {
+        return { score: 100, confirmed: true }
+      }
+      const s0 = weeklyHammerFormingScore(weeks, 0)
+      const s1 = weeklyHammerFormingScore(weeks, 1)
+      const score = blendScores([
+        { score: s0, weight: 1 },
+        { score: s1, weight: 1 },
+        { score: contextOk ? 100 : 40, weight: 0.35 },
+      ])
+      return { score, confirmed: false }
     }
     default:
       return { score: 0, confirmed: false }
@@ -142,32 +187,32 @@ export function livermoreAlertScore(
 
   switch (patternId) {
     case 'livermore-dashboard':
-      return { score: scores.finalScore, confirmed: false }
+      return { score: clampScore(scores.finalScore), confirmed: false }
     case 'livermore-elite-setup':
       return {
-        score: scoreFromFlags([
-          scores.accumulation > 80,
-          scores.liquidityGrab > 70,
-          ctx.from52wHigh >= -10,
-          scores.emaStack,
-          ctx.relativeVolume > 1.5,
+        score: blendScores([
+          { score: rampUp(scores.accumulation, 60, 85), weight: 1.3 },
+          { score: rampUp(scores.liquidityGrab, 50, 80), weight: 1.2 },
+          { score: rampUp(ctx.from52wHigh, -20, -5), weight: 0.8 },
+          { score: scores.emaStack ? 100 : 25, weight: 0.9 },
+          { score: rampUp(ctx.relativeVolume, 1, 1.8), weight: 0.8 },
         ]),
         confirmed: false,
       }
     case 'livermore-accumulation':
-      return { score: scores.accumulation, confirmed: false }
+      return { score: clampScore(scores.accumulation), confirmed: false }
     case 'livermore-accumulation-strong':
       return { score: clampScore((scores.accumulation / 85) * 100), confirmed: false }
     case 'livermore-liquidity-grab':
-      return { score: scores.liquidityGrab, confirmed: false }
+      return { score: clampScore(scores.liquidityGrab), confirmed: false }
     case 'livermore-liquidity-strong':
       return { score: clampScore((scores.liquidityGrab / 80) * 100), confirmed: false }
     case 'livermore-pivot-breakout':
       return {
-        score: scoreFromFlags([
-          scores.breakout >= 34,
-          scores.volumeRatio > 1.5,
-          scores.rsSpread20 > 0,
+        score: blendScores([
+          { score: rampUp(scores.breakout, 10, 50), weight: 1.4 },
+          { score: rampUp(scores.volumeRatio, 1, 2), weight: 1 },
+          { score: rampUp(scores.rsSpread20, -2, 4), weight: 1 },
         ]),
         confirmed: false,
       }

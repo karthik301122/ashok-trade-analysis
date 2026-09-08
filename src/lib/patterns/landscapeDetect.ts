@@ -2,7 +2,7 @@ import { sma, type OhlcBar } from '../deskSeries'
 import type { PatternBias, PatternHit } from './types'
 import { atr } from './livermoreScores'
 import type { LaunchpadScanContext } from './launchpadDetect'
-import { scoreFromFlags } from './patternFormingScore'
+import { blendScores, rampDown, rampUp } from './patternFormingScore'
 
 const LOOKBACK_BARS = 10
 const MIN_BARS = 63
@@ -190,15 +190,49 @@ export function landscapeFormingScore(
 ): number {
   if (bars.length < MIN_BARS || i < MIN_BARS - 1) return 0
   const d = landscapeCheckDetails(bars, i, ctx)
-  return scoreFromFlags([
-    d.nearQuarterHigh,
-    d.atrContraction,
-    d.rangeContraction,
-    d.insideCondition,
-    d.momentumCondition,
-    d.rsCondition,
-    d.ma20Rising,
-    d.underResistance,
+  const atr20 = atrAt(bars, 20, i)
+  const atr20Prev = atrAt(bars, 20, i - 20)
+  const range10 = sumRange(bars, 10, i)
+  const range10Prev = sumRange(bars, 10, i - 10)
+  const atrRatio =
+    atr20 != null && atr20Prev != null && atr20Prev > 0 ? atr20 / atr20Prev : null
+  const rangeRatio =
+    range10 != null && range10Prev != null && range10Prev > 0 ? range10 / range10Prev : null
+  const close = bars[i].c
+  const underRes =
+    d.res20 != null && d.res20 > 0 ? close / d.res20 : null
+
+  return blendScores([
+    { score: d.proximity == null ? 0 : rampDown(d.proximity, 1.2, 8), weight: 1.4 },
+    { score: atrRatio == null ? 0 : rampDown(atrRatio, 0.95, 1.1), weight: 1.1 },
+    { score: rangeRatio == null ? 0 : rampDown(rangeRatio, 0.95, 1.1), weight: 1.1 },
+    { score: rampUp(d.insideBars, 0, 3), weight: 1 },
+    {
+      score: blendScores([
+        { score: rampUp(d.roc20 ?? -5, -2, 4), weight: 1 },
+        { score: rampUp(d.roc60 ?? -5, -2, 5), weight: 0.8 },
+        { score: rampDown(d.roc60 ?? 20, 6, 18), weight: 0.8 },
+      ]),
+      weight: 1.1,
+    },
+    {
+      score:
+        d.rs20 == null
+          ? 0
+          : blendScores([
+              { score: rampUp(d.rs20, -2, 4), weight: 1 },
+              {
+                score:
+                  d.rs5 != null && d.rs20 != null
+                    ? rampUp(d.rs5 - d.rs20 * 1.03, -2, 3)
+                    : 0,
+                weight: 1,
+              },
+            ]),
+      weight: 1.2,
+    },
+    { score: d.ma20Rising ? 100 : d.ma20 != null && close > d.ma20 ? 45 : 15, weight: 1 },
+    { score: underRes == null ? 0 : rampDown(underRes, 1.0, 1.05), weight: 1 },
   ])
 }
 

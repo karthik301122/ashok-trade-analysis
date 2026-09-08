@@ -35,12 +35,20 @@ describe('snapshotAlertScore', () => {
     expect(r.score).toBe(100)
   })
 
-  it('returns partial score when forming', () => {
+  it('returns continuous partial score when forming', () => {
     const s = stock({ rs: 55, star: false })
     const ctx = buildSpecialScanContext([s], 0)
     const r = snapshotAlertScore('rs-leader', s, ctx)
     expect(r.confirmed).toBe(false)
+    expect(r.score).toBe(50) // midway 40→70
     expect(r.score).toBeGreaterThan(0)
     expect(r.score).toBeLessThan(100)
+  })
+
+  it('ranks higher RS closer to leader threshold', () => {
+    const ctx = buildSpecialScanContext([stock({ rs: 50 }), stock({ rs: 65 })], 0)
+    const a = snapshotAlertScore('rs-leader', stock({ rs: 50 }), ctx)
+    const b = snapshotAlertScore('rs-leader', stock({ rs: 65 }), ctx)
+    expect(b.score).toBeGreaterThan(a.score)
   })
 })

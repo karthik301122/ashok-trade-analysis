@@ -2,7 +2,7 @@ import { sma, type OhlcBar } from '../deskSeries'
 import type { PatternBias, PatternHit } from './types'
 import { atr } from './livermoreScores'
 
-import { scoreFromFlags } from './patternFormingScore'
+import { blendScores, rampDown, rampUp } from './patternFormingScore'
 
 const LOOKBACK_BARS = 10
 /** Need SMA(200) + ATR lookback. */
@@ -281,17 +281,56 @@ export function launchpadFormingScore(
   ctx?: LaunchpadScanContext,
 ): number {
   if (bars.length < MIN_BARS || i < MIN_BARS - 1) return 0
+  const atr20 = atrAt(bars, 20, i)
+  const atr20Prev = atrAt(bars, 20, i - 20)
+  const range10 = sumRange(bars, 10, i)
+  const range10Prev = sumRange(bars, 10, i - 10)
+  const inside = countInsideBars(bars, 7, i)
   const d = launchpadCheckDetails(bars, i, ctx)
-  return scoreFromFlags([
-    d.atrContraction,
-    d.rangeContraction,
-    d.insideCondition,
-    d.rsCondition,
-    d.momentumCondition,
-    d.trendCondition,
-    d.pivotCondition,
-    d.volumeCondition,
-    d.tightnessCondition,
+  const atrRatio =
+    atr20 != null && atr20Prev != null && atr20Prev > 0 ? atr20 / atr20Prev : null
+  const rangeRatio =
+    range10 != null && range10Prev != null && range10Prev > 0 ? range10 / range10Prev : null
+  const hi10 = highestHigh(bars, 10, i)
+  const lo10 = lowestLow(bars, 10, i)
+  const tightPct =
+    hi10 != null && lo10 != null && d.close > 0 ? (hi10 - lo10) / d.close : null
+  const volSma20 = smaVolume(bars, 20, i)
+  const volRatio =
+    volSma20 != null && volSma20 > 0 ? (bars[i].v ?? 0) / volSma20 : null
+
+  return blendScores([
+    { score: atrRatio == null ? 0 : rampDown(atrRatio, 0.9, 1.05), weight: 1.2 },
+    { score: rangeRatio == null ? 0 : rampDown(rangeRatio, 0.85, 1.05), weight: 1.2 },
+    { score: rampUp(inside, 0, 3), weight: 1 },
+    {
+      score:
+        d.rs20VsIndex == null
+          ? 0
+          : blendScores([
+              { score: rampUp(d.rs20VsIndex, -2, 4), weight: 1 },
+              {
+                score:
+                  d.rs5VsIndex != null && d.rs20VsIndex != null
+                    ? rampUp(d.rs5VsIndex - d.rs20VsIndex, -1, 3)
+                    : 0,
+                weight: 1,
+              },
+            ]),
+      weight: 1.3,
+    },
+    {
+      score: blendScores([
+        { score: rampUp(d.roc5 ?? -5, -2, 3), weight: 1 },
+        { score: rampUp(d.roc20 ?? -5, -2, 8), weight: 1 },
+        { score: rampDown(d.roc60 ?? 40, 15, 40), weight: 0.8 },
+      ]),
+      weight: 1.1,
+    },
+    { score: d.trendCondition ? 100 : d.ma20 != null && d.close > d.ma20 ? 45 : 15, weight: 1.1 },
+    { score: d.pivotCondition ? 100 : 30, weight: 0.8 },
+    { score: volRatio == null ? 0 : rampUp(volRatio, 0.5, 1.0), weight: 0.7 },
+    { score: tightPct == null ? 0 : rampDown(tightPct, 0.12, 0.25), weight: 1 },
   ])
 }
 

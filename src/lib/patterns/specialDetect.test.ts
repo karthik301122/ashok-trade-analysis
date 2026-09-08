@@ -58,7 +58,7 @@ describe('specialDetect', () => {
       pattern,
       [
         stock({ ticker: 'A', star: true, m3: 10 }),
-        stock({ ticker: 'B', star: false, m3: 12, rs: 55 }),
+        stock({ ticker: 'B', star: false, m3: 2, rs: 55 }),
         stock({ ticker: 'C', star: true, m3: 15 }),
       ],
       ctx,
