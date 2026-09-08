@@ -10,6 +10,7 @@ import {
 } from './specialCatalog'
 import {
   buildSpecialScanContext,
+  snapshotAlertScore,
 } from './specialDetect'
 import {
   detectThreeWeeksTight,
@@ -33,10 +34,6 @@ export type PatternAlertScore = { score: number; confirmed: boolean }
 
 function clampScore(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n)))
-}
-
-function vsIndex3m(stock: StockMetrics, indexM3: number): number {
-  return stock.m3 - indexM3
 }
 
 function stage2WeeklyProgress(weeks: OhlcBar[], i = 0): number {
@@ -181,7 +178,7 @@ export function livermoreAlertScore(
 
 const DAILY_SCAN_PATTERNS = [...VCP_PATTERNS, ...LAUNCHPAD_PATTERNS, ...LANDSCAPE_PATTERNS]
 
-export { snapshotAlertScore } from './specialDetect'
+export { snapshotAlertScore }
 
 export function collectOhlcPatternUploadRows(
   ticker: string,
