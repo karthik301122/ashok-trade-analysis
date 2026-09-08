@@ -146,7 +146,8 @@ async function setJob(status, fields = {}) {
 export async function reconcileAcceptableSnapshotJob() {
   const row = await sqlOne('SELECT * FROM snapshot_job WHERE id = 1')
   if (!row || row.status !== 'error') return false
-  const existing = await readMarketSnapshotDbRow()
+  // Counts only — never parse stocks_perf_json on the health/job status path.
+  const existing = await readMarketSnapshotLightMeta()
   if (!existing || snapshotNeedsMoreWork(existing)) return false
   await setJob('done', {
     started_at: row.started_at,
@@ -199,6 +200,20 @@ export async function readMarketSnapshotDbRow() {
     failed: Number(row.failed),
     indexPerf: JSON.parse(row.index_perf_json),
     stocks: JSON.parse(row.stocks_perf_json),
+  }
+}
+
+/** Counts / freshness only — safe for /api/health and auto-retry gates. */
+export async function readMarketSnapshotLightMeta() {
+  const row = await sqlOne(
+    'SELECT built_at, as_of, loaded, failed FROM market_snapshot WHERE id = 1',
+  )
+  if (!row) return null
+  return {
+    builtAt: Number(row.built_at),
+    asOf: row.as_of,
+    loaded: Number(row.loaded),
+    failed: Number(row.failed),
   }
 }
 
@@ -992,7 +1007,8 @@ export function runRetryFailedSnapshot(opts = {}) {
 
 /**
  * When failed names exceed AUTO_RETRY_FAILED_THRESHOLD, start a missing-only retry.
- * Safe to call from meta/health/refresh polls (cooldown + eodhd-limit guarded).
+ * Safe to call from meta/refresh polls (cooldown + eodhd-limit guarded).
+ * Do not call from /api/health — that path must stay cheap.
  */
 export async function maybeAutoRetryHighFailures() {
   await recoverStaleSnapshotJob()
@@ -1001,7 +1017,7 @@ export async function maybeAutoRetryHighFailures() {
   if (job.status === 'running') return { started: false, reason: 'already-running' }
   if (isEodhdDailyLimitExceeded()) return { started: false, reason: 'eodhd-limit' }
 
-  const existing = await readMarketSnapshotDbRow()
+  const existing = await readMarketSnapshotLightMeta()
   if (!existing) return { started: false, reason: 'no-snapshot' }
   const failed = Number(existing.failed ?? 0)
   if (failed <= AUTO_RETRY_FAILED_THRESHOLD) {
@@ -1209,7 +1225,8 @@ export async function maybeStartBackgroundSnapshot() {
   if (await snapshotLooksCurrent(existing)) return
 
   // Prefer a clear auto-retry of missing names when failure count is very high.
-  if (existing && Number(existing.failed) > AUTO_RETRY_FAILED_THRESHOLD) {
+  const failed = Number(existing?.failed ?? 0)
+  if (existing && failed > AUTO_RETRY_FAILED_THRESHOLD) {
     await maybeAutoRetryHighFailures()
     return
   }

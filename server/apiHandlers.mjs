@@ -14,6 +14,7 @@ import {
   maybeAutoRetryHighFailures,
   readBarsAsOf,
   readMarketSnapshotMeta,
+  readMarketSnapshotLightMeta,
   readMarketSnapshotRow,
   readMarketSnapshotStocksChunk,
   runAsx200ForceRefresh,
@@ -265,18 +266,18 @@ export async function handleConnectApi(req, res, send) {
   if (url.pathname === '/api/snapshot/refresh') {
     if (req.method === 'GET') {
       void maybeAutoRetryHighFailures()
-      const row = await readMarketSnapshotRow()
+      const snap = await readMarketSnapshotLightMeta()
       send(
         200,
         {
           job: await getSnapshotJobStatus(),
           autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
-          snapshot: row
+          snapshot: snap
             ? {
-                builtAt: row.builtAt,
-                loaded: row.loaded,
-                failed: row.failed,
-                fresh: isSnapshotFresh(row.builtAt),
+                builtAt: snap.builtAt,
+                loaded: snap.loaded,
+                failed: snap.failed,
+                fresh: isSnapshotFresh(snap.builtAt),
               }
             : null,
         },
@@ -421,8 +422,9 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/health') {
-    void maybeAutoRetryHighFailures()
-    const snap = await readMarketSnapshotRow()
+    // Keep this path cheap — browsers poll it on every load. Never parse stocks_perf
+    // or kick auto-retry here (that starved the DB pool and hung /api/auth/me).
+    const snap = await readMarketSnapshotLightMeta()
     const universeTotal = getUniverseCount()
     const snapMeta = snap
       ? {
@@ -616,8 +618,9 @@ export function mountExpressApi(app) {
   app.get('/api/health', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     res.setHeader('Pragma', 'no-cache')
-    void maybeAutoRetryHighFailures()
-    const snap = await readMarketSnapshotRow()
+    // Keep this path cheap — browsers poll it on every load. Never parse stocks_perf
+    // or kick auto-retry here (that starved the DB pool and hung /api/auth/me).
+    const snap = await readMarketSnapshotLightMeta()
     const universeTotal = getUniverseCount()
     const snapMeta = snap
       ? {
@@ -1076,16 +1079,16 @@ export function mountExpressApi(app) {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     res.setHeader('Pragma', 'no-cache')
     void maybeAutoRetryHighFailures()
-    const row = await readMarketSnapshotRow()
+    const snap = await readMarketSnapshotLightMeta()
     return res.json({
       job: await getSnapshotJobStatus(),
       autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
-      snapshot: row
+      snapshot: snap
         ? {
-            builtAt: row.builtAt,
-            loaded: row.loaded,
-            failed: row.failed,
-            fresh: isSnapshotFresh(row.builtAt),
+            builtAt: snap.builtAt,
+            loaded: snap.loaded,
+            failed: snap.failed,
+            fresh: isSnapshotFresh(snap.builtAt),
           }
         : null,
     })

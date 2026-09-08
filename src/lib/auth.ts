@@ -35,8 +35,14 @@ export async function fetchAuthConfig(): Promise<AuthConfig> {
 }
 
 export async function fetchAuthMe(): Promise<AuthMe> {
+  const timeout = new AbortController()
+  const timer = setTimeout(() => timeout.abort(), 12_000)
   try {
-    const res = await fetch('/api/auth/me', { credentials: 'include' })
+    const res = await fetch('/api/auth/me', {
+      credentials: 'include',
+      signal: timeout.signal,
+      cache: 'no-store',
+    })
     const json = (await res.json()) as AuthMe
     if (res.status === 401) {
       return { user: null, authRequired: json.authRequired !== false }
@@ -59,6 +65,8 @@ export async function fetchAuthMe(): Promise<AuthMe> {
   } catch {
     const cfg = await fetchAuthConfig()
     return { user: null, authRequired: cfg.authRequired }
+  } finally {
+    clearTimeout(timer)
   }
 }
 
