@@ -340,16 +340,14 @@ export default function App() {
     void fetchDeskServerConfig().then(setDeskConfig)
   }, [canUseApp])
 
-  /** Poll job status for everyone when failed is high or a snapshot job is running. */
+  /** Poll job status only while a retry/refresh is actually running. */
   useEffect(() => {
     if (!canUseApp) return
-    const failed = meta?.failed ?? 0
-    const jobRunning = snapshotJob?.status === 'running'
-    const shouldPoll = failed > 300 || jobRunning || retryingFailed
-    if (!shouldPoll && meta) return
+    const jobRunning = snapshotJob?.status === 'running' || retryingFailed
+    if (!jobRunning) return
 
     let cancelled = false
-    let wasRunning = jobRunning
+    let wasRunning = true
     const poll = async () => {
       try {
         const res = await fetch(`/api/snapshot/refresh?_=${Date.now()}`, {
@@ -384,7 +382,6 @@ export default function App() {
         }
         const running = job?.status === 'running'
         if (wasRunning && !running) {
-          // Auto/manual retry finished — refresh desk data for all users.
           void loadRef.current(false)
         }
         wasRunning = Boolean(running)
@@ -394,12 +391,12 @@ export default function App() {
     }
 
     void poll()
-    const id = window.setInterval(() => void poll(), jobRunning || failed > 300 ? 4000 : 12_000)
+    const id = window.setInterval(() => void poll(), 8000)
     return () => {
       cancelled = true
       window.clearInterval(id)
     }
-  }, [canUseApp, meta?.failed, snapshotJob?.status, retryingFailed])
+  }, [canUseApp, snapshotJob?.status, retryingFailed])
 
   useEffect(() => {
     if (!canUseApp || !deskConfig?.productionMode) return
@@ -542,7 +539,7 @@ export default function App() {
     }
     const failed = meta?.failed ?? 0
     if (failed > 300) {
-      return `High failure count (${failed.toLocaleString()}) — auto-retrying failed stocks…`
+      return `High failure count (${failed.toLocaleString()}) — admin can Retry failed names`
     }
     return null
   })()

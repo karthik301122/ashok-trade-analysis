@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { Worker } from 'worker_threads'
 import { sqlAll, sqlOne, sqlRun } from './db.mjs'
 import { dbStoreLabel } from './db.mjs'
 import { getCachedSeries } from './getSeries.mjs'
@@ -16,6 +17,7 @@ import { readSeriesCache, isoFromUnix, isLastBarAcceptable } from './seriesStore
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
 const universePath = path.join(root, 'src', 'data', 'asxUniverse.json')
+const stocksPerfWorkerPath = path.join(__dirname, 'stocksPerfParseWorker.mjs')
 
 /** Clock window only — also require last AXJO bar current before skipping rebuilds. */
 export const SNAPSHOT_FRESH_MS = 4 * 60 * 60 * 1000
@@ -25,8 +27,13 @@ const JOB_MAX_AGE_MS = () => {
   const n = Number(process.env.SNAPSHOT_JOB_MAX_AGE_MS)
   return Number.isFinite(n) && n > 0 ? n : 40 * 60 * 1000
 }
-/** Auto-start missing-ticker retry when failed count exceeds this. */
+/** Auto-start missing-ticker retry when failed count exceeds this. Opt-in: SNAPSHOT_AUTO_RETRY=1 */
 export const AUTO_RETRY_FAILED_THRESHOLD = 300
+function autoRetryEnabled() {
+  const raw = process.env.SNAPSHOT_AUTO_RETRY?.trim().toLowerCase()
+  if (!raw) return false
+  return raw === '1' || raw === 'true' || raw === 'yes'
+}
 /** Min time between automatic high-failure retries (avoids meta-poll spam). */
 const AUTO_RETRY_INTERVAL_MS = () => {
   const n = Number(process.env.SNAPSHOT_AUTO_RETRY_INTERVAL_MS)
@@ -167,6 +174,11 @@ export async function reconcileAcceptableSnapshotJob() {
 export async function getSnapshotJobStatus() {
   await recoverStaleSnapshotJob()
   await reconcileAcceptableSnapshotJob()
+  return peekSnapshotJobStatus()
+}
+
+/** Cheap job status for /api/health — no recover/reconcile side effects. */
+export async function peekSnapshotJobStatus() {
   const row = await sqlOne('SELECT * FROM snapshot_job WHERE id = 1')
   if (!row) {
     return {
@@ -185,7 +197,6 @@ export async function getSnapshotJobStatus() {
     failed: row.failed,
     total: row.total,
     autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
-    /** Set while a job is in-flight so clients can show “auto-retry…” for everyone. */
     trigger: status === 'running' ? lastJobTrigger : null,
   }
 }
@@ -193,13 +204,20 @@ export async function getSnapshotJobStatus() {
 export async function readMarketSnapshotDbRow() {
   const row = await sqlOne('SELECT * FROM market_snapshot WHERE id = 1')
   if (!row) return null
+  const builtAt = Number(row.built_at)
+  let stocks = stocksPerfCache && stocksPerfBuiltAt === builtAt ? stocksPerfCache : null
+  if (!stocks && row.stocks_perf_json) {
+    stocks = await parseStocksPerfInWorker(builtAt, row.stocks_perf_json)
+    stocksPerfCache = stocks
+    stocksPerfBuiltAt = builtAt
+  }
   return {
-    builtAt: Number(row.built_at),
+    builtAt,
     asOf: row.as_of,
     loaded: Number(row.loaded),
     failed: Number(row.failed),
     indexPerf: JSON.parse(row.index_perf_json),
-    stocks: JSON.parse(row.stocks_perf_json),
+    stocks: stocks || {},
   }
 }
 
@@ -232,14 +250,35 @@ let stocksPerfBuiltAt = 0
 /** @type {Promise<boolean> | null} */
 let stocksPerfWarmPromise = null
 
-function loadStocksPerfMap(builtAt, stocksJson) {
-  if (stocksPerfCache && stocksPerfBuiltAt === builtAt) return stocksPerfCache
-  const t0 = Date.now()
-  stocksPerfCache = JSON.parse(stocksJson)
-  stocksPerfBuiltAt = builtAt
-  const n = Object.keys(stocksPerfCache).length
-  console.log(`[snapshot] parsed stocks_perf (${n} names) in ${Date.now() - t0}ms`)
-  return stocksPerfCache
+/** Parse stocks_perf JSON in a worker so the HTTP event loop stays responsive. */
+function parseStocksPerfInWorker(builtAt, stocksJson) {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const worker = new Worker(stocksPerfWorkerPath, {
+      workerData: { builtAt, json: stocksJson },
+    })
+    const finish = (fn, arg) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      void worker.terminate()
+      fn(arg)
+    }
+    const timer = setTimeout(() => {
+      finish(reject, new Error('stocks_perf worker timeout'))
+    }, 120_000)
+    worker.on('message', (msg) => {
+      if (!msg?.ok) {
+        finish(reject, new Error(msg?.error || 'stocks_perf worker failed'))
+        return
+      }
+      finish(resolve, msg.map)
+    })
+    worker.on('error', (err) => finish(reject, err))
+    worker.on('exit', (code) => {
+      if (code !== 0) finish(reject, new Error(`stocks_perf worker exited ${code}`))
+    })
+  })
 }
 
 export function clearStocksPerfCache() {
@@ -251,7 +290,7 @@ export function clearStocksPerfCache() {
 
 /**
  * Parse stocks_perf_json once per process (shared across concurrent chunk requests).
- * First /api/snapshot/stocks without this can take so long the browser times out at 96%.
+ * Uses a worker thread — never sync-JSON.parses the giant blob on the request thread.
  * @returns {Promise<boolean>}
  */
 export async function ensureStocksPerfCacheWarm() {
@@ -259,12 +298,17 @@ export async function ensureStocksPerfCacheWarm() {
   if (stocksPerfWarmPromise) return stocksPerfWarmPromise
   stocksPerfWarmPromise = (async () => {
     try {
-      // Yield so /api/ping and /api/auth/me can answer before we fetch the blob.
-      await new Promise((r) => setImmediate(r))
       const row = await sqlOne('SELECT built_at, stocks_perf_json FROM market_snapshot WHERE id = 1')
       if (!row?.stocks_perf_json) return false
-      await new Promise((r) => setImmediate(r))
-      loadStocksPerfMap(Number(row.built_at), row.stocks_perf_json)
+      const builtAt = Number(row.built_at)
+      if (stocksPerfCache && stocksPerfBuiltAt === builtAt) return true
+      const t0 = Date.now()
+      const map = await parseStocksPerfInWorker(builtAt, row.stocks_perf_json)
+      stocksPerfCache = map
+      stocksPerfBuiltAt = builtAt
+      console.log(
+        `[snapshot] worker-parsed stocks_perf (${Object.keys(map).length} names) in ${Date.now() - t0}ms`,
+      )
       return true
     } catch (err) {
       console.warn(
@@ -1014,6 +1058,7 @@ export function runRetryFailedSnapshot(opts = {}) {
  * Do not call from /api/health — that path must stay cheap.
  */
 export async function maybeAutoRetryHighFailures() {
+  if (!autoRetryEnabled()) return { started: false, reason: 'disabled' }
   await recoverStaleSnapshotJob()
   if (runningJob) return { started: false, reason: 'already-running' }
   const job = await getSnapshotJobStatus()
@@ -1229,7 +1274,7 @@ export async function maybeStartBackgroundSnapshot() {
 
   // Prefer a clear auto-retry of missing names when failure count is very high.
   const failed = Number(existing?.failed ?? 0)
-  if (existing && failed > AUTO_RETRY_FAILED_THRESHOLD) {
+  if (existing && failed > AUTO_RETRY_FAILED_THRESHOLD && autoRetryEnabled()) {
     await maybeAutoRetryHighFailures()
     return
   }

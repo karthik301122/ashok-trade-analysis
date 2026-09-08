@@ -36,19 +36,23 @@ app.use(maintenanceMiddleware)
 
 await initDb()
 
+// Static assets first so HTML/JS/CSS never wait behind snapshot/API work.
+app.use(
+  express.static(dist, {
+    index: false,
+    maxAge: '1h',
+    setHeaders(res, filePath) {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-store')
+      }
+    },
+  }),
+)
+
 mountExpressApi(app)
 
-// Defer stocks_perf warm well after listen — sync JSON.parse blocks the whole
-// event loop (ping/auth/me hang) if we warm immediately on boot.
-setTimeout(() => {
-  void import('./snapshotJob.mjs')
-    .then((m) => m.ensureStocksPerfCacheWarm())
-    .catch(() => {})
-}, 30_000)
-
-app.use(express.static(dist))
-
 app.get(/.*/, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
   res.sendFile(path.join(dist, 'index.html'))
 })
 
@@ -56,12 +60,18 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`ASX Sector Intelligence running on http://localhost:${port}`)
   console.log(`Database: ${dbPath()} (${dbStoreLabel()})`)
   console.log(authEnabled() ? 'Auth: enabled (login required)' : 'Auth: disabled (set AUTH_SECRET)')
-  // Defer heavy background work so Azure sees the port open quickly after deploy.
+  // Light schedulers only at first. Full snapshot rebuild/auto-retry is opt-in /
+  // deferred so boot never wedges the event loop for everyone.
   setTimeout(() => {
-    maybeStartBackgroundSnapshot()
     maybeStartLiveQuoteScheduler()
     maybeStartIndexMembersScheduler()
     maybeStartAsxFilingsScheduler()
+  }, 20_000)
+  setTimeout(() => {
     maybeStartDeskSyncScheduler()
-  }, 45_000)
+    // Opt-in only — automatic universe rebuild on boot has wedged production.
+    if (process.env.SNAPSHOT_BACKGROUND_ON_BOOT === '1') {
+      maybeStartBackgroundSnapshot()
+    }
+  }, 120_000)
 })

@@ -9,6 +9,7 @@ import { computeBreadthChartHistory, getIndexBarsForChart } from './breadthHisto
 import { dbPath, dbStoreLabel, initDb } from './db.mjs'
 import {
   getSnapshotJobStatus,
+  peekSnapshotJobStatus,
   isSnapshotFresh,
   maybeStartBackgroundSnapshot,
   maybeAutoRetryHighFailures,
@@ -422,8 +423,8 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/health') {
-    // Keep this path cheap — browsers poll it on every load. Never parse stocks_perf
-    // or kick auto-retry here (that starved the DB pool and hung /api/auth/me).
+    // Ultra-light: desk boots call this repeatedly. Avoid file scans, user counts,
+    // job reconcile, and anything that can stall the event loop.
     const snap = await readMarketSnapshotLightMeta()
     const universeTotal = getUniverseCount()
     const snapMeta = snap
@@ -439,7 +440,6 @@ export async function handleConnectApi(req, res, send) {
       universeTotal,
     )
     const admin = await isAdminRequest(req)
-    const barsAsOf = await readBarsAsOf()
     send(200, {
       ok: true,
       provider: seriesProviderName(),
@@ -448,27 +448,24 @@ export async function handleConnectApi(req, res, send) {
       productionMode: isProductionMode(),
       browserUniverseFetch: browserUniverseFetchEnabled(),
       isAdmin: admin,
-      barsAsOf: barsAsOf?.iso ?? null,
-      barsAsOfLabel: barsAsOf?.label ?? null,
+      barsAsOf: null,
+      barsAsOfLabel: null,
       rateLimits: {
         seriesPerMinute: seriesRateLimitPerMinute(),
         snapshotPerMinute: snapshotRateLimitPerMinute(),
       },
       readiness,
       authRequired: authEnabled(),
-      authDbUserCount: authEnabled() ? await countDbUsers() : 0,
+      authDbUserCount: 0,
       authEnvUserCount: authEnabled() ? envUserCount() : 0,
-      ...(admin
-        ? { authUsernames: await listDbUsernames() }
-        : {}),
       maintenance: maintenanceEnabled(),
       maintenanceMessage: maintenanceEnabled() ? maintenanceMessage() : undefined,
       eodhdDailyLimit: eodhdDailyLimitMeta(),
-      seriesCached: await seriesCacheFileCount(),
+      seriesCached: 0,
       store: dbStoreLabel(),
       database: dbPath(),
       snapshot: snapMeta,
-      job: await getSnapshotJobStatus(),
+      job: await peekSnapshotJobStatus(),
       autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
       liveQuotes: await getLiveQuotesMeta(),
       alertEmailEnabled: alertEmailConfigured(),
@@ -618,8 +615,8 @@ export function mountExpressApi(app) {
   app.get('/api/health', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     res.setHeader('Pragma', 'no-cache')
-    // Keep this path cheap — browsers poll it on every load. Never parse stocks_perf
-    // or kick auto-retry here (that starved the DB pool and hung /api/auth/me).
+    // Ultra-light: desk boots call this repeatedly. Avoid file scans, user counts,
+    // job reconcile, and anything that can stall the event loop.
     const snap = await readMarketSnapshotLightMeta()
     const universeTotal = getUniverseCount()
     const snapMeta = snap
@@ -632,7 +629,6 @@ export function mountExpressApi(app) {
       : null
     const readiness = readinessFromSnapshot(snapMeta || {}, universeTotal)
     const admin = await isAdminRequest(req)
-    const barsAsOf = await readBarsAsOf()
     res.json({
       ok: true,
       provider: seriesProviderName(),
@@ -641,27 +637,24 @@ export function mountExpressApi(app) {
       productionMode: isProductionMode(),
       browserUniverseFetch: browserUniverseFetchEnabled(),
       isAdmin: admin,
-      barsAsOf: barsAsOf?.iso ?? null,
-      barsAsOfLabel: barsAsOf?.label ?? null,
+      barsAsOf: null,
+      barsAsOfLabel: null,
       rateLimits: {
         seriesPerMinute: seriesRateLimitPerMinute(),
         snapshotPerMinute: snapshotRateLimitPerMinute(),
       },
       readiness,
       authRequired: authEnabled(),
-      authDbUserCount: authEnabled() ? await countDbUsers() : 0,
+      authDbUserCount: 0,
       authEnvUserCount: authEnabled() ? envUserCount() : 0,
-      ...(admin
-        ? { authUsernames: await listDbUsernames() }
-        : {}),
       maintenance: maintenanceEnabled(),
       maintenanceMessage: maintenanceEnabled() ? maintenanceMessage() : undefined,
       eodhdDailyLimit: eodhdDailyLimitMeta(),
-      seriesCached: await seriesCacheFileCount(),
+      seriesCached: 0,
       store: dbStoreLabel(),
       database: dbPath(),
       snapshot: snapMeta,
-      job: await getSnapshotJobStatus(),
+      job: await peekSnapshotJobStatus(),
       autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
       liveQuotes: await getLiveQuotesMeta(),
       alertEmailEnabled: alertEmailConfigured(),
