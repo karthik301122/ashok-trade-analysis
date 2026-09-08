@@ -54,6 +54,7 @@ export default function App() {
     failed?: number
     total?: number
     trigger?: string | null
+    startedAt?: number
   } | null>(null)
   const [deskConfig, setDeskConfig] = useState<DeskServerConfig | null>(null)
   const [siteMaintenance, setSiteMaintenance] = useState<{
