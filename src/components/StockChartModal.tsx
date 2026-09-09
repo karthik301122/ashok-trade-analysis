@@ -506,6 +506,39 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null, on
             </a>
           <button
             type="button"
+            className="rounded-lg border border-teal-600 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-900 dark:bg-teal-950/40 dark:text-teal-100"
+            onClick={() => {
+              void (async () => {
+                try {
+                  const res = await fetch('/api/share-links', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      payload: {
+                        ticker,
+                        timeframe: prefs.scanWindow,
+                        patternName: selected?.name || null,
+                        startT: selected?.startT ?? null,
+                        endT: selected?.endT ?? null,
+                      },
+                    }),
+                  })
+                  const json = await res.json().catch(() => ({}))
+                  if (!res.ok) throw new Error(json.error || 'Share failed')
+                  const url = `${window.location.origin}/?share=${encodeURIComponent(json.id)}`
+                  await navigator.clipboard.writeText(url)
+                  window.alert('Share link copied (signed-in users only)')
+                } catch (e) {
+                  window.alert(e instanceof Error ? e.message : 'Share failed')
+                }
+              })()
+            }}
+          >
+            Share setup
+          </button>
+          <button
+            type="button"
             onClick={onClose}
             className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-bold hover:bg-[var(--color-muted)]"
             aria-label="Close chart"

@@ -1,5 +1,6 @@
-import { LogOut, Moon, Sun, User } from 'lucide-react'
-import { APP_NAME, APP_TAGLINE } from '../lib/brand'
+import { useEffect, useRef, useState } from 'react'
+import { LogOut, Menu, Moon, Sun, User, X } from 'lucide-react'
+import { APP_NAME, APP_TAGLINE, getBrand } from '../lib/brand'
 import type { AppPage } from '../lib/appPage'
 
 type Props = {
@@ -14,12 +15,12 @@ type Props = {
   onLogout?: () => void
 }
 
-const NAV: { id: AppPage; label: string }[] = [
-  { id: 'sector', label: 'Markets' },
-  { id: 'breadth', label: 'Breadth' },
-  { id: 'special-patterns', label: 'Patterns' },
-  { id: 'create-pattern', label: 'Create pattern' },
-  { id: 'alerts', label: 'Alerts' },
+const NAV: { id: AppPage; label: string; short: string }[] = [
+  { id: 'sector', label: 'Markets', short: 'Mkt' },
+  { id: 'breadth', label: 'Breadth', short: 'Brd' },
+  { id: 'special-patterns', label: 'Patterns', short: 'Pat' },
+  { id: 'create-pattern', label: 'Create pattern', short: 'Create' },
+  { id: 'alerts', label: 'Alerts', short: 'Alert' },
 ]
 
 function labelInitials(label: string) {
@@ -46,27 +47,43 @@ export function Header({
   const showSession = Boolean(authRequired && user)
   const label = (displayName?.trim() || user || '').trim()
   const initials = label ? labelInitials(label) : ''
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const brand = getBrand()
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDoc = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [menuOpen])
+
+  useEffect(() => {
+    setMenuOpen(false)
+  }, [page])
 
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-md">
-      <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-4 px-4">
+      <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-3 px-3 sm:gap-4 sm:px-4">
         <button
           type="button"
           onClick={() => onPage('sector')}
-          className="flex shrink-0 items-center gap-2.5 rounded-lg text-left transition hover:opacity-90"
+          className="flex min-w-0 shrink items-center gap-2 rounded-lg text-left transition hover:opacity-90 sm:gap-2.5"
         >
-          <img src="/favicon.svg" alt="Traders Scope" className="h-9 w-9 rounded-lg" />
-          <div className="leading-tight">
-            <div className="font-[family-name:var(--font-display)] text-[15px] font-semibold tracking-tight">
-              {APP_NAME}
+          <img src={brand.logoUrl} alt={brand.name} className="h-8 w-8 shrink-0 rounded-lg sm:h-9 sm:w-9" />
+          <div className="min-w-0 leading-tight">
+            <div className="truncate font-[family-name:var(--font-display)] text-[14px] font-semibold tracking-tight sm:text-[15px]">
+              {brand.name}
             </div>
-            <div className="text-[10px] font-medium uppercase tracking-wider text-[var(--color-ink-soft)]">
-              {APP_TAGLINE}
+            <div className="hidden text-[10px] font-medium uppercase tracking-wider text-[var(--color-ink-soft)] sm:block">
+              {brand.poweredBy ? `Powered by ${APP_NAME}` : brand.tagline || APP_TAGLINE}
             </div>
           </div>
         </button>
 
-        <nav className="hidden items-center gap-1 sm:flex">
+        <nav className="hidden items-center gap-1 md:flex">
           {NAV.map((item) => {
             const active = page === item.id
             return (
@@ -87,22 +104,42 @@ export function Header({
           })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2">
-          <nav className="flex items-center gap-0.5 sm:hidden">
-            {NAV.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onPage(item.id)}
-                aria-current={page === item.id ? 'page' : undefined}
-                className={`rounded-md px-2 py-1 text-[11px] font-semibold ${
-                  page === item.id ? 'bg-teal-700 text-white' : 'text-[var(--color-ink-soft)]'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </nav>
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+          <div className="relative md:hidden" ref={menuRef}>
+            <button
+              type="button"
+              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((o) => !o)}
+              className="rounded-lg p-2 text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)] hover:text-[var(--color-ink)]"
+            >
+              {menuOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-full z-50 mt-1 w-48 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg">
+                {NAV.map((item) => {
+                  const active = page === item.id
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        onPage(item.id)
+                        setMenuOpen(false)
+                      }}
+                      className={`flex w-full items-center px-3 py-2.5 text-left text-sm font-medium ${
+                        active
+                          ? 'bg-teal-700 text-white'
+                          : 'text-[var(--color-ink)] hover:bg-[var(--color-muted)]'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             aria-label={dark ? 'Light mode' : 'Dark mode'}
@@ -125,8 +162,8 @@ export function Header({
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-700 text-xs font-semibold text-white">
                   {initials}
                 </span>
-                <span className="hidden max-w-[140px] truncate text-sm md:inline">{label}</span>
-                <User size={14} className="text-[var(--color-ink-soft)] md:hidden" />
+                <span className="hidden max-w-[140px] truncate text-sm lg:inline">{label}</span>
+                <User size={14} className="text-[var(--color-ink-soft)] lg:hidden" />
               </button>
               {onLogout && (
                 <button

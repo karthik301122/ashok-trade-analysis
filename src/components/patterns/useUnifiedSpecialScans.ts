@@ -21,7 +21,7 @@ import {
 } from '../../lib/patterns/patternAlertScores'
 import { postPatternScanBatch, type PatternScanUploadRow } from '../../lib/patternScanApi'
 
-const CONCURRENCY = 6
+const CONCURRENCY = import.meta.env.PROD ? 2 : 4
 const STALE_MS = 12 * 60 * 60 * 1000
 const BATCH_WRITE = 25
 const UI_TICK = 15
@@ -81,6 +81,26 @@ export function useUnifiedSpecialScans(
     let flushTimer: ReturnType<typeof setTimeout> | null = null
 
     void (async () => {
+      try {
+        const { fetchServerPatternHits } = await import('../../lib/patternScanApi')
+        const server = await fetchServerPatternHits('latest')
+        const today = new Date().toISOString().slice(0, 10)
+        if (
+          !cancelled &&
+          g === gen.current &&
+          server?.asOf === today &&
+          (server.hits?.length ?? 0) > 0
+        ) {
+          setScanning(false)
+          setDone(list.length)
+          setTotal(list.length)
+          return
+        }
+      } catch {
+        /* client scan */
+      }
+      if (cancelled || g !== gen.current) return
+
       const need: string[] = []
       for (let i = 0; i < list.length; i++) {
         if (cancelled || g !== gen.current) return

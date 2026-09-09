@@ -7,6 +7,9 @@ import { fetchDeskSeries, returnOver, sma, ema, type SeriesResult } from '../lib
 import { DebouncedSearchInput } from './DebouncedSearchInput'
 import { Sparkline } from './Sparkline'
 
+const PANEL_BUDGET_MS = 15_000
+const PER_SYMBOL_MS = 4_000
+
 type Row = AltAsset & {
   d1: number
   w1: number
@@ -76,6 +79,22 @@ function toRow(asset: AltAsset, series: SeriesResult, benchM3: number): Row {
   }
 }
 
+function withBudget<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const t = window.setTimeout(() => resolve(null), ms)
+    p.then(
+      (v) => {
+        clearTimeout(t)
+        resolve(v)
+      },
+      () => {
+        clearTimeout(t)
+        resolve(null)
+      },
+    )
+  })
+}
+
 export function AltAssetsPanel({ title, subtitle, assets, benchmarkSymbol = 'BTC-USD.CC' }: Props) {
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
@@ -83,27 +102,46 @@ export function AltAssetsPanel({ title, subtitle, assets, benchmarkSymbol = 'BTC
   const [group, setGroup] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [partialNote, setPartialNote] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
+    const started = Date.now()
     ;(async () => {
       setLoading(true)
       setError(null)
+      setPartialNote(null)
       try {
-        const bench = await fetchDeskSeries(benchmarkSymbol)
+        const bench = await withBudget(fetchDeskSeries(benchmarkSymbol), PER_SYMBOL_MS)
         const benchM3 = bench ? returnOver(bench.closes, 63) ?? 0 : 0
         const out: Row[] = []
+        let missed = 0
         for (const asset of assets) {
           if (cancelled) return
-          const series = await fetchDeskSeries(asset.eodhd)
+          if (Date.now() - started >= PANEL_BUDGET_MS) {
+            missed += assets.length - out.length - missed
+            break
+          }
+          const series = await withBudget(fetchDeskSeries(asset.eodhd), PER_SYMBOL_MS)
           if (series) out.push(toRow(asset, series, benchM3))
+          else missed += 1
         }
-        if (!cancelled) {
-          out.sort((a, b) => b.m3 - a.m3)
-          setRows(out)
+        if (cancelled) return
+        out.sort((a, b) => b.m3 - a.m3)
+        setRows(out)
+        if (!out.length) {
+          setError(
+            'Live prices for this desk are temporarily unavailable — the ASX Markets desk is unaffected. Try again in a minute.',
+          )
+        } else if (missed > 0 || Date.now() - started >= PANEL_BUDGET_MS) {
+          setPartialNote(
+            `Showing ${out.length} of ${assets.length} — market data was busy; refresh to load more.`,
+          )
         }
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load')
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : 'Failed to load')
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -131,6 +169,7 @@ export function AltAssetsPanel({ title, subtitle, assets, benchmarkSymbol = 'BTC
   }, [rows, group, query])
 
   const copyAll = async () => {
+    if (!filtered.length) return
     const text = filtered.map((r) => r.tradingView).join(',')
     try {
       await navigator.clipboard.writeText(text)
@@ -173,23 +212,31 @@ export function AltAssetsPanel({ title, subtitle, assets, benchmarkSymbol = 'BTC
         />
         <button
           type="button"
-          onClick={copyAll}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-teal-600 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-800 dark:bg-teal-950/40 dark:text-teal-200"
+          disabled={!filtered.length}
+          onClick={() => void copyAll()}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-teal-600 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-800 disabled:opacity-50 dark:bg-teal-950/40 dark:text-teal-200"
         >
           <Copy size={13} />
-          {copied ? 'Copied!' : 'Copy to TradingView'}
+          {copied ? 'Copied!' : filtered.length ? `Copy ${filtered.length} to TradingView` : 'Copy to TradingView'}
         </button>
       </div>
 
       {loading && (
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-muted)] px-4 py-6 text-center text-sm text-[var(--color-ink-soft)]">
-          Loading live prices…
+          Loading prices (max {PANEL_BUDGET_MS / 1000}s)…
         </div>
       )}
-      {error && <div className="text-sm text-rose-600">{error}</div>}
+      {error && !loading && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-50 px-4 py-4 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
+          {error}
+        </div>
+      )}
+      {partialNote && !loading && !error && (
+        <div className="text-xs text-[var(--color-ink-soft)]">{partialNote}</div>
+      )}
 
-      {!loading && (
-        <div className="overflow-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+      {!loading && rows.length > 0 && (
+        <div className="overflow-x-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
           <table className="min-w-[900px] w-full border-collapse text-left text-xs">
             <thead className="bg-[var(--color-muted)] text-[10px] uppercase tracking-wide text-[var(--color-ink-soft)]">
               <tr>
@@ -205,7 +252,7 @@ export function AltAssetsPanel({ title, subtitle, assets, benchmarkSymbol = 'BTC
             <tbody>
               {filtered.map((r) => (
                 <tr key={r.symbol} className="border-t border-[var(--color-border)]">
-                  <td className="px-2 py-2">
+                  <td className="sticky left-0 z-[1] bg-[var(--color-surface)] px-2 py-2">
                     <div className="font-semibold">{r.name}</div>
                     <div className="text-[10px] text-[var(--color-ink-soft)]">
                       {r.symbol}

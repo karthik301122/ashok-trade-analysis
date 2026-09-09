@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { Header } from './components/Header'
 import type { ViewId } from './components/ViewTabs'
 import { MainPagePanels } from './components/MainPagePanels'
+import { MarketingLanding } from './components/MarketingLanding'
 import { AuthPage } from './components/AuthPage'
 import { ProfilePage } from './components/ProfilePage'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
@@ -416,6 +417,8 @@ export default function App() {
     snapshotJob?.status,
   ])
 
+  const [authScreen, setAuthScreen] = useState<'landing' | 'signin'>('landing')
+
   const passwordResetPending = (() => {
     try {
       return Boolean(new URLSearchParams(window.location.search).get('reset')?.trim())
@@ -423,6 +426,10 @@ export default function App() {
       return false
     }
   })()
+
+  useEffect(() => {
+    if (passwordResetPending) setAuthScreen('signin')
+  }, [passwordResetPending])
 
   const canUseApp = !authChecking && (!authRequired || Boolean(user)) && !passwordResetPending
 
@@ -667,6 +674,13 @@ export default function App() {
         />
       )}
 
+      {!authChecking &&
+      authRequired &&
+      (!user || passwordResetPending) &&
+      authScreen === 'landing' &&
+      !passwordResetPending ? (
+        <MarketingLanding onSignIn={() => setAuthScreen('signin')} />
+      ) : (
       <main className="mx-auto max-w-[1600px] px-4 py-5">
         {authChecking ? (
           <div className="mx-auto mt-16 max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-sm">
@@ -674,7 +688,10 @@ export default function App() {
             <p className="text-sm text-[var(--color-ink-soft)]">Checking session…</p>
           </div>
         ) : authRequired && (!user || passwordResetPending) ? (
-          <AuthPage onSuccess={handleLogin} />
+            <AuthPage
+              onSuccess={handleLogin}
+              onBack={passwordResetPending ? undefined : () => setAuthScreen('landing')}
+            />
         ) : page === 'profile' && user ? (
           <ProfilePage user={user} onProfileChange={handleProfileChange} />
         ) : loading && !snapshot ? (
@@ -861,6 +878,7 @@ export default function App() {
           </>
         ) : null}
       </main>
+      )}
     </div>
     </AppNavContext.Provider>
     </PatternPrefsProvider>

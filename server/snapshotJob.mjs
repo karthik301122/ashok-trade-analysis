@@ -1339,6 +1339,16 @@ export async function runAsx200ForceRefresh() {
             failed: total - loaded,
             total,
           })
+          try {
+            const { maybeStartDeskPatternJob } = await import('./patternJob.mjs')
+            maybeStartDeskPatternJob({
+              stocks,
+              indexM3: indexPerf.m3,
+              universe: 'asx200',
+            })
+          } catch {
+            /* non-fatal */
+          }
         }
       }
 
@@ -1382,6 +1392,12 @@ export async function runAsx200ForceRefresh() {
         failed,
         total,
       })
+      try {
+        const { maybeAlertSnapshotFailures } = await import('./observability.mjs')
+        maybeAlertSnapshotFailures(failed, total)
+      } catch {
+        /* optional */
+      }
       console.log(
         `[snapshot] desk force refresh · updated=${priorityTickers.length - failedTickers.length}/${priorityTickers.length} · snapshot loaded=${loaded}`,
       )

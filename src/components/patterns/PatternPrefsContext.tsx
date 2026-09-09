@@ -22,7 +22,9 @@ import type { CustomRuleSet } from '../../lib/patterns/customRules'
 import type { CandleShapeSpec } from '../../lib/patterns/candleShape'
 import type { DrawnPatternSpec } from '../../lib/patterns/drawnPattern'
 import type { PatternScanWindow } from '../../lib/patterns/scanWindow'
+import { parsePatternScanWindow } from '../../lib/patterns/scanWindow'
 import type { ChartIntervalPref } from '../../lib/chartInterval'
+import { parseChartIntervalPref } from '../../lib/chartInterval'
 import {
   clearAllPatternHits,
   getTickerPatternHits,
@@ -97,8 +99,66 @@ export function PatternPrefsProvider({
     setPrefs(loadPatternPrefs(user))
   }, [user])
 
+  // Hydrate from server once per login; migrate local → server if server empty.
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    void (async () => {
+      const { fetchPatternPrefsFromServer, savePatternPrefsToServer } = await import(
+        '../../lib/patternScanApi'
+      )
+      const remote = await fetchPatternPrefsFromServer()
+      if (cancelled) return
+      const local = loadPatternPrefs(user)
+      if (remote) {
+        const hasRemote =
+          (remote.starredNames?.length ?? 0) > 0 || (remote.customPatterns?.length ?? 0) > 0
+        if (hasRemote) {
+          const merged = {
+            ...local,
+            starredNames: Array.isArray(remote.starredNames)
+              ? remote.starredNames.filter((n): n is string => typeof n === 'string')
+              : local.starredNames,
+            customPatterns: Array.isArray(remote.customPatterns)
+              ? (remote.customPatterns as PatternPrefs['customPatterns'])
+              : local.customPatterns,
+            scanWindow: parsePatternScanWindow(remote.scanWindow),
+            chartInterval: parseChartIntervalPref(remote.chartInterval),
+          }
+          setPrefs(merged)
+          savePatternPrefs(user, merged)
+          return
+        }
+        // Server empty — upload local once.
+        if (local.starredNames.length || local.customPatterns.length) {
+          await savePatternPrefsToServer({
+            starredNames: local.starredNames,
+            customPatterns: local.customPatterns,
+            scanWindow: local.scanWindow,
+            chartInterval: local.chartInterval,
+          })
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user])
+
   useEffect(() => {
     savePatternPrefs(user, prefs)
+    if (!user) return
+    const t = window.setTimeout(() => {
+      void import('../../lib/patternScanApi').then(({ savePatternPrefsToServer }) =>
+        savePatternPrefsToServer({
+          starredNames: prefs.starredNames,
+          customPatterns: prefs.customPatterns,
+          scanWindow: prefs.scanWindow,
+          chartInterval: prefs.chartInterval,
+        }),
+      )
+    }, 800)
+    return () => window.clearTimeout(t)
   }, [user, prefs])
 
   const isStarred = useCallback(

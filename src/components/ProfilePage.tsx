@@ -6,6 +6,7 @@ import {
   requestPasswordReset,
   updateProfile,
 } from '../lib/auth'
+import { OrgWorkspacePanel } from './OrgWorkspacePanel'
 
 type Props = {
   user: string
@@ -290,6 +291,8 @@ export function ProfilePage({ user, onProfileChange }: Props) {
           </button>
         </div>
       )}
+
+      <OrgWorkspacePanel />
     </div>
   )
 }

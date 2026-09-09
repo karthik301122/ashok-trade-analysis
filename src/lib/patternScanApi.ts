@@ -81,3 +81,89 @@ export async function fetchPatternScanByPattern(
     return []
   }
 }
+
+export type ServerPatternHit = {
+  patternId: string
+  patternName: string
+  bias: string
+  ticker: string
+  name: string
+  sector: string
+  industry: string
+  rs: number
+  m3: number
+  relativeVolume: number
+  rsi: number
+  lastPrice: number
+  score: number
+  confirmed: boolean
+  kind?: string
+}
+
+export type ServerPatternHitsPayload = {
+  asOf: string
+  builtAt: number
+  universe: string
+  hits: ServerPatternHit[]
+  counts: Record<string, number>
+}
+
+/** Identical desk pattern results computed server-side (ASX200 MVP). */
+export async function fetchServerPatternHits(
+  asOf = 'latest',
+): Promise<ServerPatternHitsPayload | null> {
+  try {
+    const qs = new URLSearchParams({ as_of: asOf })
+    const res = await fetch(`/api/patterns/hits?${qs}`, { credentials: 'include' })
+    if (!res.ok) return null
+    const json = (await res.json()) as Partial<ServerPatternHitsPayload>
+    if (!json?.asOf || !Array.isArray(json.hits)) return null
+    return {
+      asOf: json.asOf,
+      builtAt: Number(json.builtAt) || 0,
+      universe: String(json.universe || 'asx200'),
+      hits: json.hits as ServerPatternHit[],
+      counts: (json.counts && typeof json.counts === 'object' ? json.counts : {}) as Record<
+        string,
+        number
+      >,
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function fetchPatternPrefsFromServer(): Promise<{
+  starredNames: string[]
+  customPatterns: unknown[]
+  scanWindow: string
+  chartInterval: string
+} | null> {
+  try {
+    const res = await fetch('/api/patterns/prefs', { credentials: 'include' })
+    if (!res.ok) return null
+    const json = await res.json()
+    return json?.prefs ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function savePatternPrefsToServer(prefs: {
+  starredNames: string[]
+  customPatterns: unknown[]
+  scanWindow: string
+  chartInterval: string
+}): Promise<boolean> {
+  try {
+    const res = await fetch('/api/patterns/prefs', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefs }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}

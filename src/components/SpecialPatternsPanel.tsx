@@ -158,29 +158,56 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
   const [snapshotScan, setSnapshotScan] = useState<
     ReturnType<typeof scanAllSpecialPatterns>
   >([])
+  const [serverAsOf, setServerAsOf] = useState<string | null>(null)
 
   useEffect(() => {
     if (!active) return
     let cancelled = false
     const stocks = deferredStocks
-    const run = () => {
+    void (async () => {
+      const { fetchServerPatternHits } = await import('../lib/patternScanApi')
+      const { SNAPSHOT_PATTERN_CATALOG } = await import('../lib/patterns/specialCatalog')
+      const server = await fetchServerPatternHits('latest')
       if (cancelled) return
+      if (server?.hits?.length) {
+        const byPattern = new Map<string, typeof server.hits>()
+        for (const h of server.hits) {
+          if (h.kind && h.kind !== 'snapshot') continue
+          const list = byPattern.get(h.patternId) || []
+          list.push(h)
+          byPattern.set(h.patternId, list)
+        }
+        const mapped = SNAPSHOT_PATTERN_CATALOG.map((pattern) => {
+          const hits = (byPattern.get(pattern.id) || []).map((h) => ({
+            patternId: h.patternId,
+            patternName: h.patternName || pattern.name,
+            bias: (h.bias as 'bullish' | 'bearish' | 'neutral') || pattern.bias,
+            ticker: h.ticker,
+            name: h.name,
+            sector: h.sector,
+            industry: h.industry,
+            rs: h.rs,
+            m3: h.m3,
+            relativeVolume: h.relativeVolume,
+            rsi: h.rsi,
+            lastPrice: h.lastPrice,
+            score: h.score,
+            confirmed: h.confirmed,
+          }))
+          return { pattern, hits, count: hits.length }
+        })
+        setSnapshotScan(mapped)
+        setServerAsOf(server.asOf)
+        return
+      }
       startTransition(() => {
         if (cancelled) return
         setSnapshotScan(scanAllSpecialPatterns(stocks, indexM3))
+        setServerAsOf(null)
       })
-    }
-    if (typeof requestIdleCallback !== 'undefined') {
-      const id = requestIdleCallback(run, { timeout: 120 })
-      return () => {
-        cancelled = true
-        cancelIdleCallback(id)
-      }
-    }
-    const id = window.setTimeout(run, 0)
+    })()
     return () => {
       cancelled = true
-      window.clearTimeout(id)
     }
   }, [active, deferredStocks, indexM3])
   const snapshotById = useMemo(
@@ -358,6 +385,11 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
                     · one OHLC fetch per stock
                   </span>
                 )}
+              </p>
+            )}
+            {serverAsOf && !specialScanning && (
+              <p className="mt-2 text-xs font-medium text-teal-800 dark:text-teal-200">
+                Snapshot specials from server scan · as of {serverAsOf} (identical for all users)
               </p>
             )}
           </div>

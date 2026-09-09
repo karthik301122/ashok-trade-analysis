@@ -174,6 +174,75 @@ function openSqlite() {
     );
     CREATE INDEX IF NOT EXISTS idx_asx_filings_ticker_announced ON asx_filings (ticker, announced_at DESC);
     CREATE INDEX IF NOT EXISTS idx_asx_filings_side_announced ON asx_filings (side, announced_at DESC);
+    CREATE TABLE IF NOT EXISTS pattern_hits_day (
+      as_of TEXT PRIMARY KEY,
+      built_at INTEGER NOT NULL,
+      universe TEXT NOT NULL,
+      hits_json TEXT NOT NULL,
+      counts_json TEXT
+    );
+    CREATE TABLE IF NOT EXISTS user_patterns (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      prefs_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_patterns_user ON user_patterns (username);
+    CREATE TABLE IF NOT EXISTS watchlists (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      name TEXT NOT NULL,
+      tickers_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_watchlists_user ON watchlists (username);
+    CREATE TABLE IF NOT EXISTS share_links (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS organisations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      seats INTEGER NOT NULL DEFAULT 0,
+      branding_json TEXT,
+      stripe_customer_id TEXT,
+      stripe_subscription_id TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS org_members (
+      org_id TEXT NOT NULL,
+      username TEXT NOT NULL,
+      role TEXT NOT NULL,
+      cohort TEXT,
+      joined_at INTEGER NOT NULL,
+      PRIMARY KEY (org_id, username)
+    );
+    CREATE TABLE IF NOT EXISTS org_invites (
+      token_hash TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      cohort TEXT,
+      expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS trainer_publications (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      cohort TEXT,
+      publisher TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      note TEXT,
+      payload_json TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_trainer_pub_org ON trainer_publications (org_id, cohort);
   `)
   migrateBreadthDailyColumns(db)
   migrateUserPrefsColumns(db)

@@ -51,12 +51,40 @@ import {
 } from './userPrefs.mjs'
 import { getFundamentals } from './fundamentals.mjs'
 import { getFilingsForTicker, getLargestDisclosedBuys } from './asxFilings.mjs'
+import { readPatternHitsDay } from './patternHitsStore.mjs'
+import { runDeskPatternJob } from './patternJob.mjs'
+import { getUserPatternPrefs, saveUserPatternPrefs } from './userPatternsStore.mjs'
+import {
+  listWatchlists,
+  createWatchlist,
+  updateWatchlist,
+  deleteWatchlist,
+} from './watchlistStore.mjs'
+import { createShareLink, getShareLink } from './shareLinkStore.mjs'
+import {
+  createOrg,
+  getOrg,
+  listOrgsForUser,
+  listMembers,
+  getMember,
+  createInvite,
+  acceptInvite,
+  getBranding,
+  setBranding,
+} from './orgStore.mjs'
+import { publish as publishTrainerDoc, listForMember as listTrainerPublications } from './trainerPublishStore.mjs'
+import {
+  createCheckoutSession,
+  constructWebhookEvent,
+  handleCheckoutCompleted,
+} from './stripeBilling.mjs'
 import { checkRateLimit, clientKey, log, pruneRateLimitBuckets } from './log.mjs'
 import { seriesProviderName, isIntradayInterval } from './fetchSeries.mjs'
 import { eodhdOnlyMode } from './eodhd.mjs'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import express from 'express'
 import {
   browserUniverseFetchEnabled,
   isAdminRequest,
@@ -87,6 +115,85 @@ function getUniverseCount() {
     universeCountCache = 2000
   }
   return universeCountCache
+}
+
+/** Public /api/health — load balancers + desk boot. No DB host, secrets, or internals. */
+async function buildPublicHealthPayload(req) {
+  let liveQuotes = { enabled: false }
+  let admin = false
+  try {
+    liveQuotes = await withTimeout(getLiveQuotesMeta(), 800)
+  } catch {
+    /* stub */
+  }
+  try {
+    admin = await withTimeout(isAdminRequest(req), 500)
+  } catch {
+    /* false */
+  }
+  return {
+    ok: true,
+    maintenance: maintenanceEnabled(),
+    maintenanceMessage: maintenanceEnabled() ? maintenanceMessage() : undefined,
+    productionMode: isProductionMode(),
+    browserUniverseFetch: browserUniverseFetchEnabled(),
+    isAdmin: admin,
+    provider: seriesProviderName(),
+    eodhdOnly: eodhdOnlyMode(),
+    liveQuotes,
+    alertEmailEnabled: alertEmailConfigured(),
+    authRequired: authEnabled(),
+  }
+}
+
+/** Admin-only internals previously exposed on public /api/health. */
+async function buildHealthDetailPayload(req) {
+  const base = await buildPublicHealthPayload(req)
+  let snap = null
+  let job = { status: 'unknown', autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD, trigger: null }
+  try {
+    snap = await withTimeout(readMarketSnapshotLightMeta(), 800)
+  } catch {
+    /* null */
+  }
+  try {
+    job = await withTimeout(peekSnapshotJobStatus(), 800)
+  } catch {
+    /* stub */
+  }
+  const universeTotal = getUniverseCount()
+  const snapMeta = snap
+    ? {
+        builtAt: snap.builtAt,
+        loaded: snap.loaded,
+        failed: snap.failed,
+        fresh: isSnapshotFresh(snap.builtAt),
+      }
+    : null
+  const readiness = readinessFromSnapshot(
+    snapMeta ? { ...snapMeta, fresh: snapMeta.fresh } : {},
+    universeTotal,
+  )
+  return {
+    ...base,
+    eodhd: Boolean(process.env.EODHD_API_TOKEN?.trim()),
+    barsAsOf: null,
+    barsAsOfLabel: null,
+    rateLimits: {
+      seriesPerMinute: seriesRateLimitPerMinute(),
+      snapshotPerMinute: snapshotRateLimitPerMinute(),
+    },
+    readiness,
+    authDbUserCount: await countDbUsers().catch(() => 0),
+    authEnvUserCount: authEnabled() ? envUserCount() : 0,
+    eodhdDailyLimit: eodhdDailyLimitMeta(),
+    seriesCached: 0,
+    store: dbStoreLabel(),
+    database: dbPath(),
+    snapshot: snapMeta,
+    job,
+    autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
+  }
 }
 
 function snapshotStockCount(stocks) {
@@ -302,6 +409,27 @@ async function buildSnapshotMetaPayload() {
 
 function requireAuthConnect(req, send) {
   return requireAuthOrSend(req, send)
+}
+
+/** Auth gate that also requires a resolved session user (for user-scoped stores). */
+function requireUserOrSend(req, send) {
+  if (requireAuthOrSend(req, send)) return null
+  const user = getUserFromRequest(req)
+  if (!user) {
+    send(401, { error: 'Unauthorized', authRequired: true })
+    return null
+  }
+  return user
+}
+
+function expressSend(res) {
+  return (status, body) => {
+    res.status(status).json(body)
+  }
+}
+
+function requireUserExpress(req, res) {
+  return requireUserOrSend(req, expressSend(res))
 }
 
 function rateLimitOrSend(req, send, route, limit) {
@@ -784,75 +912,24 @@ export async function handleConnectApi(req, res, send) {
     return true
   }
 
+  if (url.pathname === '/api/health/detail') {
+    if (req.method !== 'GET') {
+      send(405, { error: 'Method not allowed' })
+      return true
+    }
+    if (await requireAdminOrSend(req, send)) return true
+    send(200, await buildHealthDetailPayload(req), {
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      Pragma: 'no-cache',
+    })
+    return true
+  }
+
   if (url.pathname === '/api/health') {
-    // Ultra-light: desk boots call this repeatedly. Avoid file scans, user counts,
-    // job reconcile, and anything that can stall the event loop.
-    let snap = null
-    let job = { status: 'unknown', autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD, trigger: null }
-    let liveQuotes = { enabled: false }
-    let admin = false
-    try {
-      snap = await withTimeout(readMarketSnapshotLightMeta(), 800)
-    } catch {
-      /* keep null */
-    }
-    try {
-      job = await withTimeout(peekSnapshotJobStatus(), 800)
-    } catch {
-      /* keep stub */
-    }
-    try {
-      liveQuotes = await withTimeout(getLiveQuotesMeta(), 800)
-    } catch {
-      /* keep stub */
-    }
-    try {
-      admin = await withTimeout(isAdminRequest(req), 500)
-    } catch {
-      /* false */
-    }
-    const universeTotal = getUniverseCount()
-    const snapMeta = snap
-      ? {
-          builtAt: snap.builtAt,
-          loaded: snap.loaded,
-          failed: snap.failed,
-          fresh: isSnapshotFresh(snap.builtAt),
-        }
-      : null
-    const readiness = readinessFromSnapshot(
-      snapMeta ? { ...snapMeta, fresh: snapMeta.fresh } : {},
-      universeTotal,
-    )
-    send(200, {
-      ok: true,
-      provider: seriesProviderName(),
-      eodhd: Boolean(process.env.EODHD_API_TOKEN?.trim()),
-      eodhdOnly: eodhdOnlyMode(),
-      productionMode: isProductionMode(),
-      browserUniverseFetch: browserUniverseFetchEnabled(),
-      isAdmin: admin,
-      barsAsOf: null,
-      barsAsOfLabel: null,
-      rateLimits: {
-        seriesPerMinute: seriesRateLimitPerMinute(),
-        snapshotPerMinute: snapshotRateLimitPerMinute(),
-      },
-      readiness,
-      authRequired: authEnabled(),
-      authDbUserCount: 0,
-      authEnvUserCount: authEnabled() ? envUserCount() : 0,
-      maintenance: maintenanceEnabled(),
-      maintenanceMessage: maintenanceEnabled() ? maintenanceMessage() : undefined,
-      eodhdDailyLimit: eodhdDailyLimitMeta(),
-      seriesCached: 0,
-      store: dbStoreLabel(),
-      database: dbPath(),
-      snapshot: snapMeta,
-      job,
-      autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
-      liveQuotes,
-      alertEmailEnabled: alertEmailConfigured(),
+    // Public: desk boot + LB probes only. Internals live on /api/health/detail.
+    send(200, await buildPublicHealthPayload(req), {
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      Pragma: 'no-cache',
     })
     return true
   }
@@ -976,6 +1053,271 @@ export async function handleConnectApi(req, res, send) {
     return true
   }
 
+  // --- Patterns / watchlists / share / orgs (connect) ---
+  if (url.pathname === '/api/patterns/hits' && req.method === 'GET') {
+    if (isProductionMode() && authEnabled() && !getUserFromRequest(req)) {
+      send(401, { error: 'Unauthorized', authRequired: true })
+      return true
+    }
+    const asOf = url.searchParams.get('as_of') || 'latest'
+    const day = await readPatternHitsDay(asOf)
+    if (!day) {
+      send(404, { error: 'No pattern hits yet' })
+      return true
+    }
+    send(200, day)
+    return true
+  }
+
+  if (url.pathname === '/api/patterns/job' && req.method === 'POST') {
+    if (await requireAdminOrSend(req, send)) return true
+    const body = await readJsonBody(req).catch(() => ({}))
+    const result = await runDeskPatternJob(body || {})
+    send(202, { ok: true, ...result })
+    return true
+  }
+
+  if (url.pathname === '/api/patterns/prefs') {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    if (req.method === 'GET') {
+      send(200, { prefs: (await getUserPatternPrefs(user)) || null })
+      return true
+    }
+    if (req.method === 'PUT') {
+      const body = await readJsonBody(req)
+      const prefs = await saveUserPatternPrefs(user, body?.prefs ?? body)
+      send(200, { ok: true, prefs })
+      return true
+    }
+    send(405, { error: 'Method not allowed' })
+    return true
+  }
+
+  if (url.pathname === '/api/watchlists') {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    if (req.method === 'GET') {
+      send(200, { watchlists: await listWatchlists(user) })
+      return true
+    }
+    if (req.method === 'POST') {
+      const body = await readJsonBody(req)
+      try {
+        const wl = await createWatchlist(user, body?.name, body?.tickers)
+        send(201, { watchlist: wl })
+      } catch (err) {
+        send(400, { error: err instanceof Error ? err.message : String(err) })
+      }
+      return true
+    }
+    send(405, { error: 'Method not allowed' })
+    return true
+  }
+
+  if (url.pathname.startsWith('/api/watchlists/')) {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    const id = decodeURIComponent(url.pathname.replace('/api/watchlists/', ''))
+    if (req.method === 'PATCH') {
+      const body = await readJsonBody(req)
+      const wl = await updateWatchlist(id, user, body || {})
+      if (!wl) {
+        send(404, { error: 'Watchlist not found' })
+        return true
+      }
+      send(200, { watchlist: wl })
+      return true
+    }
+    if (req.method === 'DELETE') {
+      const ok = await deleteWatchlist(id, user)
+      if (!ok) {
+        send(404, { error: 'Watchlist not found' })
+        return true
+      }
+      send(200, { ok: true })
+      return true
+    }
+    send(405, { error: 'Method not allowed' })
+    return true
+  }
+
+  if (url.pathname === '/api/share-links' && req.method === 'POST') {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    const body = await readJsonBody(req)
+    const id = await createShareLink(user, body?.payload ?? body)
+    send(201, { id })
+    return true
+  }
+
+  if (url.pathname.startsWith('/api/share-links/') && req.method === 'GET') {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    const id = decodeURIComponent(url.pathname.replace('/api/share-links/', ''))
+    const link = await getShareLink(id)
+    if (!link) {
+      send(404, { error: 'Share link not found' })
+      return true
+    }
+    send(200, link)
+    return true
+  }
+
+  if (url.pathname === '/api/orgs/accept-invite' && req.method === 'POST') {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    const body = await readJsonBody(req)
+    try {
+      const result = await acceptInvite(body?.token, user)
+      send(200, { ok: true, ...result })
+    } catch (err) {
+      send(400, { error: err instanceof Error ? err.message : String(err) })
+    }
+    return true
+  }
+
+  if (url.pathname === '/api/orgs') {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    if (req.method === 'GET') {
+      send(200, { orgs: await listOrgsForUser(user) })
+      return true
+    }
+    if (req.method === 'POST') {
+      const body = await readJsonBody(req)
+      try {
+        const org = await createOrg(body?.name, user)
+        send(201, { org })
+      } catch (err) {
+        send(400, { error: err instanceof Error ? err.message : String(err) })
+      }
+      return true
+    }
+    send(405, { error: 'Method not allowed' })
+    return true
+  }
+
+  const orgPath = url.pathname.match(/^\/api\/orgs\/([^/]+)(?:\/(invites|checkout|branding|publications))?$/)
+  if (orgPath) {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    const orgId = decodeURIComponent(orgPath[1])
+    const sub = orgPath[2] || null
+
+    if (!sub && req.method === 'GET') {
+      const org = await getOrg(orgId)
+      if (!org) {
+        send(404, { error: 'Org not found' })
+        return true
+      }
+      const member = await getMember(orgId, user)
+      send(200, { org, members: await listMembers(orgId), member })
+      return true
+    }
+
+    if (sub === 'invites' && req.method === 'POST') {
+      const member = await getMember(orgId, user)
+      if (!member || !['owner', 'admin'].includes(member.role)) {
+        send(403, { error: 'Owner/admin required' })
+        return true
+      }
+      const body = await readJsonBody(req)
+      try {
+        const invite = await createInvite(orgId, body || {})
+        send(201, { invite })
+      } catch (err) {
+        send(400, { error: err instanceof Error ? err.message : String(err) })
+      }
+      return true
+    }
+
+    if (sub === 'checkout' && req.method === 'POST') {
+      const member = await getMember(orgId, user)
+      if (!member || !['owner', 'admin'].includes(member.role)) {
+        send(403, { error: 'Owner/admin required' })
+        return true
+      }
+      const body = await readJsonBody(req)
+      const result = await createCheckoutSession({
+        orgId,
+        priceId: body?.priceId,
+        seats: body?.seats,
+        successUrl: body?.successUrl,
+        cancelUrl: body?.cancelUrl,
+        customerEmail: body?.customerEmail || (user.includes('@') ? user : undefined),
+      })
+      if (!result.ok) {
+        send(400, { error: result.error })
+        return true
+      }
+      send(200, { id: result.id, url: result.url })
+      return true
+    }
+
+    if (sub === 'branding') {
+      const member = await getMember(orgId, user)
+      if (!member) {
+        send(403, { error: 'Org membership required' })
+        return true
+      }
+      if (req.method === 'GET') {
+        send(200, { branding: await getBranding(orgId) })
+        return true
+      }
+      if (req.method === 'PUT') {
+        if (!['owner', 'admin'].includes(member.role)) {
+          send(403, { error: 'Owner/admin required' })
+          return true
+        }
+        const body = await readJsonBody(req)
+        const branding = await setBranding(orgId, body?.branding ?? body)
+        send(200, { ok: true, branding })
+        return true
+      }
+      send(405, { error: 'Method not allowed' })
+      return true
+    }
+
+    if (sub === 'publications') {
+      const member = await getMember(orgId, user)
+      if (!member) {
+        send(403, { error: 'Org membership required' })
+        return true
+      }
+      if (req.method === 'GET') {
+        const cohort = url.searchParams.get('cohort') || member.cohort
+        send(200, { publications: await listTrainerPublications(orgId, cohort) })
+        return true
+      }
+      if (req.method === 'POST') {
+        if (!['owner', 'admin', 'trainer'].includes(member.role)) {
+          send(403, { error: 'Trainer/admin required' })
+          return true
+        }
+        const body = await readJsonBody(req)
+        try {
+          const doc = await publishTrainerDoc(orgId, user, body || {})
+          send(201, { publication: doc })
+        } catch (err) {
+          send(400, { error: err instanceof Error ? err.message : String(err) })
+        }
+        return true
+      }
+      send(405, { error: 'Method not allowed' })
+      return true
+    }
+  }
+
+  // Stripe webhook: connect may skip (no reliable raw body).
+  if (url.pathname === '/api/billing/webhook' && req.method === 'POST') {
+    send(501, {
+      error: 'Stripe webhook requires Express raw body — use production server',
+      hint: 'POST /api/billing/webhook on the Express prod server',
+    })
+    return true
+  }
+
   return false
 }
 
@@ -996,74 +1338,17 @@ export function mountExpressApi(app) {
     res.status(200).json({ ok: true })
   })
 
+  app.get('/api/health/detail', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.setHeader('Pragma', 'no-cache')
+    if (await requireAdminOrSend(req, (status, body) => res.status(status).json(body))) return
+    return res.status(200).json(await buildHealthDetailPayload(req))
+  })
+
   app.get('/api/health', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     res.setHeader('Pragma', 'no-cache')
-    // Hard deadline so Azure health probes never hang on Postgres under series load.
-    let snap = null
-    let job = { status: 'unknown', autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD, trigger: null }
-    let liveQuotes = { enabled: false }
-    let admin = false
-    try {
-      snap = await withTimeout(readMarketSnapshotLightMeta(), 800)
-    } catch {
-      /* keep null */
-    }
-    try {
-      job = await withTimeout(peekSnapshotJobStatus(), 800)
-    } catch {
-      /* keep stub */
-    }
-    try {
-      liveQuotes = await withTimeout(getLiveQuotesMeta(), 800)
-    } catch {
-      /* keep stub */
-    }
-    try {
-      admin = await withTimeout(isAdminRequest(req), 500)
-    } catch {
-      /* false */
-    }
-    const universeTotal = getUniverseCount()
-    const snapMeta = snap
-      ? {
-          builtAt: snap.builtAt,
-          loaded: snap.loaded,
-          failed: snap.failed,
-          fresh: isSnapshotFresh(snap.builtAt),
-        }
-      : null
-    const readiness = readinessFromSnapshot(snapMeta || {}, universeTotal)
-    res.status(200).json({
-      ok: true,
-      provider: seriesProviderName(),
-      eodhd: Boolean(process.env.EODHD_API_TOKEN?.trim()),
-      eodhdOnly: eodhdOnlyMode(),
-      productionMode: isProductionMode(),
-      browserUniverseFetch: browserUniverseFetchEnabled(),
-      isAdmin: admin,
-      barsAsOf: null,
-      barsAsOfLabel: null,
-      rateLimits: {
-        seriesPerMinute: seriesRateLimitPerMinute(),
-        snapshotPerMinute: snapshotRateLimitPerMinute(),
-      },
-      readiness,
-      authRequired: authEnabled(),
-      authDbUserCount: 0,
-      authEnvUserCount: authEnabled() ? envUserCount() : 0,
-      maintenance: maintenanceEnabled(),
-      maintenanceMessage: maintenanceEnabled() ? maintenanceMessage() : undefined,
-      eodhdDailyLimit: eodhdDailyLimitMeta(),
-      seriesCached: 0,
-      store: dbStoreLabel(),
-      database: dbPath(),
-      snapshot: snapMeta,
-      job,
-      autoRetryThreshold: AUTO_RETRY_FAILED_THRESHOLD,
-      liveQuotes,
-      alertEmailEnabled: alertEmailConfigured(),
-    })
+    return res.status(200).json(await buildPublicHealthPayload(req))
   })
 
   app.get('/api/auth/me', async (req, res) => {
@@ -1813,6 +2098,215 @@ export function mountExpressApi(app) {
     return res.json(
       await getFilingsForTicker(ticker, { forceRefresh: req.query.refresh === '1' }),
     )
+  })
+
+  app.get('/api/patterns/hits', async (req, res) => {
+    if (isProductionMode() && authEnabled() && !getUserFromRequest(req)) {
+      return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    }
+    const asOf = typeof req.query.as_of === 'string' ? req.query.as_of : 'latest'
+    const day = await readPatternHitsDay(asOf)
+    if (!day) return res.status(404).json({ error: 'No pattern hits yet' })
+    return res.json(day)
+  })
+
+  app.post('/api/patterns/job', async (req, res) => {
+    if (await requireAdminOrSend(req, (status, body) => res.status(status).json(body))) return
+    const result = await runDeskPatternJob(req.body || {})
+    return res.status(202).json({ ok: true, ...result })
+  })
+
+  app.get('/api/patterns/prefs', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    return res.json({ prefs: (await getUserPatternPrefs(user)) || null })
+  })
+
+  app.put('/api/patterns/prefs', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const prefs = await saveUserPatternPrefs(user, req.body?.prefs ?? req.body)
+    return res.json({ ok: true, prefs })
+  })
+
+  app.get('/api/watchlists', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    return res.json({ watchlists: await listWatchlists(user) })
+  })
+
+  app.post('/api/watchlists', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    try {
+      const wl = await createWatchlist(user, req.body?.name, req.body?.tickers)
+      return res.status(201).json({ watchlist: wl })
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.patch('/api/watchlists/:id', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const wl = await updateWatchlist(req.params.id, user, req.body || {})
+    if (!wl) return res.status(404).json({ error: 'Watchlist not found' })
+    return res.json({ watchlist: wl })
+  })
+
+  app.delete('/api/watchlists/:id', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const ok = await deleteWatchlist(req.params.id, user)
+    if (!ok) return res.status(404).json({ error: 'Watchlist not found' })
+    return res.json({ ok: true })
+  })
+
+  app.post('/api/share-links', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const id = await createShareLink(user, req.body?.payload ?? req.body)
+    return res.status(201).json({ id })
+  })
+
+  app.get('/api/share-links/:id', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const link = await getShareLink(req.params.id)
+    if (!link) return res.status(404).json({ error: 'Share link not found' })
+    return res.json(link)
+  })
+
+  app.get('/api/orgs', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    return res.json({ orgs: await listOrgsForUser(user) })
+  })
+
+  app.post('/api/orgs', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    try {
+      const org = await createOrg(req.body?.name, user)
+      return res.status(201).json({ org })
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.post('/api/orgs/accept-invite', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    try {
+      const result = await acceptInvite(req.body?.token, user)
+      return res.json({ ok: true, ...result })
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.get('/api/orgs/:id', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const org = await getOrg(req.params.id)
+    if (!org) return res.status(404).json({ error: 'Org not found' })
+    const member = await getMember(req.params.id, user)
+    return res.json({ org, members: await listMembers(req.params.id), member })
+  })
+
+  app.post('/api/orgs/:id/invites', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      return res.status(403).json({ error: 'Owner/admin required' })
+    }
+    try {
+      const invite = await createInvite(req.params.id, req.body || {})
+      return res.status(201).json({ invite })
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.post('/api/orgs/:id/checkout', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      return res.status(403).json({ error: 'Owner/admin required' })
+    }
+    const result = await createCheckoutSession({
+      orgId: req.params.id,
+      priceId: req.body?.priceId,
+      seats: req.body?.seats,
+      successUrl: req.body?.successUrl,
+      cancelUrl: req.body?.cancelUrl,
+      customerEmail: req.body?.customerEmail || (user.includes('@') ? user : undefined),
+    })
+    if (!result.ok) return res.status(400).json({ error: result.error })
+    return res.json({ id: result.id, url: result.url })
+  })
+
+  app.get('/api/orgs/:id/branding', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member) return res.status(403).json({ error: 'Org membership required' })
+    return res.json({ branding: await getBranding(req.params.id) })
+  })
+
+  app.put('/api/orgs/:id/branding', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      return res.status(403).json({ error: 'Owner/admin required' })
+    }
+    const branding = await setBranding(req.params.id, req.body?.branding ?? req.body)
+    return res.json({ ok: true, branding })
+  })
+
+  app.get('/api/orgs/:id/publications', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member) return res.status(403).json({ error: 'Org membership required' })
+    const cohort =
+      typeof req.query.cohort === 'string' ? req.query.cohort : member.cohort
+    return res.json({ publications: await listTrainerPublications(req.params.id, cohort) })
+  })
+
+  app.post('/api/orgs/:id/publications', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member || !['owner', 'admin', 'trainer'].includes(member.role)) {
+      return res.status(403).json({ error: 'Trainer/admin required' })
+    }
+    try {
+      const doc = await publishTrainerDoc(req.params.id, user, req.body || {})
+      return res.status(201).json({ publication: doc })
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  // Raw body required — prod.mjs skips express.json for this path.
+  app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+    const signature = req.headers['stripe-signature']
+    try {
+      const event = await constructWebhookEvent(req.body, signature)
+      if (event.type === 'checkout.session.completed') {
+        await handleCheckoutCompleted(event.data.object)
+      }
+      return res.json({ received: true })
+    } catch (err) {
+      log('warn', 'stripe.webhook.error', {
+        message: err instanceof Error ? err.message : String(err),
+      })
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
   })
 }
 

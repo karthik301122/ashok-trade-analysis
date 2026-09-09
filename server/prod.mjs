@@ -31,10 +31,21 @@ const port = Number(process.env.PORT) || 4173
 
 const app = express()
 app.set('trust proxy', 1)
-app.use(express.json({ limit: '8mb' }))
+// Skip JSON parser for Stripe webhook so mountExpressApi can use express.raw.
+app.use((req, res, next) => {
+  if (req.path === '/api/billing/webhook') return next()
+  return express.json({ limit: '8mb' })(req, res, next)
+})
 app.use(maintenanceMiddleware)
 
 await initDb()
+
+try {
+  const { initSentry } = await import('./observability.mjs')
+  await initSentry()
+} catch {
+  /* optional */
+}
 
 // Static assets first so HTML/JS/CSS never wait behind snapshot/API work.
 app.use(

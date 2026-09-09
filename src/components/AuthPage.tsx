@@ -12,6 +12,7 @@ import { APP_NAME, APP_TAGLINE } from '../lib/brand'
 
 type Props = {
   onSuccess: (user: string) => void
+  onBack?: () => void
 }
 
 type Mode = 'signin' | 'register' | 'otp' | 'forgot' | 'reset'
@@ -35,7 +36,7 @@ function clearResetTokenFromUrl() {
   }
 }
 
-export function AuthPage({ onSuccess }: Props) {
+export function AuthPage({ onSuccess, onBack }: Props) {
   const [mode, setMode] = useState<Mode>(() => (readResetTokenFromUrl() ? 'reset' : 'signin'))
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -199,6 +200,16 @@ export function AuthPage({ onSuccess }: Props) {
             </p>
           </div>
         </div>
+
+        {onBack && mode === 'signin' && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-4 text-xs font-semibold text-teal-800 hover:underline dark:text-teal-300"
+          >
+            ← Back to overview
+          </button>
+        )}
 
         {mode === 'signin' && (
           <form onSubmit={submitSignIn} className="space-y-4">

@@ -272,10 +272,15 @@ export async function getLargestDisclosedBuys(window = 'week') {
   }
 
   const { from, to } = sydneyWindowBounds(w)
+  // Require shares >= 1 and (consideration_aud > 0, or null consideration if shares >= 100).
   const rows = await sqlAll(
     `SELECT * FROM asx_filings
      WHERE side = 'buy' AND announced_at >= ? AND announced_at < ?
-       AND shares IS NOT NULL AND shares > 0
+       AND shares IS NOT NULL AND shares >= 1
+       AND (
+         (consideration_aud IS NOT NULL AND consideration_aud > 0)
+         OR (consideration_aud IS NULL AND shares >= 100)
+       )
      ORDER BY
        CASE WHEN consideration_aud IS NOT NULL THEN consideration_aud ELSE 0 END DESC,
        shares DESC
