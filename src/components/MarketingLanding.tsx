@@ -57,10 +57,9 @@ export function MarketingLanding({ onSignIn }: Props) {
           <img
             src="/og-desk.png"
             alt="Traders Scope markets desk preview"
-            className="hidden w-full sm:block"
-            onError={(e) => {
-              ;(e.currentTarget as HTMLImageElement).style.display = 'none'
-            }}
+            className="w-full"
+            width={1200}
+            height={630}
           />
           <div className="grid gap-4 p-5 sm:grid-cols-3">
             {[

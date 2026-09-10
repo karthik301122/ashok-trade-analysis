@@ -8,6 +8,7 @@ import {
   listAlertEmailOptInUsers,
   filterPatternAlertEventsForUser,
   filterPatternAlertItemsForUser,
+  getAlertEmailOptIn,
   listAllPatternComboAlerts,
 } from './userPrefs.mjs'
 import { matchPatternCombo } from './patternComboMatch.mjs'
@@ -84,11 +85,9 @@ export async function syncPatternAlertRules(patternIds) {
 
 /** Sync auto pattern_combo rules from all users' saved combos. */
 export async function syncPatternComboRules() {
-  await sqlRun(
-    `DELETE FROM alert_rules
-     WHERE type = 'pattern_combo'
-       AND params_json LIKE '%"auto":true%'`,
-  )
+  // Drop all combo rules (they are always auto-managed) so stale rows cannot linger
+  // if params_json formatting ever diverges from the LIKE '"auto":true' pattern.
+  await sqlRun(`DELETE FROM alert_rules WHERE type = 'pattern_combo'`)
   const combos = await listAllPatternComboAlerts()
   for (const c of combos) {
     const tf = c.timeframe === 'mixed' ? 'daily+weekly' : c.timeframe
@@ -165,6 +164,7 @@ export async function evaluateAlerts() {
     : []
   // Keep combo auto-rules in sync with prefs before matching.
   await syncPatternComboRules()
+  const activeComboIds = new Set((await listAllPatternComboAlerts()).map((c) => c.id))
   const rules = (await listAlertRules()).filter((r) => r.enabled)
   const fired = []
   const emailQueue = []
@@ -174,6 +174,8 @@ export async function evaluateAlerts() {
     if (rule.type === 'pattern_forming' || rule.type === 'pattern_confirmed') {
       matches = await matchPatternAlertRule(rule)
     } else if (rule.type === 'pattern_combo') {
+      const comboId = rule.params?.comboId ? String(rule.params.comboId) : ''
+      if (!comboId || !activeComboIds.has(comboId)) continue
       matches = await matchPatternCombo({
         op: rule.params?.op,
         patternIds: Array.isArray(rule.params?.patternIds) ? rule.params.patternIds : [],
@@ -235,6 +237,8 @@ export async function evaluateAlerts() {
     const optInUsers = await listAlertEmailOptInUserPrefs()
     let sentCount = 0
     for (const { username, minScore } of optInUsers) {
+      // Re-check opt-in at send time so unchecking mid-evaluate cannot still deliver.
+      if (!(await getAlertEmailOptIn(username))) continue
       const items = await filterPatternAlertItemsForUser(username, emailQueue, minScore)
       for (const item of items) {
         const emailOk = await sendAlertEmail(item, username)

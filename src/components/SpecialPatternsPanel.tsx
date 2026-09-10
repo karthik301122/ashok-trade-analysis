@@ -194,7 +194,12 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
             score: h.score,
             confirmed: h.confirmed,
           }))
-          return { pattern, hits, count: hits.length }
+          const counted = Number(server.counts?.[pattern.id])
+          return {
+            pattern,
+            hits,
+            count: Number.isFinite(counted) && counted > 0 ? counted : hits.length,
+          }
         })
         setSnapshotScan(mapped)
         setServerAsOf(server.asOf)

@@ -1146,6 +1146,16 @@ export async function runUniverseSnapshot(opts = {}) {
         total,
       })
 
+      try {
+        const { maybeStartFullUniversePatternJob } = await import('./patternJob.mjs')
+        maybeStartFullUniversePatternJob({
+          stocks,
+          indexM3: indexPerf.m3,
+        })
+      } catch {
+        /* non-fatal */
+      }
+
       console.log(
         `[snapshot] done · loaded=${loaded} failed=${failed} total=${total} in ${Math.round((builtAt - started) / 1000)}s`,
       )
@@ -1392,6 +1402,15 @@ export async function runAsx200ForceRefresh() {
         failed,
         total,
       })
+      try {
+        const { maybeStartFullUniversePatternJob } = await import('./patternJob.mjs')
+        maybeStartFullUniversePatternJob({
+          stocks,
+          indexM3: indexPerf.m3,
+        })
+      } catch {
+        /* non-fatal */
+      }
       try {
         const { maybeAlertSnapshotFailures } = await import('./observability.mjs')
         maybeAlertSnapshotFailures(failed, total)

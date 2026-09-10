@@ -1,5 +1,6 @@
 /**
- * Desk/ASX200 pattern scan job — identical hits for all users.
+ * Server pattern scan job — identical hits for all users.
+ * ASX200 early pass after desk-ready, then full snapshot universe.
  * Snapshot-metric specials + Stage 2 weekly from cached bars.
  */
 import { getCachedSeries } from './getSeries.mjs'
@@ -7,6 +8,11 @@ import { upsertPatternScanBatch } from './patternScanStore.mjs'
 import { savePatternHitsDay } from './patternHitsStore.mjs'
 import { log } from './log.mjs'
 import { tickersForUniverseId } from './eodhdIndexMembers.mjs'
+
+/** Concurrent Stage-2 cache reads (full universe). */
+const STAGE2_CONCURRENCY = 8
+/** Soft cap per pattern in hits_json (counts stay exact). */
+const MAX_HITS_PER_PATTERN = 500
 
 const SNAPSHOT_PATTERN_IDS = [
   'star-3m',
@@ -314,18 +320,76 @@ function tradingDayAsOf(builtAt = Date.now()) {
 }
 
 let running = false
+/** @type {object | null} */
+let pendingOpts = null
 
 /**
- * @param {{ stocks?: Record<string, object>, indexM3?: number, universe?: 'asx200' }} opts
+ * @param {'asx200' | 'all' | string} universe
+ * @param {object[]} allStocks
+ */
+function selectStocksForUniverse(universe, allStocks) {
+  if (universe === 'all' || universe === 'full') {
+    return allStocks.filter((s) => s?.ticker)
+  }
+  const asxTickers = new Set(loadAsx200Tickers().map((t) => String(t).toUpperCase()))
+  if (asxTickers.size) {
+    return allStocks.filter((s) => asxTickers.has(String(s.ticker || '').toUpperCase()))
+  }
+  return allStocks.slice(0, 200)
+}
+
+/**
+ * Prefer confirmed, then higher score; keep at most MAX_HITS_PER_PATTERN per patternId.
+ * @param {object[]} hits
+ */
+function capHitsForPayload(hits) {
+  /** @type {Map<string, object[]>} */
+  const byPattern = new Map()
+  for (const h of hits) {
+    const id = String(h.patternId || '')
+    let list = byPattern.get(id)
+    if (!list) {
+      list = []
+      byPattern.set(id, list)
+    }
+    list.push(h)
+  }
+  const out = []
+  for (const list of byPattern.values()) {
+    list.sort((a, b) => {
+      const ac = a.confirmed ? 1 : 0
+      const bc = b.confirmed ? 1 : 0
+      if (bc !== ac) return bc - ac
+      return (Number(b.score) || 0) - (Number(a.score) || 0)
+    })
+    out.push(...list.slice(0, MAX_HITS_PER_PATTERN))
+  }
+  return out
+}
+
+async function mapPool(items, concurrency, fn) {
+  let i = 0
+  const workers = Array.from({ length: Math.min(concurrency, Math.max(1, items.length)) }, async () => {
+    while (i < items.length) {
+      const idx = i++
+      await fn(items[idx], idx)
+    }
+  })
+  await Promise.all(workers)
+}
+
+/**
+ * @param {{ stocks?: Record<string, object>, indexM3?: number, universe?: 'asx200' | 'all' }} opts
  */
 export async function runDeskPatternJob(opts = {}) {
-  if (running) return { started: false, reason: 'already-running' }
+  if (running) {
+    pendingOpts = preferPending(pendingOpts, opts)
+    return { started: false, reason: 'already-running', queued: true }
+  }
   running = true
   const started = Date.now()
   try {
-    const universe = opts.universe || 'asx200'
-    const asxTickers = loadAsx200Tickers().map((t) => String(t).toUpperCase())
-    const tickers = new Set(asxTickers)
+    const universe = opts.universe === 'all' || opts.universe === 'full' ? 'all' : 'asx200'
     let stocks = opts.stocks || null
     let indexM3 = Number(opts.indexM3)
     if (!stocks) {
@@ -337,9 +401,7 @@ export async function runDeskPatternJob(opts = {}) {
     if (!Number.isFinite(indexM3)) indexM3 = 0
 
     const all = Object.values(stocks)
-    const list = tickers.size
-      ? all.filter((s) => tickers.has(String(s.ticker || '').toUpperCase()))
-      : all.slice(0, 200)
+    const list = selectStocksForUniverse(universe, all)
     const vols = list
       .map((s) => Number(s.dollarVolume) || 0)
       .filter((v) => v > 0)
@@ -383,12 +445,12 @@ export async function runDeskPatternJob(opts = {}) {
 
     // Stage 2 from cached OHLC (identical for all users).
     let stage2 = 0
-    for (const s of list) {
+    await mapPool(list, STAGE2_CONCURRENCY, async (s) => {
       try {
         const series = await getCachedSeries(s.ticker, '2023-01-01', { staleOk: true })
-        if (!series?.closes?.length) continue
+        if (!series?.closes?.length) return
         const weeks = toWeeklyNewestFirst(series.closes)
-        if (!isStage2Weekly(weeks)) continue
+        if (!isStage2Weekly(weeks)) return
         stage2 += 1
         hits.push({
           patternId: 'stage-2',
@@ -411,21 +473,27 @@ export async function runDeskPatternJob(opts = {}) {
       } catch {
         /* skip ticker */
       }
-    }
+    })
     counts['stage-2'] = stage2
 
     const asOf = tradingDayAsOf()
-    await upsertPatternScanBatch(upload)
-    await savePatternHitsDay({ asOf, universe, hits, counts })
+    // Batch uploads to avoid giant single statements on full universe.
+    const BATCH = 800
+    for (let i = 0; i < upload.length; i += BATCH) {
+      await upsertPatternScanBatch(upload.slice(i, i + BATCH))
+    }
+    const payloadHits = universe === 'all' ? capHitsForPayload(hits) : hits
+    await savePatternHitsDay({ asOf, universe, hits: payloadHits, counts })
     log('info', 'pattern.job.done', {
       asOf,
       universe,
       stocks: list.length,
       hits: hits.length,
+      hitsStored: payloadHits.length,
       stage2,
       ms: Date.now() - started,
     })
-    return { started: true, asOf, hits: hits.length, counts }
+    return { started: true, asOf, universe, hits: hits.length, hitsStored: payloadHits.length, counts }
   } catch (err) {
     log('error', 'pattern.job.error', {
       message: err instanceof Error ? err.message : String(err),
@@ -433,9 +501,29 @@ export async function runDeskPatternJob(opts = {}) {
     return { started: false, error: err instanceof Error ? err.message : String(err) }
   } finally {
     running = false
+    const next = pendingOpts
+    pendingOpts = null
+    if (next) {
+      void runDeskPatternJob(next).catch(() => {})
+    }
   }
+}
+
+/** Prefer a full-universe run over an ASX200-only queued run. */
+function preferPending(current, incoming) {
+  if (!current) return incoming
+  const curAll = current.universe === 'all' || current.universe === 'full'
+  const inAll = incoming.universe === 'all' || incoming.universe === 'full'
+  if (inAll && !curAll) return incoming
+  if (curAll) return { ...current, stocks: incoming.stocks || current.stocks, indexM3: incoming.indexM3 ?? current.indexM3 }
+  return incoming
 }
 
 export function maybeStartDeskPatternJob(opts = {}) {
   void runDeskPatternJob(opts).catch(() => {})
+}
+
+/** After full desk snapshot — scan every stock in the snapshot. */
+export function maybeStartFullUniversePatternJob(opts = {}) {
+  void runDeskPatternJob({ ...opts, universe: 'all' }).catch(() => {})
 }

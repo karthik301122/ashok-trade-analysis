@@ -188,20 +188,11 @@ export async function setPatternComboAlerts(username, combos) {
        updated_at = excluded.updated_at`,
     [u, JSON.stringify(normalized), now],
   )
-  // Sync rules in the background so the Alerts UI save doesn't wait on a full rebuild.
-  void (async () => {
-    try {
-      const allIds = await listAllSubscribedPatternIds()
-      const { syncPatternAlertRules, syncPatternComboRules } = await import('./alerts.mjs')
-      await syncPatternAlertRules(allIds)
-      await syncPatternComboRules()
-    } catch (err) {
-      console.warn(
-        '[prefs] pattern combo rule sync failed:',
-        err instanceof Error ? err.message : String(err),
-      )
-    }
-  })()
+  // Await rule sync so delete/pause cannot race with pattern-scan evaluate → email.
+  const allIds = await listAllSubscribedPatternIds()
+  const { syncPatternAlertRules, syncPatternComboRules } = await import('./alerts.mjs')
+  await syncPatternComboRules()
+  await syncPatternAlertRules(allIds)
   return normalized
 }
 
@@ -254,7 +245,7 @@ export async function userOwnsComboWithPattern(username, patternId) {
   const pid = String(patternId)
   if (pid.startsWith('combo:')) {
     const comboId = pid.slice(6)
-    return combos.some((c) => c.id === comboId)
+    return combos.some((c) => c.enabled && c.id === comboId)
   }
   return combos.some((c) => c.enabled && c.patternIds.includes(pid))
 }
@@ -290,8 +281,9 @@ export async function filterPatternAlertItemsForUser(username, items, minScore) 
     const pid = String(item.patternId)
     const score = Number(item.score)
     if (Number.isFinite(score) && score < threshold) return false
+    // Combo emails only while the combo still exists and is enabled — never via stale ownerUsername.
     if (pid.startsWith('combo:')) {
-      return comboIds.has(pid.slice(6)) || item.ownerUsername === normalizeUsername(username)
+      return comboIds.has(pid.slice(6))
     }
     if (legacy.has(pid)) return true
     const t = normalizeTicker(item.ticker)
@@ -311,8 +303,9 @@ export async function filterPatternAlertEventsForUser(username, events) {
     const pid = e.payload?.patternId
     if (!pid) return true
     const id = String(pid)
+    // Hide combo events after delete/pause (same gate as email).
     if (id.startsWith('combo:')) {
-      return comboIds.has(id.slice(6)) || e.payload?.ownerUsername === normalizeUsername(username)
+      return comboIds.has(id.slice(6))
     }
     if (legacy.has(id)) return true
     const t = normalizeTicker(e.ticker)
@@ -368,12 +361,14 @@ export async function setAlertEmailOptIn(username, optIn) {
 
 /** Opt-in users with their email min-score threshold. */
 export async function listAlertEmailOptInUserPrefs() {
+  // COALESCE treats NULL as off; != 0 covers odd drivers that store boolean-ish values.
   const rows = await sqlAll(
-    `SELECT username, alert_email_min_score FROM user_prefs
-     WHERE alert_email_opt_in = 1 ORDER BY username`,
+    `SELECT username, alert_email_min_score, alert_email_opt_in FROM user_prefs
+     WHERE COALESCE(alert_email_opt_in, 0) != 0 ORDER BY username`,
   )
   const out = []
   for (const row of rows) {
+    if (!row?.alert_email_opt_in) continue
     const u = normalizeUsername(row.username)
     if (!isEmailLogin(u)) continue
     out.push({
@@ -387,10 +382,12 @@ export async function listAlertEmailOptInUserPrefs() {
 /** Logins with opt-in whose username is a deliverable email address. */
 export async function listAlertEmailOptInUsers() {
   const rows = await sqlAll(
-    'SELECT username FROM user_prefs WHERE alert_email_opt_in = 1 ORDER BY username',
+    `SELECT username, alert_email_opt_in FROM user_prefs
+     WHERE COALESCE(alert_email_opt_in, 0) != 0 ORDER BY username`,
   )
   const out = []
   for (const row of rows) {
+    if (!row?.alert_email_opt_in) continue
     const u = normalizeUsername(row.username)
     if (isEmailLogin(u)) out.push(u)
   }

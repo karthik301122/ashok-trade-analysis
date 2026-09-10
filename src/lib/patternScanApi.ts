@@ -108,7 +108,7 @@ export type ServerPatternHitsPayload = {
   counts: Record<string, number>
 }
 
-/** Identical desk pattern results computed server-side (ASX200 MVP). */
+/** Identical pattern results computed server-side (ASX200 early, then full universe). */
 export async function fetchServerPatternHits(
   asOf = 'latest',
 ): Promise<ServerPatternHitsPayload | null> {

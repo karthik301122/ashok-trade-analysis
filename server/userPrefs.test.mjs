@@ -122,4 +122,54 @@ describe('userPrefs', () => {
     const filtered = await filterPatternAlertItemsForUser('alice@example.com', items)
     expect(filtered).toEqual([items[0]])
   })
+
+  it('does not email combo alerts after delete or pause (ignores stale ownerUsername)', async () => {
+    const { setPatternComboAlerts } = await import('./userPrefs.mjs')
+    await setPatternComboAlerts('alice@example.com', [
+      {
+        id: 'combo-1',
+        name: 'Test',
+        op: 'and',
+        timeframe: 'daily',
+        patternIds: ['landscape', 'wedge'],
+        enabled: true,
+        minScore: 60,
+      },
+    ])
+    const comboItem = {
+      ticker: 'BHP',
+      patternId: 'combo:combo-1',
+      score: 85,
+      message: 'BHP combo',
+      ownerUsername: 'alice@example.com',
+    }
+    expect(await filterPatternAlertItemsForUser('alice@example.com', [comboItem])).toEqual([
+      comboItem,
+    ])
+
+    await setPatternComboAlerts('alice@example.com', [
+      {
+        id: 'combo-1',
+        name: 'Test',
+        op: 'and',
+        timeframe: 'daily',
+        patternIds: ['landscape', 'wedge'],
+        enabled: false,
+        minScore: 60,
+      },
+    ])
+    expect(await filterPatternAlertItemsForUser('alice@example.com', [comboItem])).toEqual([])
+
+    await setPatternComboAlerts('alice@example.com', [])
+    expect(await filterPatternAlertItemsForUser('alice@example.com', [comboItem])).toEqual([])
+  })
+
+  it('excludes opted-out users from email recipient list', async () => {
+    await setAlertEmailOptIn('alice@example.com', true)
+    await setAlertEmailOptIn('bob@example.com', true)
+    expect(await listAlertEmailOptInUsers()).toEqual(['alice@example.com', 'bob@example.com'])
+    await setAlertEmailOptIn('alice@example.com', false)
+    expect(await listAlertEmailOptInUsers()).toEqual(['bob@example.com'])
+    expect(await getAlertEmailOptIn('alice@example.com')).toBe(false)
+  })
 })
