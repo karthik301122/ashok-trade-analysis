@@ -197,12 +197,14 @@ export function VolumeScan({ snapshot }: Props) {
         </select>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-[var(--color-border)]">
+      <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-[var(--color-border)]">
         <table className="w-full min-w-[980px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-[var(--color-border)] bg-[var(--color-muted)]/50 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">
               <th className="px-3 py-2.5">#</th>
-              <th className="px-3 py-2.5">Stock</th>
+              <th className="sticky left-0 z-10 bg-[var(--color-muted)] px-3 py-2.5 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.12)]">
+                Stock
+              </th>
               <th className="px-3 py-2.5 text-right">Price</th>
               <th className="px-3 py-2.5">Mood</th>
               <th className="px-3 py-2.5">Cycle</th>
@@ -235,7 +237,7 @@ export function VolumeScan({ snapshot }: Props) {
                   className="border-t border-[var(--color-border)]/70 hover:bg-[var(--color-muted)]/50"
                 >
                   <td className="px-3 py-2 tabular-nums text-[var(--color-ink-soft)]">{idx + 1}</td>
-                  <td className="px-3 py-2">
+                  <td className="sticky left-0 z-[1] bg-[var(--color-surface)] px-3 py-2 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.12)]">
                     <div className="flex items-center gap-1.5">
                       {s.star && <Star size={12} className="fill-amber-400 text-amber-400" />}
                       <button

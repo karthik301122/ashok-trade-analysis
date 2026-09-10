@@ -7,6 +7,7 @@ export type AppPage =
   | 'special-patterns'
   | 'create-pattern'
   | 'profile'
+  | 'not-found'
 
 type AppNavContextValue = {
   page: AppPage

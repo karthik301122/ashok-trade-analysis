@@ -49,7 +49,7 @@ export function PatternCreateModal({
           </h1>
           <p className="text-xs text-[var(--color-ink-soft)]">
             {ticker}
-            {name ? ` · ${name}` : ''} · Private pattern on this device · scans full ASX when saved
+            {name ? ` · ${name}` : ''} · Private pattern on your account · scans full ASX when saved
           </p>
           {drawSave && (
             <p className="mt-0.5 text-[10px] text-teal-700 dark:text-teal-300">

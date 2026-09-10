@@ -17,20 +17,22 @@ export type AuthMe = {
 
 export type AuthConfig = {
   authRequired: boolean
+  stripeConfigured?: boolean
 }
 
 export async function fetchAuthConfig(): Promise<AuthConfig> {
   try {
     const res = await fetch('/api/auth/config', { credentials: 'include' })
     if (!res.ok) {
-      return { authRequired: false }
+      return { authRequired: false, stripeConfigured: false }
     }
     const json = (await res.json()) as AuthConfig
     return {
       authRequired: Boolean(json.authRequired),
+      stripeConfigured: Boolean(json.stripeConfigured),
     }
   } catch {
-    return { authRequired: false }
+    return { authRequired: false, stripeConfigured: false }
   }
 }
 

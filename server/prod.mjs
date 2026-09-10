@@ -33,7 +33,7 @@ const app = express()
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
 
-/** Baseline security headers (CSP stays Report-Only until tightened). */
+  /** Baseline security headers. */
 app.use((_req, res, next) => {
   res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
   res.setHeader('X-Content-Type-Options', 'nosniff')
@@ -41,7 +41,7 @@ app.use((_req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
   res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
   res.setHeader(
-    'Content-Security-Policy-Report-Only',
+    'Content-Security-Policy',
     "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; script-src 'self' 'unsafe-inline'; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
   )
   next()

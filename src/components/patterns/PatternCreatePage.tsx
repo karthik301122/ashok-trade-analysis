@@ -13,7 +13,7 @@ export function PatternCreatePage() {
           Create my pattern
         </h1>
         <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
-          Private patterns saved on this device. Use rules, candle shapes, or scan script — or draw
+          Private patterns saved to your account and synced across devices. Use rules, candle shapes, or scan script — or draw
           levels on a stock chart and save from there.
         </p>
       </div>

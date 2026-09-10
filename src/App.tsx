@@ -29,7 +29,14 @@ export default function App() {
   const [user, setUser] = useState<string | null>(null)
   const [displayName, setDisplayName] = useState<string | null>(null)
   const [patternAlertWatches, setPatternAlertWatches] = useState<PatternAlertWatch[]>([])
-  const [page, setPage] = useState<AppPage>('sector')
+  const [page, setPage] = useState<AppPage>(() => {
+    if (typeof window === 'undefined') return 'sector'
+    const path = window.location.pathname || '/'
+    const search = window.location.search || ''
+    if (search.includes('reset=')) return 'sector'
+    if (path !== '/' && path !== '/index.html') return 'not-found'
+    return 'sector'
+  })
   const [, startNavTransition] = useTransition()
   const [view, setView] = useState<ViewId>('sector-table')
   const navigate = useCallback((next: AppPage) => {
@@ -37,6 +44,12 @@ export default function App() {
       setPage(next)
       // Markets always opens on the sector table (not a leftover Crypto/Commodities view).
       if (next === 'sector') setView('sector-table')
+      if (next !== 'not-found' && typeof window !== 'undefined') {
+        const path = window.location.pathname
+        if (path && path !== '/' && path !== '/index.html') {
+          window.history.replaceState({}, '', '/')
+        }
+      }
     })
   }, [])
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null)
@@ -522,10 +535,11 @@ export default function App() {
 
   useEffect(() => {
     if (!canUseApp || startedLoad.current) return
+    if (page === 'not-found') return
     startedLoad.current = true
     void loadRef.current(false)
     return () => abortRef.current?.abort()
-  }, [canUseApp])
+  }, [canUseApp, page])
 
   // When a chart loads fresh OHLC, keep Markets overview Price on that last close.
   useEffect(() => {
@@ -696,6 +710,25 @@ export default function App() {
               onSuccess={handleLogin}
               onBack={passwordResetPending ? undefined : () => setAuthScreen('landing')}
             />
+        ) : page === 'not-found' ? (
+          <div className="mx-auto mt-16 max-w-lg rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 text-center shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">
+              404
+            </p>
+            <h2 className="mt-2 font-[family-name:var(--font-display)] text-2xl font-semibold">
+              Page not found
+            </h2>
+            <p className="mt-2 text-sm text-[var(--color-ink-soft)]">
+              That URL is not part of Traders Scope. Head back to the markets desk.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate('sector')}
+              className="mt-6 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+            >
+              Back to Markets
+            </button>
+          </div>
         ) : page === 'profile' && user ? (
           <ProfilePage user={user} onProfileChange={handleProfileChange} />
         ) : loading && !snapshot ? (
@@ -760,11 +793,32 @@ export default function App() {
         ) : snapshot ? (
           <>
             <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs">
+              {(() => {
+                const isDeskSnap = meta?.source === 'server-sqlite'
+                const deskTotal = Math.max(1, (meta?.loaded ?? 0) + (meta?.failed ?? 0))
+                const deskIncomplete =
+                  Boolean(isDeskSnap) &&
+                  (meta?.failed ?? 0) > 0 &&
+                  (meta?.failed ?? 0) / deskTotal > 0.12
+                const browserPartial =
+                  !isDeskSnap && Boolean(meta && meta.loaded < ASX_UNIVERSE_COUNT * 0.98)
+                const warn = deskIncomplete || browserPartial
+                const label = backfilling
+                  ? 'Loading'
+                  : deskIncomplete
+                    ? 'Partial'
+                    : isDeskSnap
+                      ? 'Desk'
+                      : browserPartial
+                        ? 'Partial'
+                        : 'Live'
+                return (
+                  <>
               <span
                 className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-semibold ${
                   backfilling
                     ? 'bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-300'
-                    : meta && meta.loaded < ASX_UNIVERSE_COUNT * 0.98
+                    : warn
                       ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
                       : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
                 }`}
@@ -773,26 +827,25 @@ export default function App() {
                   className={`h-1.5 w-1.5 rounded-full ${
                     backfilling
                       ? 'animate-pulse bg-sky-500'
-                      : meta && meta.loaded < ASX_UNIVERSE_COUNT * 0.98
+                      : warn
                         ? 'bg-amber-500'
                         : 'bg-emerald-500'
                   }`}
                 />
-                {backfilling
-                  ? 'Loading'
-                  : meta && meta.loaded < ASX_UNIVERSE_COUNT * 0.98
-                    ? 'Partial'
-                    : 'Live'}
+                {label}
               </span>
               {meta && (
                 <span className="text-[var(--color-ink-soft)]">
                   {displaySnapshot
                     ? `${displaySnapshot.stocks.length.toLocaleString()} shown`
                     : `${meta.loaded.toLocaleString()} loaded`}
-                  {meta.failed > 0 ? ` · ${meta.failed} failed` : ''}
+                  {meta.failed > 0 && warn ? ` · ${meta.failed} failed` : ''}
                   {statusLine}
                 </span>
               )}
+                  </>
+                )
+              })()}
               {shownJobStatus && (
                 <span
                   className="inline-flex max-w-xl items-center gap-1.5 truncate text-sky-700 dark:text-sky-300"

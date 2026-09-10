@@ -559,11 +559,13 @@ export function SectorTable({ snapshot, livePricesActive = false, active = true 
         </div>
       </div>
 
-      <div className="overflow-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
         <table className="min-w-[1100px] w-full border-collapse text-left text-xs">
           <thead className="sticky top-0 z-10 bg-[var(--color-muted)] text-[10px] uppercase tracking-wide text-[var(--color-ink-soft)]">
             <tr>
-              <th className="whitespace-nowrap px-2 py-2.5 font-semibold">Sector / Stock</th>
+              <th className="sticky left-0 z-20 whitespace-nowrap bg-[var(--color-muted)] px-2 py-2.5 font-semibold shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]">
+                Sector / Stock
+              </th>
               <th
                 className={`whitespace-nowrap px-2 py-2.5 font-semibold ${
                   priceFilterActive ? 'text-teal-700 dark:text-teal-300' : ''
@@ -738,7 +740,7 @@ function IndustryRows({
           className="cursor-pointer border-t border-[var(--color-border)] hover:bg-[var(--color-muted)]/70"
           onClick={onToggle}
         >
-          <td className="px-2 py-2.5">
+          <td className="sticky left-0 z-[1] bg-[var(--color-surface)] px-2 py-2.5 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.12)]">
             <div className="flex flex-wrap items-center gap-1.5 font-semibold">
               {open ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />}
               <span>{ind.name}</span>
@@ -815,7 +817,7 @@ function IndustryRows({
           })
           return (
           <tr key={s.ticker} className="border-t border-[var(--color-border)]/60 bg-[var(--color-muted)]/40">
-            <td className="px-2 py-2 pl-8">
+            <td className="sticky left-0 z-[1] bg-[var(--color-muted)]/95 px-2 py-2 pl-8 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.12)]">
               <div className="flex items-center gap-1.5">
                 {s.star && <Star size={12} className="fill-amber-400 text-amber-400" />}
                 <button

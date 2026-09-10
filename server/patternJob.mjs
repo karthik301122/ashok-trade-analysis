@@ -5,7 +5,7 @@
  */
 import { getCachedSeries } from './getSeries.mjs'
 import { upsertPatternScanBatch } from './patternScanStore.mjs'
-import { savePatternHitsDay } from './patternHitsStore.mjs'
+import { savePatternHitsDay, readPatternHitsDay } from './patternHitsStore.mjs'
 import { log } from './log.mjs'
 import { tickersForUniverseId } from './eodhdIndexMembers.mjs'
 
@@ -402,6 +402,10 @@ export async function runDeskPatternJob(opts = {}) {
 
     const all = Object.values(stocks)
     const list = selectStocksForUniverse(universe, all)
+    if (!list.length) {
+      log('warn', 'pattern.job.skip', { reason: 'no-stocks', universe })
+      return { started: false, reason: 'no-stocks' }
+    }
     const vols = list
       .map((s) => Number(s.dollarVolume) || 0)
       .filter((v) => v > 0)
@@ -445,10 +449,14 @@ export async function runDeskPatternJob(opts = {}) {
 
     // Stage 2 from cached OHLC (identical for all users).
     let stage2 = 0
+    let stage2CacheMiss = 0
     await mapPool(list, STAGE2_CONCURRENCY, async (s) => {
       try {
         const series = await getCachedSeries(s.ticker, '2023-01-01', { staleOk: true })
-        if (!series?.closes?.length) return
+        if (!series?.closes?.length) {
+          stage2CacheMiss += 1
+          return
+        }
         const weeks = toWeeklyNewestFirst(series.closes)
         if (!isStage2Weekly(weeks)) return
         stage2 += 1
@@ -471,12 +479,31 @@ export async function runDeskPatternJob(opts = {}) {
         })
         upload.push({ ticker: s.ticker, patternId: 'stage-2', score: 100, confirmed: true })
       } catch {
-        /* skip ticker */
+        stage2CacheMiss += 1
       }
     })
     counts['stage-2'] = stage2
 
     const asOf = tradingDayAsOf()
+    const existing = await readPatternHitsDay(asOf)
+    const existingHits = Array.isArray(existing?.hits) ? existing.hits.length : 0
+    // Never clobber a good same-day store with an empty / near-empty run.
+    if (hits.length === 0 && existingHits > 0) {
+      log('warn', 'pattern.job.skip', {
+        reason: 'empty-overwrite-guard',
+        asOf,
+        universe,
+        existingHits,
+        stage2CacheMiss,
+      })
+      return {
+        started: false,
+        reason: 'empty-overwrite-guard',
+        asOf,
+        existingHits,
+      }
+    }
+
     // Batch uploads to avoid giant single statements on full universe.
     const BATCH = 800
     for (let i = 0; i < upload.length; i += BATCH) {
@@ -491,9 +518,18 @@ export async function runDeskPatternJob(opts = {}) {
       hits: hits.length,
       hitsStored: payloadHits.length,
       stage2,
+      stage2CacheMiss,
       ms: Date.now() - started,
     })
-    return { started: true, asOf, universe, hits: hits.length, hitsStored: payloadHits.length, counts }
+    return {
+      started: true,
+      asOf,
+      universe,
+      hits: hits.length,
+      hitsStored: payloadHits.length,
+      counts,
+      stage2CacheMiss,
+    }
   } catch (err) {
     log('error', 'pattern.job.error', {
       message: err instanceof Error ? err.message : String(err),

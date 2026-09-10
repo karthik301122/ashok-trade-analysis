@@ -106,6 +106,7 @@ export type ServerPatternHitsPayload = {
   universe: string
   hits: ServerPatternHit[]
   counts: Record<string, number>
+  pending?: boolean
 }
 
 /** Identical pattern results computed server-side (ASX200 early, then full universe). */
@@ -127,6 +128,7 @@ export async function fetchServerPatternHits(
         string,
         number
       >,
+      pending: Boolean(json.pending) || json.universe === 'none',
     }
   } catch {
     return null

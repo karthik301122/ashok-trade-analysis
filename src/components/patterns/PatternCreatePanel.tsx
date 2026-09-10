@@ -252,7 +252,7 @@ export function PatternCreatePanel({
               Create my pattern
             </h3>
             <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
-              Private pattern saved on this device. Draw levels on the chart, or use rules, candle
+              Private pattern saved to your account (synced across devices). Draw levels on the chart, or use rules, candle
               shapes, or scan script.
               {ticker ? ` Template chart: ${ticker}.` : ''} Scans the full ASX when saved.
             </p>

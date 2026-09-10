@@ -54,12 +54,7 @@ export function RotationClock({ snapshot }: Props) {
         {ORDER.map((s) => (
           <div key={s} className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: CYCLE_LABEL[s].color }} />
-            <span className="font-medium">
-              {s === 'early' && 'Early Cycle — Accumulate'}
-              {s === 'mid' && 'Mid Cycle — Hold / Add'}
-              {s === 'late' && 'Late Cycle — Reduce'}
-              {s === 'recession' && 'Recession — Exit'}
-            </span>
+            <span className="font-medium">{CYCLE_LABEL[s].action}</span>
           </div>
         ))}
       </div>
@@ -90,7 +85,7 @@ export function RotationClock({ snapshot }: Props) {
               LATE
             </text>
             <text x="70" y="70" fill="#dc2626" fontSize="10" fontWeight="700">
-              EXIT
+              REC
             </text>
             {dots.map((d, i) => (
               <circle key={i} cx={d.x} cy={d.y} r={d.r} fill={d.color} opacity="0.9">
@@ -99,7 +94,7 @@ export function RotationClock({ snapshot }: Props) {
             ))}
           </svg>
           <p className="mt-2 text-center text-[11px] text-[var(--color-ink-soft)]">
-            Dot size ≈ industry weight · Colour = cycle stage · Flow: Early → Mid → Late → Exit → Early
+            Dot size ≈ industry weight · Colour = cycle stage · Flow: Early → Mid → Late → Recession → Early
           </p>
         </div>
 
@@ -111,12 +106,7 @@ export function RotationClock({ snapshot }: Props) {
               style={{ borderLeftWidth: 4, borderLeftColor: CYCLE_LABEL[stage].color }}
             >
               <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2">
-                <div className="text-sm font-semibold">
-                  {stage === 'early' && 'Early Cycle — Accumulate'}
-                  {stage === 'mid' && 'Mid Cycle — Hold / Add'}
-                  {stage === 'late' && 'Late Cycle — Reduce'}
-                  {stage === 'recession' && 'Recession — Exit'}
-                </div>
+                <div className="text-sm font-semibold">{CYCLE_LABEL[stage].action}</div>
                 <div className="text-xs text-[var(--color-ink-soft)]">{groups[stage].length} industries</div>
               </div>
               <div className="flex flex-wrap gap-2 p-3">

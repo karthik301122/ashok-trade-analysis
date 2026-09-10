@@ -356,10 +356,10 @@ export function buildMarketSnapshot(asOf = new Date()): MarketSnapshot {
 }
 
 export const CYCLE_LABEL: Record<CycleStage, { short: string; action: string; color: string }> = {
-  early: { short: 'EARLY', action: 'Accumulate', color: '#16a34a' },
-  mid: { short: 'MID', action: 'Hold / Add', color: '#2563eb' },
-  late: { short: 'LATE', action: 'Reduce', color: '#ea580c' },
-  recession: { short: 'EXIT', action: 'Exit', color: '#dc2626' },
+  early: { short: 'EARLY', action: 'Early cycle', color: '#16a34a' },
+  mid: { short: 'MID', action: 'Mid cycle', color: '#2563eb' },
+  late: { short: 'LATE', action: 'Late cycle', color: '#ea580c' },
+  recession: { short: 'REC', action: 'Recession', color: '#dc2626' },
 }
 
 export const MOOD_LABEL: Record<Mood, { label: string; className: string }> = {

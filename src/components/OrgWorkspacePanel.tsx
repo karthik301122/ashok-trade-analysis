@@ -30,15 +30,18 @@ export function OrgWorkspacePanel() {
   const [inviteEmail, setInviteEmail] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [stripeConfigured, setStripeConfigured] = useState(false)
   const active = orgs[0]
 
   const reload = async () => {
     setErr(null)
     try {
-      const [o, w] = await Promise.all([
+      const [o, w, cfg] = await Promise.all([
         fetch('/api/orgs', { credentials: 'include' }).then((r) => r.json()),
         fetch('/api/watchlists', { credentials: 'include' }).then((r) => r.json()),
+        fetch('/api/auth/config', { credentials: 'include' }).then((r) => r.json()),
       ])
+      setStripeConfigured(Boolean(cfg?.stripeConfigured))
       setOrgs(Array.isArray(o?.orgs) ? o.orgs : [])
       setWatchlists(Array.isArray(w?.watchlists) ? w.watchlists : [])
       const first = Array.isArray(o?.orgs) ? o.orgs[0] : null
@@ -184,13 +187,20 @@ export function OrgWorkspacePanel() {
       <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold">
         Organisations & watchlists
       </h2>
-      <p className="text-sm text-[var(--color-ink-soft)]">
-        Seat packs use Stripe when keys are configured. Individuals stay on a normal account until
-        invited.
-      </p>
+      {!stripeConfigured ? (
+        <p className="text-sm text-[var(--color-ink-soft)]">
+          Organisations and seat billing are coming soon on this environment. Watchlists below still
+          work on your account.
+        </p>
+      ) : (
+        <p className="text-sm text-[var(--color-ink-soft)]">
+          Seat packs use Stripe. Individuals stay on a normal account until invited.
+        </p>
+      )}
       {err && <div className="text-sm text-rose-600">{err}</div>}
       {msg && <div className="text-sm text-teal-800 dark:text-teal-200">{msg}</div>}
 
+      {stripeConfigured && (
       <div className="flex flex-wrap gap-2">
         <input
           value={orgName}
@@ -206,8 +216,9 @@ export function OrgWorkspacePanel() {
           Create org
         </button>
       </div>
+      )}
 
-      {active && (
+      {stripeConfigured && active && (
         <div className="space-y-2 text-sm">
           <div>
             Active: <strong>{active.name}</strong> · {active.seats} seats · role {active.role || '—'}

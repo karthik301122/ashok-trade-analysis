@@ -99,7 +99,7 @@ export function PatternPrefsProvider({
     setPrefs(loadPatternPrefs(user))
   }, [user])
 
-  // Hydrate from server once per login; migrate local → server if server empty.
+  // Hydrate from server once per login. Logged-in: server is source of truth.
   useEffect(() => {
     if (!user) return
     let cancelled = false
@@ -111,33 +111,30 @@ export function PatternPrefsProvider({
       if (cancelled) return
       const local = loadPatternPrefs(user)
       if (remote) {
-        const hasRemote =
-          (remote.starredNames?.length ?? 0) > 0 || (remote.customPatterns?.length ?? 0) > 0
-        if (hasRemote) {
-          const merged = {
-            ...local,
-            starredNames: Array.isArray(remote.starredNames)
-              ? remote.starredNames.filter((n): n is string => typeof n === 'string')
-              : local.starredNames,
-            customPatterns: Array.isArray(remote.customPatterns)
-              ? (remote.customPatterns as PatternPrefs['customPatterns'])
-              : local.customPatterns,
-            scanWindow: parsePatternScanWindow(remote.scanWindow),
-            chartInterval: parseChartIntervalPref(remote.chartInterval),
-          }
-          setPrefs(merged)
-          savePatternPrefs(user, merged)
-          return
+        // Row exists on server (even if stars/customs are empty) — trust it.
+        const merged: PatternPrefs = {
+          ...local,
+          starredNames: Array.isArray(remote.starredNames)
+            ? remote.starredNames.filter((n): n is string => typeof n === 'string')
+            : [],
+          customPatterns: Array.isArray(remote.customPatterns)
+            ? (remote.customPatterns as PatternPrefs['customPatterns'])
+            : [],
+          scanWindow: parsePatternScanWindow(remote.scanWindow),
+          chartInterval: parseChartIntervalPref(remote.chartInterval),
         }
-        // Server empty — upload local once.
-        if (local.starredNames.length || local.customPatterns.length) {
-          await savePatternPrefsToServer({
-            starredNames: local.starredNames,
-            customPatterns: local.customPatterns,
-            scanWindow: local.scanWindow,
-            chartInterval: local.chartInterval,
-          })
-        }
+        setPrefs(merged)
+        savePatternPrefs(user, merged)
+        return
+      }
+      // No server row yet — migrate local once, then server owns it.
+      if (local.starredNames.length || local.customPatterns.length) {
+        await savePatternPrefsToServer({
+          starredNames: local.starredNames,
+          customPatterns: local.customPatterns,
+          scanWindow: local.scanWindow,
+          chartInterval: local.chartInterval,
+        })
       }
     })()
     return () => {
@@ -146,6 +143,7 @@ export function PatternPrefsProvider({
   }, [user])
 
   useEffect(() => {
+    // Local cache only; logged-in writes also go to the server.
     savePatternPrefs(user, prefs)
     if (!user) return
     const t = window.setTimeout(() => {
@@ -155,6 +153,8 @@ export function PatternPrefsProvider({
           customPatterns: prefs.customPatterns,
           scanWindow: prefs.scanWindow,
           chartInterval: prefs.chartInterval,
+        }).catch(() => {
+          /* keep local cache; next login will re-hydrate */
         }),
       )
     }, 800)

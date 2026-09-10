@@ -84,8 +84,16 @@ export function envUserCount() {
 }
 
 export function authPublicConfig() {
+  let stripeConfigured = false
+  try {
+    // Lazy import avoided — keep config sync for Connect handlers.
+    stripeConfigured = Boolean(process.env.STRIPE_SECRET_KEY?.trim())
+  } catch {
+    stripeConfigured = false
+  }
   return {
     authRequired: authEnabled(),
+    stripeConfigured,
   }
 }
 
@@ -229,7 +237,7 @@ export async function handleAuthApi(req, res, send) {
       return send(200, { user: null, authRequired: false })
     }
     const user = getUserFromRequest(req)
-    if (!user) return send(401, { user: null, authRequired: true })
+    if (!user) return send(200, { user: null, authRequired: true })
     const canReceiveAlertEmail = isEmailLogin(user)
     const alertEmailOptIn = canReceiveAlertEmail ? await getAlertEmailOptIn(user) : false
     const alertEmailMinScore = canReceiveAlertEmail ? await getAlertEmailMinScore(user) : 80

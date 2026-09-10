@@ -159,6 +159,7 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
     ReturnType<typeof scanAllSpecialPatterns>
   >([])
   const [serverAsOf, setServerAsOf] = useState<string | null>(null)
+  const [serverPending, setServerPending] = useState(false)
   const [serverWeeklyById, setServerWeeklyById] = useState<
     Map<string, WeeklySpecialHit[]>
   >(() => new Map())
@@ -173,7 +174,19 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
       const { SNAPSHOT_PATTERN_CATALOG } = await import('../lib/patterns/specialCatalog')
       const server = await fetchServerPatternHits('latest')
       if (cancelled) return
+      if (server?.pending || server?.universe === 'none') {
+        setServerPending(true)
+        setServerAsOf(null)
+        setServerWeeklyById(new Map())
+        setServerWeeklyCounts({})
+        startTransition(() => {
+          if (cancelled) return
+          setSnapshotScan(scanAllSpecialPatterns(stocks, indexM3))
+        })
+        return
+      }
       if (server?.hits?.length) {
+        setServerPending(false)
         const byPattern = new Map<string, typeof server.hits>()
         const weeklyMap = new Map<string, WeeklySpecialHit[]>()
         for (const h of server.hits) {
@@ -232,6 +245,7 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
         setServerAsOf(server.asOf)
         return
       }
+      setServerPending(false)
       startTransition(() => {
         if (cancelled) return
         setSnapshotScan(scanAllSpecialPatterns(stocks, indexM3))
@@ -431,23 +445,27 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
             {specialScanning && (
               <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
                 Scanning special patterns (weekly + Livermore + VCP)… {specialDone}/{specialTotal}
-                {specialTotal > 0 && (
-                  <span className="text-[var(--color-ink-soft)]">
-                    {' '}
-                    · one OHLC fetch per stock
+              </p>
+            )}
+            {serverPending && !specialScanning && (
+              <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+                Server pattern scan not run yet / building… Snapshot specials still compute from the
+                desk map. Stage 2 will fill when the job finishes.
+              </p>
+            )}
+            {serverAsOf && !serverPending && !specialScanning && (
+              <p className="mt-2 text-xs font-medium text-teal-800 dark:text-teal-200">
+                Server pattern scan · as of {serverAsOf} (identical for all users — no browser crawl)
+                {(serverWeeklyCounts['stage-2'] ?? 0) === 0 && (
+                  <span className="block font-normal text-amber-800 dark:text-amber-200">
+                    Weekly Stage 2 still computing or no matches in this scan — not a live client crawl.
                   </span>
                 )}
               </p>
             )}
-            {serverAsOf && !specialScanning && (
-              <p className="mt-2 text-xs font-medium text-teal-800 dark:text-teal-200">
-                Server pattern scan · as of {serverAsOf} (identical for all users — no browser crawl)
-              </p>
-            )}
-            {!serverAsOf && !specialScanning && (
+            {!serverAsOf && !serverPending && !specialScanning && (
               <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
-                Waiting for the nightly server pattern job. Snapshot specials still compute from the
-                desk map instantly.
+                Using desk snapshot specials until the server pattern job publishes today’s hits.
               </p>
             )}
           </div>
@@ -787,7 +805,7 @@ function WeeklyHitsTable({
                 ? 'Loading weekly hits…'
                 : priceFilterActive
                   ? 'No pattern hits in this price range.'
-                  : 'No stocks match this weekly pattern in the server scan yet.'}
+                  : 'No Stage 2 matches in the server scan yet (job may still be building).'}
             </td>
           </tr>
         ) : (

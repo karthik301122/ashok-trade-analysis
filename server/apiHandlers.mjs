@@ -1364,7 +1364,7 @@ export function mountExpressApi(app) {
       return res.json({ user: null, authRequired: false })
     }
     const user = getUserFromRequest(req)
-    if (!user) return res.status(401).json({ user: null, authRequired: true })
+    if (!user) return res.json({ user: null, authRequired: true })
     const canReceiveAlertEmail = isEmailLogin(user)
     const alertEmailOptIn = canReceiveAlertEmail ? await getAlertEmailOptIn(user) : false
     const alertEmailMinScore = canReceiveAlertEmail ? await getAlertEmailMinScore(user) : 80
