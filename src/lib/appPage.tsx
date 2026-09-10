@@ -9,6 +9,8 @@ export type AppPage =
   | 'profile'
   | 'terms'
   | 'privacy'
+  | 'invite'
+  | 'how'
   | 'not-found'
 
 type AppNavContextValue = {

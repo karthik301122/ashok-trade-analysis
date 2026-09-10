@@ -24,7 +24,7 @@ export function getBrand() {
   return {
     name: override?.productName?.trim() || APP_NAME,
     tagline: APP_TAGLINE,
-    logoUrl: override?.logoUrl || '/favicon.svg',
+    logoUrl: (override?.logoUrl && String(override.logoUrl).trim()) || '/favicon.svg',
     primaryColor: override?.primaryColor || '#0f766e',
     supportEmail: override?.supportEmail || '',
     poweredBy: Boolean(override?.productName),

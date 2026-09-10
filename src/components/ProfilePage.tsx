@@ -33,6 +33,8 @@ export function ProfilePage({ user, onProfileChange }: Props) {
   const [resetMsg, setResetMsg] = useState<string | null>(null)
   const [resetErr, setResetErr] = useState<string | null>(null)
   const [resetBusy, setResetBusy] = useState(false)
+  const [marketNoteOptIn, setMarketNoteOptIn] = useState(false)
+  const [marketNoteBusy, setMarketNoteBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -50,11 +52,40 @@ export function ProfilePage({ user, onProfileChange }: Props) {
       setCanEdit(result.canEditProfile)
       setCanEmailReset(result.canReceiveAlertEmail)
       setLoading(false)
+      try {
+        const res = await fetch('/api/auth/market-note-opt-in', { credentials: 'include' })
+        const json = await res.json().catch(() => ({}))
+        if (!cancelled && res.ok) setMarketNoteOptIn(Boolean(json.marketNoteOptIn))
+      } catch {
+        /* optional */
+      }
     })()
     return () => {
       cancelled = true
     }
   }, [user])
+
+  const toggleMarketNote = async (optIn: boolean) => {
+    setMarketNoteBusy(true)
+    setProfileErr(null)
+    try {
+      const res = await fetch('/api/auth/market-note-opt-in', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ optIn }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setProfileErr(json.error || 'Could not update market note preference')
+        return
+      }
+      setMarketNoteOptIn(Boolean(json.marketNoteOptIn))
+      setProfileMsg(optIn ? 'Market notes enabled' : 'Market notes disabled')
+    } finally {
+      setMarketNoteBusy(false)
+    }
+  }
 
   const saveProfile = async (e: FormEvent) => {
     e.preventDefault()
@@ -119,7 +150,7 @@ export function ProfilePage({ user, onProfileChange }: Props) {
   }
 
   return (
-    <div className="mx-auto max-w-lg space-y-5">
+    <div className="mx-auto max-w-2xl space-y-5">
       <div>
         <h1 className="font-[family-name:var(--font-display)] text-xl font-semibold tracking-tight">
           Your profile
@@ -289,6 +320,24 @@ export function ProfilePage({ user, onProfileChange }: Props) {
           >
             {resetBusy ? 'Sending…' : 'Email reset link'}
           </button>
+        </div>
+      )}
+
+      {canEmailReset && (
+        <div className="space-y-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-sm">
+          <h2 className="text-sm font-semibold">Market notes</h2>
+          <p className="text-sm text-[var(--color-ink-soft)]">
+            Occasional email with pattern highlights from the desk (not personal advice).
+          </p>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={marketNoteOptIn}
+              disabled={marketNoteBusy}
+              onChange={(e) => void toggleMarketNote(e.target.checked)}
+            />
+            Email me market notes
+          </label>
         </div>
       )}
 

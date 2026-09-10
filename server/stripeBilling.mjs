@@ -24,6 +24,7 @@ import {
   findOrgByStripeCustomerId,
   findOrgByStripeSubscriptionId,
 } from './orgStore.mjs'
+import { upsertUserBilling } from './userBillingStore.mjs'
 
 let stripeClient = null
 let stripeLoadAttempted = false
@@ -147,6 +148,50 @@ export async function createCheckoutSession(opts = {}) {
 }
 
 /**
+ * @deprecated Invites use org seats only — students join via POST /api/orgs/invite/:token/join.
+ * Individual price is for solo customers (createIndividualCheckoutSession).
+ */
+export async function createInviteCheckoutSession() {
+  return {
+    ok: false,
+    error:
+      'Organisation invites use school seats only. Students join from the invite link without an individual subscription.',
+  }
+}
+
+/**
+ * Solo individual upgrade (not org invite).
+ * @param {{ username: string, successUrl: string, cancelUrl: string, customerEmail?: string }} opts
+ */
+export async function createIndividualCheckoutSession(opts = {}) {
+  const stripe = await getStripe()
+  if (!stripe) return { ok: false, error: 'Stripe is not configured' }
+  const username = String(opts.username || '').trim()
+  const successUrl = String(opts.successUrl || '').trim()
+  const cancelUrl = String(opts.cancelUrl || '').trim()
+  if (!username || !successUrl || !cancelUrl) {
+    return { ok: false, error: 'username, successUrl and cancelUrl required' }
+  }
+  const priceId = process.env.STRIPE_PRICE_INDIVIDUAL?.trim() || ''
+  if (!priceId) return { ok: false, error: 'STRIPE_PRICE_INDIVIDUAL is not configured' }
+  const session = await stripe.checkout.sessions.create({
+    mode: 'subscription',
+    line_items: [{ price: priceId, quantity: 1 }],
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    customer_email: opts.customerEmail || (username.includes('@') ? username : undefined),
+    metadata: {
+      purpose: 'individual',
+      username,
+    },
+    subscription_data: {
+      metadata: { purpose: 'individual', username },
+    },
+  })
+  return { ok: true, id: session.id, url: session.url }
+}
+
+/**
  * Stripe Customer Portal — cancel, update card, view invoices.
  * @param {{ orgId: string, returnUrl: string }} opts
  */
@@ -238,6 +283,35 @@ async function resolveOrgIdFromStripeObject(obj) {
  * @param {import('stripe').Stripe.Checkout.Session} session
  */
 export async function handleCheckoutCompleted(session) {
+  const purpose = String(session?.metadata?.purpose || '').trim()
+
+  if (purpose === 'org_invite') {
+    // Legacy: invites no longer use individual Checkout. Ignore stale sessions.
+    log('info', 'stripe.invite_checkout.ignored_legacy', { sessionId: session?.id })
+    return { ok: true, ignored: true, purpose }
+  }
+
+  if (purpose === 'individual') {
+    const username = String(session?.metadata?.username || session?.customer_email || '')
+      .trim()
+      .toLowerCase()
+    if (!username) return { ok: false, error: 'missing username' }
+    const payStatus = String(session.payment_status || '')
+    const status =
+      payStatus === 'paid' || payStatus === 'no_payment_required' ? 'active' : 'pending'
+    await upsertUserBilling(username, {
+      status,
+      stripeCustomerId:
+        typeof session.customer === 'string' ? session.customer : session.customer?.id || null,
+      stripeSubscriptionId:
+        typeof session.subscription === 'string'
+          ? session.subscription
+          : session.subscription?.id || null,
+    })
+    log('info', 'stripe.individual_checkout', { username, status, sessionId: session.id })
+    return { ok: true, purpose, username, status }
+  }
+
   const orgId = String(session?.metadata?.orgId || '').trim()
   if (!orgId) {
     log('warn', 'stripe.checkout_completed.missing_org', { sessionId: session?.id })
@@ -261,7 +335,6 @@ export async function handleCheckoutCompleted(session) {
   }
   if (Object.keys(patch).length) await setStripeIds(orgId, patch)
 
-  // Payment can still be processing (async methods) — treat unpaid checkout as pending.
   const payStatus = String(session.payment_status || '')
   if (payStatus === 'paid' || payStatus === 'no_payment_required') {
     await setBillingStatus(orgId, 'active')
@@ -281,6 +354,24 @@ export async function handleCheckoutCompleted(session) {
  * @param {import('stripe').Stripe.Subscription} subscription
  */
 export async function handleSubscriptionUpdated(subscription) {
+  const purpose = String(subscription?.metadata?.purpose || '').trim()
+  const username = String(subscription?.metadata?.username || subscription?.metadata?.inviteEmail || '')
+    .trim()
+    .toLowerCase()
+  if (purpose === 'individual') {
+    if (username) {
+      await upsertUserBilling(username, {
+        status: mapSubscriptionStatus(subscription.status),
+        stripeCustomerId:
+          typeof subscription.customer === 'string'
+            ? subscription.customer
+            : subscription.customer?.id || null,
+        stripeSubscriptionId: subscription.id,
+      })
+    }
+    return { ok: true, purpose, username }
+  }
+
   const orgId = await resolveOrgIdFromStripeObject(subscription)
   if (!orgId) {
     log('warn', 'stripe.subscription_updated.missing_org', { id: subscription?.id })
@@ -314,6 +405,20 @@ export async function handleSubscriptionUpdated(subscription) {
  * @param {import('stripe').Stripe.Subscription} subscription
  */
 export async function handleSubscriptionDeleted(subscription) {
+  const purpose = String(subscription?.metadata?.purpose || '').trim()
+  const username = String(subscription?.metadata?.username || subscription?.metadata?.inviteEmail || '')
+    .trim()
+    .toLowerCase()
+  if (purpose === 'individual') {
+    if (username) {
+      await upsertUserBilling(username, {
+        status: 'canceled',
+        stripeSubscriptionId: null,
+      })
+    }
+    return { ok: true, purpose, username }
+  }
+
   const orgId = await resolveOrgIdFromStripeObject(subscription)
   if (!orgId) {
     log('warn', 'stripe.subscription_deleted.missing_org', { id: subscription?.id })

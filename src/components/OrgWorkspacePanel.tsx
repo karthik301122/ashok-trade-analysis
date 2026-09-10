@@ -9,7 +9,23 @@ type Org = {
   billingStatus?: string
   stripeCustomerId?: string | null
   stripeSubscriptionId?: string | null
-  branding?: { productName?: string; primaryColor?: string; logoUrl?: string; supportEmail?: string }
+  branding?: {
+    productName?: string
+    primaryColor?: string
+    logoUrl?: string
+    supportEmail?: string
+  }
+}
+
+type Member = { username: string; role: string; cohort?: string | null; joinedAt?: number }
+
+type Invite = {
+  email: string
+  role: string
+  status: string
+  expiresAt?: number
+  inviteUrl?: string
+  token?: string
 }
 
 type Watchlist = { id: string; name: string; tickers: string[] }
@@ -22,6 +38,8 @@ type Publication = {
   version: number
   createdAt: number
 }
+
+const ROLE_OPTIONS = ['admin', 'trainer', 'student', 'member'] as const
 
 function billingLabel(status?: string) {
   switch (String(status || 'none')) {
@@ -38,26 +56,50 @@ function billingLabel(status?: string) {
   }
 }
 
+function publicInviteUrl(invite: Invite) {
+  if (invite.inviteUrl) return invite.inviteUrl
+  if (invite.token) {
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    return `${origin}/invite?token=${encodeURIComponent(invite.token)}`
+  }
+  return null
+}
+
 /** Org seats, branding, watchlists, trainer publishes — Profile extras. */
 export function OrgWorkspacePanel() {
   const [orgs, setOrgs] = useState<Org[]>([])
+  const [members, setMembers] = useState<Member[]>([])
+  const [invites, setInvites] = useState<Invite[]>([])
   const [watchlists, setWatchlists] = useState<Watchlist[]>([])
   const [pubs, setPubs] = useState<Publication[]>([])
   const [orgName, setOrgName] = useState('')
   const [wlName, setWlName] = useState('My watchlist')
+  const [wlEditId, setWlEditId] = useState<string | null>(null)
+  const [wlTickers, setWlTickers] = useState('')
   const [inviteEmail, setInviteEmail] = useState('')
+  const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null)
+  const [pubTitle, setPubTitle] = useState('Today’s Stage 2 focus')
+  const [pubNote, setPubNote] = useState('Review these names before the open.')
+  const [pubKind, setPubKind] = useState('pattern')
+  const [brandForm, setBrandForm] = useState({
+    productName: '',
+    primaryColor: '#0f766e',
+    logoUrl: '',
+    supportEmail: '',
+  })
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [stripeConfigured, setStripeConfigured] = useState(false)
   const active = orgs[0]
   const bill = billingLabel(active?.billingStatus)
-  const canManageBilling = Boolean(
-    active && ['owner', 'admin'].includes(String(active.role || '')),
+  const canManage = Boolean(active && ['owner', 'admin'].includes(String(active.role || '')))
+  const canPublish = Boolean(
+    active && ['owner', 'admin', 'trainer'].includes(String(active.role || '')),
   )
   const hasSubscription = Boolean(active?.stripeSubscriptionId || active?.stripeCustomerId)
   const showBuySeats =
-    canManageBilling &&
+    canManage &&
     (!active?.billingStatus ||
       active.billingStatus === 'none' ||
       active.billingStatus === 'canceled')
@@ -75,19 +117,45 @@ export function OrgWorkspacePanel() {
       setWatchlists(Array.isArray(w?.watchlists) ? w.watchlists : [])
       const first = Array.isArray(o?.orgs) ? o.orgs[0] : null
       if (first?.id) {
-        const p = await fetch(`/api/orgs/${first.id}/publications`, { credentials: 'include' }).then(
-          (r) => r.json(),
-        )
+        const [detail, inv, p] = await Promise.all([
+          fetch(`/api/orgs/${first.id}`, { credentials: 'include' }).then((r) => r.json()),
+          canManageRoles(first)
+            ? fetch(`/api/orgs/${first.id}/invites`, { credentials: 'include' }).then((r) =>
+                r.json(),
+              )
+            : Promise.resolve({ invites: [] }),
+          fetch(`/api/orgs/${first.id}/publications`, { credentials: 'include' }).then((r) =>
+            r.json(),
+          ),
+        ])
+        setMembers(Array.isArray(detail?.members) ? detail.members : [])
+        setInvites(Array.isArray(inv?.invites) ? inv.invites : [])
         setPubs(Array.isArray(p?.publications) ? p.publications : [])
-        if (first.branding) resolveBrand(first.branding)
+        const b = first.branding || detail?.org?.branding || {}
+        setBrandForm({
+          productName: b.productName || first.name || '',
+          primaryColor: b.primaryColor || '#0f766e',
+          logoUrl: b.logoUrl || '',
+          supportEmail: b.supportEmail || '',
+        })
+        if (first.branding || b.productName) resolveBrand(b)
+      } else {
+        setMembers([])
+        setInvites([])
+        setPubs([])
       }
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Failed to load org tools')
     }
   }
 
+  function canManageRoles(org: Org | null) {
+    return Boolean(org && ['owner', 'admin'].includes(String(org.role || '')))
+  }
+
   useEffect(() => {
     void reload()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const createOrg = async () => {
@@ -124,6 +192,26 @@ export function OrgWorkspacePanel() {
     await reload()
   }
 
+  const saveWatchlistTickers = async (id: string) => {
+    const tickers = wlTickers
+      .split(/[\s,;]+/)
+      .map((t) => t.trim().toUpperCase())
+      .filter(Boolean)
+    const res = await fetch(`/api/watchlists/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tickers }),
+    })
+    if (!res.ok) {
+      setErr('Could not save watchlist tickers')
+      return
+    }
+    setMsg('Watchlist updated')
+    setWlEditId(null)
+    await reload()
+  }
+
   const invite = async () => {
     if (!active?.id || !inviteEmail.trim()) return
     const res = await fetch(`/api/orgs/${active.id}/invites`, {
@@ -137,12 +225,84 @@ export function OrgWorkspacePanel() {
       setErr(json.error || 'Invite failed')
       return
     }
-    setMsg(
-      json.token
-        ? `Invite created. Share token with student (dev): ${json.token}`
-        : 'Invite created',
-    )
+    const url = json.invite?.inviteUrl || publicInviteUrl(json.invite || {})
+    setLastInviteUrl(url)
+    if (url) void copyLink(url)
+    setMsg(url ? 'Invite created. Link copied — email sent if SMTP is configured.' : 'Invite created')
     setInviteEmail('')
+    await reload()
+  }
+
+  const inviteCsv = async (file: File | null) => {
+    if (!active?.id || !file) return
+    const text = await file.text()
+    const res = await fetch(`/api/orgs/${active.id}/invites/csv`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csv: text, role: 'student' }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      setErr(json.error || 'CSV invite failed')
+      return
+    }
+    const n = Array.isArray(json.created) ? json.created.length : 0
+    const e = Array.isArray(json.errors) ? json.errors.length : 0
+    setMsg(`CSV invites: ${n} created${e ? `, ${e} failed` : ''}`)
+    await reload()
+  }
+
+  const revoke = async (email: string) => {
+    if (!active?.id) return
+    const res = await fetch(`/api/orgs/${active.id}/invites/revoke`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    })
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}))
+      setErr(json.error || 'Revoke failed')
+      return
+    }
+    setMsg(`Revoked invite for ${email}`)
+    await reload()
+  }
+
+  const removeMemberUser = async (username: string) => {
+    if (!active?.id) return
+    if (!window.confirm(`Remove ${username} from the organisation?`)) return
+    const res = await fetch(`/api/orgs/${active.id}/members/remove`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      setErr(json.error || 'Remove failed')
+      return
+    }
+    setMsg(`Removed ${username}`)
+    await reload()
+  }
+
+  const changeRole = async (username: string, role: string) => {
+    if (!active?.id) return
+    const res = await fetch(`/api/orgs/${active.id}/members/role`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, role }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      setErr(json.error || 'Role update failed')
+      return
+    }
+    setMsg(`Updated role for ${username}`)
+    await reload()
   }
 
   const checkout = async () => {
@@ -228,16 +388,16 @@ export function OrgWorkspacePanel() {
     }
   }
 
-  const publishDemo = async () => {
+  const publishDoc = async () => {
     if (!active?.id) return
     const res = await fetch(`/api/orgs/${active.id}/publications`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        kind: 'pattern',
-        title: 'Today’s Stage 2 focus',
-        note: 'Review these names before the open.',
+        kind: pubKind.trim() || 'pattern',
+        title: pubTitle.trim() || 'Untitled',
+        note: pubNote.trim() || null,
         payload: { patternId: 'stage-2' },
       }),
     })
@@ -251,24 +411,35 @@ export function OrgWorkspacePanel() {
 
   const saveBranding = async () => {
     if (!active?.id) return
+    const branding = {
+      productName: brandForm.productName.trim() || active.name,
+      primaryColor: brandForm.primaryColor.trim() || '#0f766e',
+      logoUrl: brandForm.logoUrl.trim() || '',
+      supportEmail: brandForm.supportEmail.trim() || '',
+    }
     const res = await fetch(`/api/orgs/${active.id}/branding`, {
       method: 'PUT',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        branding: {
-          productName: active.name,
-          primaryColor: '#0f766e',
-          supportEmail: '',
-        },
-      }),
+      body: JSON.stringify({ branding }),
     })
     if (!res.ok) {
       setErr('Branding save failed')
       return
     }
+    resolveBrand(branding)
     setMsg('Branding saved')
     await reload()
+  }
+
+  const copyLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setMsg('Invite link copied')
+    } catch {
+      setLastInviteUrl(url)
+      setMsg('Copy failed — link shown below')
+    }
   }
 
   return (
@@ -283,12 +454,18 @@ export function OrgWorkspacePanel() {
         </p>
       ) : (
         <p className="text-sm text-[var(--color-ink-soft)]">
-          Seat packs use Stripe. Cancel or update your card anytime via Manage billing. Individuals
-          stay on a normal account until invited.
+          Buy seats for your school, then invite students — they join under an org seat (no
+          individual plan). Solo traders use Upgrade for an individual subscription. Manage billing
+          anytime via Stripe.
         </p>
       )}
       {err && <div className="text-sm text-rose-600">{err}</div>}
       {msg && <div className="text-sm text-teal-800 dark:text-teal-200">{msg}</div>}
+      {lastInviteUrl && (
+        <div className="break-all rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-xs">
+          {lastInviteUrl}
+        </div>
+      )}
 
       {stripeConfigured && (
         <div className="flex flex-wrap gap-2">
@@ -309,37 +486,112 @@ export function OrgWorkspacePanel() {
       )}
 
       {stripeConfigured && active && (
-        <div className="space-y-2 text-sm">
+        <div className="space-y-4 text-sm">
           <div>
             Active: <strong>{active.name}</strong> · {active.seats} seats · role {active.role || '—'}
           </div>
           <div className={`text-sm font-medium ${bill.className}`}>Billing: {bill.text}</div>
-          {active.billingStatus === 'past_due' && (
-            <p className="text-xs text-rose-700 dark:text-rose-300">
-              Payment failed. Open Manage billing to update your card; seats may be limited until
-              the invoice is paid.
-            </p>
+
+          {canManage && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold uppercase text-[var(--color-ink-soft)]">
+                Invite students
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="student@school.edu"
+                  className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => void invite()}
+                  className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-semibold"
+                >
+                  Invite + email
+                </button>
+                <label className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-semibold">
+                  CSV upload
+                  <input
+                    type="file"
+                    accept=".csv,text/csv,text/plain"
+                    className="hidden"
+                    onChange={(e) => void inviteCsv(e.target.files?.[0] || null)}
+                  />
+                </label>
+              </div>
+              {invites.length > 0 && (
+                <ul className="space-y-1 rounded-lg border border-[var(--color-border)] p-3">
+                  {invites.slice(0, 40).map((inv) => (
+                    <li
+                      key={`${inv.email}-${inv.expiresAt}`}
+                      className="flex flex-wrap items-center justify-between gap-2"
+                    >
+                      <span>
+                        {inv.email} · {inv.status} · {inv.role}
+                      </span>
+                      <span className="flex gap-2">
+                        {['pending', 'checkout_started'].includes(inv.status) && (
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-rose-700"
+                            onClick={() => void revoke(inv.email)}
+                          >
+                            Revoke
+                          </button>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
-          {active.billingStatus === 'pending' && (
-            <p className="text-xs text-amber-800 dark:text-amber-200">
-              Payment is still pending or needs an extra step (bank auth). Finish in Manage billing
-              or wait for confirmation.
-            </p>
+
+          {canManage && members.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold uppercase text-[var(--color-ink-soft)]">
+                Members
+              </div>
+              <ul className="space-y-2 rounded-lg border border-[var(--color-border)] p-3">
+                {members.map((m) => (
+                  <li key={m.username} className="flex flex-wrap items-center gap-2">
+                    <span className="min-w-[10rem] font-medium">{m.username}</span>
+                    {m.role === 'owner' ? (
+                      <span className="text-xs text-[var(--color-ink-soft)]">owner</span>
+                    ) : (
+                      <>
+                        <select
+                          value={m.role}
+                          onChange={(e) => void changeRole(m.username, e.target.value)}
+                          className="rounded border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-2 py-1 text-xs"
+                        >
+                          {ROLE_OPTIONS.map((r) => (
+                            <option key={r} value={r}>
+                              {r}
+                            </option>
+                          ))}
+                          {!ROLE_OPTIONS.includes(m.role as (typeof ROLE_OPTIONS)[number]) && (
+                            <option value={m.role}>{m.role}</option>
+                          )}
+                        </select>
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-rose-700"
+                          onClick={() => void removeMemberUser(m.username)}
+                        >
+                          Remove
+                        </button>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
+
           <div className="flex flex-wrap gap-2">
-            <input
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="student@school.edu"
-              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm"
-            />
-            <button
-              type="button"
-              onClick={() => void invite()}
-              className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-semibold"
-            >
-              Invite student
-            </button>
             {showBuySeats && (
               <button
                 type="button"
@@ -350,7 +602,7 @@ export function OrgWorkspacePanel() {
                 Buy seats (Stripe)
               </button>
             )}
-            {canManageBilling && hasSubscription && (
+            {canManage && hasSubscription && (
               <>
                 <button
                   type="button"
@@ -372,21 +624,82 @@ export function OrgWorkspacePanel() {
                 )}
               </>
             )}
-            <button
-              type="button"
-              onClick={() => void saveBranding()}
-              className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-semibold"
-            >
-              Save branding MVP
-            </button>
-            <button
-              type="button"
-              onClick={() => void publishDemo()}
-              className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-semibold"
-            >
-              Publish setup to class
-            </button>
           </div>
+
+          {canManage && (
+            <div className="space-y-2 rounded-lg border border-[var(--color-border)] p-3">
+              <div className="text-xs font-semibold uppercase text-[var(--color-ink-soft)]">
+                Branding
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input
+                  value={brandForm.productName}
+                  onChange={(e) => setBrandForm((b) => ({ ...b, productName: e.target.value }))}
+                  placeholder="Product name"
+                  className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm"
+                />
+                <input
+                  value={brandForm.primaryColor}
+                  onChange={(e) => setBrandForm((b) => ({ ...b, primaryColor: e.target.value }))}
+                  placeholder="#0f766e"
+                  className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm"
+                />
+                <input
+                  value={brandForm.logoUrl}
+                  onChange={(e) => setBrandForm((b) => ({ ...b, logoUrl: e.target.value }))}
+                  placeholder="Logo URL"
+                  className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm sm:col-span-2"
+                />
+                <input
+                  value={brandForm.supportEmail}
+                  onChange={(e) => setBrandForm((b) => ({ ...b, supportEmail: e.target.value }))}
+                  placeholder="Support email"
+                  className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm sm:col-span-2"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => void saveBranding()}
+                className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-semibold"
+              >
+                Save branding
+              </button>
+            </div>
+          )}
+
+          {canPublish && (
+            <div className="space-y-2 rounded-lg border border-[var(--color-border)] p-3">
+              <div className="text-xs font-semibold uppercase text-[var(--color-ink-soft)]">
+                Publish to class
+              </div>
+              <input
+                value={pubTitle}
+                onChange={(e) => setPubTitle(e.target.value)}
+                placeholder="Title"
+                className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm"
+              />
+              <input
+                value={pubNote}
+                onChange={(e) => setPubNote(e.target.value)}
+                placeholder="Note"
+                className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm"
+              />
+              <input
+                value={pubKind}
+                onChange={(e) => setPubKind(e.target.value)}
+                placeholder="kind (pattern, daily-scan, …)"
+                className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => void publishDoc()}
+                className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-semibold"
+              >
+                Publish
+              </button>
+            </div>
+          )}
+
           {pubs.length > 0 && (
             <div className="rounded-lg border border-[var(--color-border)] p-3">
               <div className="text-xs font-semibold uppercase text-[var(--color-ink-soft)]">
@@ -396,6 +709,7 @@ export function OrgWorkspacePanel() {
                 {pubs.map((p) => (
                   <li key={p.id}>
                     <strong>{p.title}</strong>
+                    {p.kind ? ` · ${p.kind}` : ''}
                     {p.note ? ` — ${p.note}` : ''}
                   </li>
                 ))}
@@ -421,10 +735,41 @@ export function OrgWorkspacePanel() {
             New list
           </button>
         </div>
-        <ul className="mt-2 space-y-1 text-sm">
+        <ul className="mt-3 space-y-3 text-sm">
           {watchlists.map((w) => (
-            <li key={w.id}>
-              {w.name} · {w.tickers?.length ?? 0} tickers
+            <li key={w.id} className="rounded-lg border border-[var(--color-border)] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  {w.name} · {w.tickers?.length ?? 0} tickers
+                </span>
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-teal-800 dark:text-teal-200"
+                  onClick={() => {
+                    setWlEditId(w.id)
+                    setWlTickers((w.tickers || []).join(', '))
+                  }}
+                >
+                  Edit tickers
+                </button>
+              </div>
+              {wlEditId === w.id && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <input
+                    value={wlTickers}
+                    onChange={(e) => setWlTickers(e.target.value)}
+                    placeholder="BHP, CBA, WES"
+                    className="min-w-[12rem] flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void saveWatchlistTickers(w.id)}
+                    className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white"
+                  >
+                    Save
+                  </button>
+                </div>
+              )}
             </li>
           ))}
           {!watchlists.length && (

@@ -359,6 +359,42 @@ export async function setAlertEmailOptIn(username, optIn) {
   return optIn
 }
 
+export async function getMarketNoteOptIn(username) {
+  const row = await sqlOne('SELECT market_note_opt_in FROM user_prefs WHERE username = ?', [
+    normalizeUsername(username),
+  ])
+  return Boolean(row?.market_note_opt_in)
+}
+
+export async function setMarketNoteOptIn(username, optIn) {
+  const u = normalizeUsername(username)
+  const now = Date.now()
+  await sqlRun(
+    `INSERT INTO user_prefs (username, market_note_opt_in, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(username) DO UPDATE SET
+       market_note_opt_in = excluded.market_note_opt_in,
+       updated_at = excluded.updated_at`,
+    [u, optIn ? 1 : 0, now],
+  )
+  return Boolean(optIn)
+}
+
+/** Opt-in users with email-shaped usernames for market note mail. */
+export async function listMarketNoteOptInUsers() {
+  const rows = await sqlAll(
+    `SELECT username, market_note_opt_in FROM user_prefs
+     WHERE COALESCE(market_note_opt_in, 0) != 0 ORDER BY username`,
+  )
+  const out = []
+  for (const row of rows) {
+    if (!row?.market_note_opt_in) continue
+    const u = normalizeUsername(row.username)
+    if (isEmailLogin(u)) out.push(u)
+  }
+  return out
+}
+
 /** Opt-in users with their email min-score threshold. */
 export async function listAlertEmailOptInUserPrefs() {
   // COALESCE treats NULL as off; != 0 covers odd drivers that store boolean-ish values.

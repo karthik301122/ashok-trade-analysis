@@ -221,7 +221,20 @@ CREATE TABLE IF NOT EXISTS org_invites (
   email TEXT NOT NULL,
   role TEXT NOT NULL,
   cohort TEXT,
-  expires_at BIGINT NOT NULL
+  expires_at BIGINT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  activated_at BIGINT,
+  activated_username TEXT,
+  stripe_session_id TEXT,
+  created_at BIGINT
+);
+
+CREATE TABLE IF NOT EXISTS user_billing (
+  username TEXT PRIMARY KEY,
+  stripe_customer_id TEXT,
+  stripe_subscription_id TEXT,
+  status TEXT NOT NULL DEFAULT 'none',
+  updated_at BIGINT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS trainer_publications (

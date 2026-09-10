@@ -85,7 +85,7 @@ function sendSpa(res, status = 200) {
   res.sendFile(path.join(dist, 'index.html'))
 }
 
-const SPA_OK = new Set(['/', '/index.html', '/terms', '/privacy'])
+const SPA_OK = new Set(['/', '/index.html', '/terms', '/privacy', '/how', '/invite'])
 
 app.get(/.*/, (req, res) => {
   const pathOnly = (req.path || '/').split('?')[0] || '/'
@@ -113,6 +113,12 @@ app.listen(port, '0.0.0.0', () => {
     // Ensure today's pattern hits exist even if the last snapshot finished before the job ran.
     void import('./patternJob.mjs')
       .then(({ maybeStartFullUniversePatternJob }) => maybeStartFullUniversePatternJob())
+      .catch(() => {})
+    void import('./dailyScanJob.mjs')
+      .then(({ maybeStartDailyScanJob }) => maybeStartDailyScanJob({ delayMs: 30_000 }))
+      .catch(() => {})
+    void import('./marketNoteJob.mjs')
+      .then(({ maybeStartMarketNoteJob }) => maybeStartMarketNoteJob({ delayMs: 60_000 }))
       .catch(() => {})
   }, 120_000)
 })

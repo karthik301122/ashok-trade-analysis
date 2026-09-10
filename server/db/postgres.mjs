@@ -43,6 +43,25 @@ export async function createPostgresBackend(connectionString) {
     await pool.query(
       `ALTER TABLE organisations ADD COLUMN IF NOT EXISTS billing_status TEXT NOT NULL DEFAULT 'none'`,
     )
+    await pool.query(
+      `ALTER TABLE org_invites ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending'`,
+    )
+    await pool.query(`ALTER TABLE org_invites ADD COLUMN IF NOT EXISTS activated_at BIGINT`)
+    await pool.query(`ALTER TABLE org_invites ADD COLUMN IF NOT EXISTS activated_username TEXT`)
+    await pool.query(`ALTER TABLE org_invites ADD COLUMN IF NOT EXISTS stripe_session_id TEXT`)
+    await pool.query(`ALTER TABLE org_invites ADD COLUMN IF NOT EXISTS created_at BIGINT`)
+    await pool.query(
+      `ALTER TABLE user_prefs ADD COLUMN IF NOT EXISTS market_note_opt_in INTEGER NOT NULL DEFAULT 0`,
+    )
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_billing (
+        username TEXT PRIMARY KEY,
+        stripe_customer_id TEXT,
+        stripe_subscription_id TEXT,
+        status TEXT NOT NULL DEFAULT 'none',
+        updated_at BIGINT NOT NULL
+      )
+    `)
   }
 
   async function sqlOne(sql, params = []) {

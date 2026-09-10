@@ -13,14 +13,17 @@ type Props = {
   /** Prefer showing this in the header chip (falls back to login email/username). */
   displayName?: string | null
   onLogout?: () => void
+  /** Paid org seat or individual subscription unlocks Patterns / Alerts. */
+  fullDeskAccess?: boolean
+  onUpgrade?: () => void
 }
 
-const NAV: { id: AppPage; label: string; short: string }[] = [
+const NAV: { id: AppPage; label: string; short: string; requiresFullDesk?: boolean }[] = [
   { id: 'sector', label: 'Markets', short: 'Mkt' },
   { id: 'breadth', label: 'Breadth', short: 'Brd' },
-  { id: 'special-patterns', label: 'Patterns', short: 'Pat' },
-  { id: 'create-pattern', label: 'Create pattern', short: 'Create' },
-  { id: 'alerts', label: 'Alerts', short: 'Alert' },
+  { id: 'special-patterns', label: 'Patterns', short: 'Pat', requiresFullDesk: true },
+  { id: 'create-pattern', label: 'Create pattern', short: 'Create', requiresFullDesk: true },
+  { id: 'alerts', label: 'Alerts', short: 'Alert', requiresFullDesk: true },
 ]
 
 function labelInitials(label: string) {
@@ -43,6 +46,8 @@ export function Header({
   user,
   displayName,
   onLogout,
+  fullDeskAccess = true,
+  onUpgrade,
 }: Props) {
   const showSession = Boolean(authRequired && user)
   const label = (displayName?.trim() || user || '').trim()
@@ -50,6 +55,7 @@ export function Header({
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const brand = getBrand()
+  const logoSrc = brand.logoUrl?.trim() || '/favicon.svg'
 
   useEffect(() => {
     if (!menuOpen) return
@@ -64,6 +70,8 @@ export function Header({
     setMenuOpen(false)
   }, [page])
 
+  const navItems = NAV.filter((item) => fullDeskAccess || !item.requiresFullDesk)
+
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-3 px-3 sm:gap-4 sm:px-4">
@@ -72,7 +80,7 @@ export function Header({
           onClick={() => onPage('sector')}
           className="flex min-w-0 shrink items-center gap-2 rounded-lg text-left transition hover:opacity-90 sm:gap-2.5"
         >
-          <img src={brand.logoUrl} alt={brand.name} className="h-8 w-8 shrink-0 rounded-lg sm:h-9 sm:w-9" />
+          <img src={logoSrc} alt={brand.name} className="h-8 w-8 shrink-0 rounded-lg object-contain sm:h-9 sm:w-9" />
           <div className="min-w-0 leading-tight">
             <div className="truncate font-[family-name:var(--font-display)] text-[14px] font-semibold tracking-tight sm:text-[15px]">
               {brand.name}
@@ -84,7 +92,7 @@ export function Header({
         </button>
 
         <nav className="hidden items-center gap-1 md:flex">
-          {NAV.map((item) => {
+          {navItems.map((item) => {
             const active = page === item.id
             return (
               <button
@@ -105,6 +113,15 @@ export function Header({
         </nav>
 
         <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+          {!fullDeskAccess && onUpgrade && (
+            <button
+              type="button"
+              onClick={onUpgrade}
+              className="rounded-lg border border-teal-600 px-2.5 py-1.5 text-xs font-semibold text-teal-800 hover:bg-teal-50 dark:text-teal-200 dark:hover:bg-teal-950/40 sm:text-sm"
+            >
+              Upgrade
+            </button>
+          )}
           <div className="relative md:hidden" ref={menuRef}>
             <button
               type="button"
@@ -117,7 +134,7 @@ export function Header({
             </button>
             {menuOpen && (
               <div className="absolute right-0 top-full z-50 mt-1 w-48 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg">
-                {NAV.map((item) => {
+                {navItems.map((item) => {
                   const active = page === item.id
                   return (
                     <button
@@ -137,6 +154,18 @@ export function Header({
                     </button>
                   )
                 })}
+                {!fullDeskAccess && onUpgrade && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUpgrade()
+                      setMenuOpen(false)
+                    }}
+                    className="flex w-full items-center px-3 py-2.5 text-left text-sm font-semibold text-teal-800 dark:text-teal-200"
+                  >
+                    Upgrade desk
+                  </button>
+                )}
               </div>
             )}
           </div>

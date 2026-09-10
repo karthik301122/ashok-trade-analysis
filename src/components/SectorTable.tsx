@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Star } from 'lucide-react'
 import type { IndustryMetrics, MarketSnapshot, Mood, StockMetrics } from '../data/types'
 import { ASX_UNIVERSE_COUNT } from '../data/universe'
@@ -102,7 +102,35 @@ export function SectorTable({ snapshot, livePricesActive = false, active = true 
   const [copiedSectorStars, setCopiedSectorStars] = useState<string | null>(null)
   const [copiedIndustry, setCopiedIndustry] = useState<string | null>(null)
   const [chartStock, setChartStock] = useState<{ ticker: string; name: string } | null>(null)
+  const [watchlistTickers, setWatchlistTickers] = useState<Set<string>>(() => new Set())
   const { prefs, overviewHitsFor } = usePatternPrefs()
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/watchlists', { credentials: 'include' })
+        const json = await res.json().catch(() => ({}))
+        if (cancelled || !res.ok) return
+        const lists = Array.isArray(json?.watchlists) ? json.watchlists : []
+        const set = new Set<string>()
+        for (const wl of lists) {
+          for (const t of wl?.tickers || []) {
+            const u = String(t || '')
+              .trim()
+              .toUpperCase()
+            if (u) set.add(u)
+          }
+        }
+        setWatchlistTickers(set)
+      } catch {
+        /* optional */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const heavyPatternScans =
     snapshot.stocks.length >= Math.floor(ASX_UNIVERSE_COUNT * 0.85)
@@ -627,6 +655,7 @@ export function SectorTable({ snapshot, livePricesActive = false, active = true 
                 livermoreVersion={livermoreVersion}
                 scriptScanVersion={scriptScanVersion}
                 livePricesActive={livePricesActive}
+                watchlistTickers={watchlistTickers}
               />
             ))}
             {!industries.length && (
@@ -701,6 +730,7 @@ function IndustryRows({
   livermoreVersion,
   scriptScanVersion,
   livePricesActive = false,
+  watchlistTickers,
 }: {
   ind: IndustryMetrics
   open: boolean
@@ -728,6 +758,7 @@ function IndustryRows({
   livermoreVersion: number
   scriptScanVersion: number
   livePricesActive?: boolean
+  watchlistTickers?: Set<string>
 }) {
   const cycle = CYCLE_LABEL[ind.cycle]
   const mood = MOOD_LABEL[ind.mood]
@@ -815,11 +846,31 @@ function IndustryRows({
             livermoreVersion,
             scriptScanVersion,
           })
+          const onWatch = watchlistTickers?.has(String(s.ticker).toUpperCase())
           return (
-          <tr key={s.ticker} className="border-t border-[var(--color-border)]/60 bg-[var(--color-muted)]/40">
-            <td className="sticky left-0 z-[1] bg-[var(--color-muted)]/95 px-2 py-2 pl-8 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.12)]">
+          <tr
+            key={s.ticker}
+            className={`border-t border-[var(--color-border)]/60 ${
+              onWatch
+                ? 'bg-teal-50/80 dark:bg-teal-950/25'
+                : 'bg-[var(--color-muted)]/40'
+            }`}
+          >
+            <td
+              className={`sticky left-0 z-[1] px-2 py-2 pl-8 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.12)] ${
+                onWatch ? 'bg-teal-50/95 dark:bg-teal-950/40' : 'bg-[var(--color-muted)]/95'
+              }`}
+            >
               <div className="flex items-center gap-1.5">
                 {s.star && <Star size={12} className="fill-amber-400 text-amber-400" />}
+                {onWatch && (
+                  <span
+                    className="rounded px-1 text-[9px] font-bold uppercase tracking-wide text-teal-800 dark:text-teal-200"
+                    title="On your watchlist"
+                  >
+                    WL
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => onOpenChart(s.ticker, s.name)}

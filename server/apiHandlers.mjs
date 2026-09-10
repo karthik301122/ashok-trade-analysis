@@ -35,16 +35,18 @@ import {
   listAlertRules,
 } from './alerts.mjs'
 import { queryPatternScanState, upsertPatternScanBatch } from './patternScanStore.mjs'
-import { alertEmailConfigured } from './alertEmail.mjs'
+import { alertEmailConfigured, sendMail } from './alertEmail.mjs'
 import {
   getAlertEmailMinScore,
   getAlertEmailOptIn,
+  getMarketNoteOptIn,
   getPatternAlertIds,
   getPatternAlertWatches,
   getPatternComboAlerts,
   isEmailLogin,
   setAlertEmailMinScore,
   setAlertEmailOptIn,
+  setMarketNoteOptIn,
   setPatternAlertIds,
   setPatternAlertWatches,
   setPatternComboAlerts,
@@ -68,6 +70,13 @@ import {
   listMembers,
   getMember,
   createInvite,
+  createInvitesFromEmails,
+  listInvites,
+  getInviteByToken,
+  revokeInvite,
+  removeMember,
+  setMemberRole,
+  seatsAvailable,
   acceptInvite,
   getBranding,
   setBranding,
@@ -75,11 +84,13 @@ import {
 import { publish as publishTrainerDoc, listForMember as listTrainerPublications } from './trainerPublishStore.mjs'
 import {
   createCheckoutSession,
+  createIndividualCheckoutSession,
   createBillingPortalSession,
   cancelOrgSubscription,
   constructWebhookEvent,
   handleStripeWebhookEvent,
 } from './stripeBilling.mjs'
+import { getDeskEntitlement } from './deskEntitlement.mjs'
 import { checkRateLimit, clientKey, log, pruneRateLimitBuckets } from './log.mjs'
 import { seriesProviderName, isIntradayInterval } from './fetchSeries.mjs'
 import { eodhdOnlyMode } from './eodhd.mjs'
@@ -432,6 +443,52 @@ function expressSend(res) {
 
 function requireUserExpress(req, res) {
   return requireUserOrSend(req, expressSend(res))
+}
+
+function publicAppUrl() {
+  return String(process.env.PUBLIC_APP_URL || 'https://tradersscope.com').replace(/\/$/, '')
+}
+
+function absoluteInviteUrl(invite) {
+  const path =
+    invite?.inviteUrlPath ||
+    (invite?.token ? `/invite?token=${encodeURIComponent(invite.token)}` : null)
+  return path ? `${publicAppUrl()}${path}` : null
+}
+
+async function sendOrgInviteMail(invite, orgName) {
+  const inviteUrl = absoluteInviteUrl(invite)
+  if (!inviteUrl || !invite?.email) return false
+  const name = orgName || 'an organisation'
+  return sendMail({
+    to: invite.email,
+    subject: `You're invited to join ${name} on Traders Scope`,
+    text: [
+      `You've been invited to join ${name} on Traders Scope.`,
+      '',
+      'Open this link, sign in with this email address, and join using your school seat:',
+      inviteUrl,
+      '',
+      'This invite expires in 7 days. No individual subscription is required.',
+    ].join('\n'),
+    html: [
+      `<p>You've been invited to join <strong>${name}</strong> on Traders Scope.</p>`,
+      `<p><a href="${inviteUrl}">Open invite and join</a></p>`,
+      `<p style="font-size:12px;color:#666">Sign in with ${invite.email}. Uses a school seat — no individual plan. Invite expires in 7 days.</p>`,
+    ].join(''),
+  })
+}
+
+function parseInviteEmailsFromBody(body) {
+  if (Array.isArray(body?.emails)) {
+    return body.emails.map((e) => String(e || '').trim()).filter(Boolean)
+  }
+  const csv = String(body?.csv || body?.text || '').trim()
+  if (!csv) return []
+  return csv
+    .split(/[\n,;]+/)
+    .map((e) => e.trim().replace(/^["']|["']$/g, ''))
+    .filter((e) => e.includes('@'))
 }
 
 function rateLimitOrSend(req, send, route, limit) {
@@ -1174,6 +1231,72 @@ export async function handleConnectApi(req, res, send) {
     return true
   }
 
+  if (url.pathname === '/api/entitlement' && req.method === 'GET') {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    send(200, await getDeskEntitlement(user))
+    return true
+  }
+
+  if (url.pathname === '/api/billing/individual/checkout' && req.method === 'POST') {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    const body = await readJsonBody(req).catch(() => ({}))
+    const result = await createIndividualCheckoutSession({
+      username: user,
+      successUrl: body?.successUrl || `${publicAppUrl()}/?billing=success`,
+      cancelUrl: body?.cancelUrl || `${publicAppUrl()}/?billing=cancel`,
+      customerEmail: body?.customerEmail || (user.includes('@') ? user : undefined),
+    })
+    if (!result.ok) {
+      send(400, { error: result.error })
+      return true
+    }
+    send(200, { id: result.id, url: result.url })
+    return true
+  }
+
+  const invitePreview = url.pathname.match(/^\/api\/orgs\/invite\/([^/]+)$/)
+  if (invitePreview && req.method === 'GET') {
+    const token = decodeURIComponent(invitePreview[1])
+    const invite = await getInviteByToken(token)
+    if (!invite) {
+      send(404, { error: 'Invite not found' })
+      return true
+    }
+    const { tokenHash: _th, ...safe } = invite
+    send(200, {
+      invite: {
+        ...safe,
+        inviteUrl: absoluteInviteUrl({ token: invite.token, inviteUrlPath: invite.inviteUrlPath }),
+      },
+    })
+    return true
+  }
+
+  const inviteJoin = url.pathname.match(/^\/api\/orgs\/invite\/([^/]+)\/(?:join|checkout)$/)
+  if (inviteJoin && req.method === 'POST') {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    const token = decodeURIComponent(inviteJoin[1])
+    const preview = await getInviteByToken(token)
+    if (!preview) {
+      send(404, { error: 'Invite not found' })
+      return true
+    }
+    if (normalizeUsername(user) !== normalizeUsername(preview.email)) {
+      send(403, { error: 'Sign in with the invited email address to join' })
+      return true
+    }
+    try {
+      const result = await acceptInvite(token, user)
+      send(200, { ok: true, ...result })
+    } catch (err) {
+      send(400, { error: err instanceof Error ? err.message : String(err) })
+    }
+    return true
+  }
+
   if (url.pathname === '/api/orgs/accept-invite' && req.method === 'POST') {
     const user = requireUserOrSend(req, send)
     if (!user) return true
@@ -1208,6 +1331,104 @@ export async function handleConnectApi(req, res, send) {
     return true
   }
 
+  const orgInvitesCsv = url.pathname.match(/^\/api\/orgs\/([^/]+)\/invites\/csv$/)
+  if (orgInvitesCsv && req.method === 'POST') {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    const orgId = decodeURIComponent(orgInvitesCsv[1])
+    const member = await getMember(orgId, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      send(403, { error: 'Owner/admin required' })
+      return true
+    }
+    const body = await readJsonBody(req).catch(() => ({}))
+    const emails = parseInviteEmailsFromBody(body)
+    const org = await getOrg(orgId)
+    const { created, errors } = await createInvitesFromEmails(orgId, emails, {
+      role: body?.role || 'student',
+      cohort: body?.cohort ?? null,
+    })
+    for (const invite of created) {
+      try {
+        await sendOrgInviteMail(invite, org?.name)
+      } catch {
+        /* best-effort */
+      }
+    }
+    send(201, {
+      created: created.map((invite) => ({
+        ...invite,
+        inviteUrl: absoluteInviteUrl(invite),
+      })),
+      errors,
+    })
+    return true
+  }
+
+  const orgInvitesRevoke = url.pathname.match(/^\/api\/orgs\/([^/]+)\/invites\/revoke$/)
+  if (orgInvitesRevoke && req.method === 'POST') {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    const orgId = decodeURIComponent(orgInvitesRevoke[1])
+    const member = await getMember(orgId, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      send(403, { error: 'Owner/admin required' })
+      return true
+    }
+    const body = await readJsonBody(req).catch(() => ({}))
+    if (!body?.email) {
+      send(400, { error: 'email required' })
+      return true
+    }
+    await revokeInvite(orgId, body.email)
+    send(200, { ok: true })
+    return true
+  }
+
+  const orgMemberRemove = url.pathname.match(/^\/api\/orgs\/([^/]+)\/members\/remove$/)
+  if (orgMemberRemove && (req.method === 'POST' || req.method === 'DELETE')) {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    const orgId = decodeURIComponent(orgMemberRemove[1])
+    const member = await getMember(orgId, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      send(403, { error: 'Owner/admin required' })
+      return true
+    }
+    const body = await readJsonBody(req).catch(() => ({}))
+    if (!body?.username) {
+      send(400, { error: 'username required' })
+      return true
+    }
+    try {
+      await removeMember(orgId, body.username)
+      send(200, { ok: true })
+    } catch (err) {
+      send(400, { error: err instanceof Error ? err.message : String(err) })
+    }
+    return true
+  }
+
+  const orgMemberRole = url.pathname.match(/^\/api\/orgs\/([^/]+)\/members\/role$/)
+  if (orgMemberRole && req.method === 'PATCH') {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    const orgId = decodeURIComponent(orgMemberRole[1])
+    const member = await getMember(orgId, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      send(403, { error: 'Owner/admin required' })
+      return true
+    }
+    const body = await readJsonBody(req).catch(() => ({}))
+    try {
+      const updated = await setMemberRole(orgId, body?.username, body?.role)
+      send(200, { member: updated })
+    } catch (err) {
+      send(400, { error: err instanceof Error ? err.message : String(err) })
+    }
+    return true
+  }
+
   const orgPath = url.pathname.match(
     /^\/api\/orgs\/([^/]+)(?:\/(invites|checkout|billing-portal|cancel-subscription|branding|publications))?$/,
   )
@@ -1224,7 +1445,22 @@ export async function handleConnectApi(req, res, send) {
         return true
       }
       const member = await getMember(orgId, user)
-      send(200, { org, members: await listMembers(orgId), member })
+      send(200, {
+        org,
+        members: await listMembers(orgId),
+        member,
+        seatsAvailable: await seatsAvailable(orgId),
+      })
+      return true
+    }
+
+    if (sub === 'invites' && req.method === 'GET') {
+      const member = await getMember(orgId, user)
+      if (!member || !['owner', 'admin'].includes(member.role)) {
+        send(403, { error: 'Owner/admin required' })
+        return true
+      }
+      send(200, { invites: await listInvites(orgId) })
       return true
     }
 
@@ -1237,7 +1473,16 @@ export async function handleConnectApi(req, res, send) {
       const body = await readJsonBody(req)
       try {
         const invite = await createInvite(orgId, body || {})
-        send(201, { invite })
+        const org = await getOrg(orgId)
+        const inviteUrl = absoluteInviteUrl(invite)
+        if (body?.sendEmail !== false) {
+          try {
+            await sendOrgInviteMail(invite, org?.name)
+          } catch {
+            /* best-effort */
+          }
+        }
+        send(201, { invite: { ...invite, inviteUrl } })
       } catch (err) {
         send(400, { error: err instanceof Error ? err.message : String(err) })
       }
@@ -1453,6 +1698,33 @@ export function mountExpressApi(app) {
       alertEmailMinScore,
       canReceiveAlertEmail: true,
     })
+  })
+
+  app.get('/api/auth/market-note-opt-in', async (req, res) => {
+    if (!authEnabled()) {
+      return res.status(400).json({ error: 'Auth is not configured on this server' })
+    }
+    const user = getUserFromRequest(req)
+    if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    return res.json({
+      marketNoteOptIn: await getMarketNoteOptIn(user),
+      canReceiveMarketNote: isEmailLogin(user),
+    })
+  })
+
+  app.post('/api/auth/market-note-opt-in', async (req, res) => {
+    if (!authEnabled()) {
+      return res.status(400).json({ error: 'Auth is not configured on this server' })
+    }
+    const user = getUserFromRequest(req)
+    if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
+    if (!isEmailLogin(user)) {
+      return res.status(400).json({
+        error: 'Market notes require logging in with an email address.',
+      })
+    }
+    const optIn = await setMarketNoteOptIn(user, Boolean(req.body?.optIn))
+    return res.json({ ok: true, marketNoteOptIn: optIn, canReceiveMarketNote: true })
   })
 
   app.get('/api/auth/pattern-alert-prefs', async (req, res) => {
@@ -2236,6 +2508,25 @@ export function mountExpressApi(app) {
     return res.json(link)
   })
 
+  app.get('/api/entitlement', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    return res.json(await getDeskEntitlement(user))
+  })
+
+  app.post('/api/billing/individual/checkout', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const result = await createIndividualCheckoutSession({
+      username: user,
+      successUrl: req.body?.successUrl || `${publicAppUrl()}/?billing=success`,
+      cancelUrl: req.body?.cancelUrl || `${publicAppUrl()}/?billing=cancel`,
+      customerEmail: req.body?.customerEmail || (user.includes('@') ? user : undefined),
+    })
+    if (!result.ok) return res.status(400).json({ error: result.error })
+    return res.json({ id: result.id, url: result.url })
+  })
+
   app.get('/api/orgs', async (req, res) => {
     const user = requireUserExpress(req, res)
     if (!user) return
@@ -2248,6 +2539,53 @@ export function mountExpressApi(app) {
     try {
       const org = await createOrg(req.body?.name, user)
       return res.status(201).json({ org })
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.get('/api/orgs/invite/:token', async (req, res) => {
+    const invite = await getInviteByToken(req.params.token)
+    if (!invite) return res.status(404).json({ error: 'Invite not found' })
+    const { tokenHash: _th, ...safe } = invite
+    return res.json({
+      invite: {
+        ...safe,
+        inviteUrl: absoluteInviteUrl({ token: invite.token }),
+      },
+    })
+  })
+
+  app.post('/api/orgs/invite/:token/join', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const token = String(req.params.token || '')
+    const preview = await getInviteByToken(token)
+    if (!preview) return res.status(404).json({ error: 'Invite not found' })
+    if (normalizeUsername(user) !== normalizeUsername(preview.email)) {
+      return res.status(403).json({ error: 'Sign in with the invited email address to join' })
+    }
+    try {
+      const result = await acceptInvite(token, user)
+      return res.json({ ok: true, ...result })
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  // Legacy path — same as join (org seat only; no individual Checkout).
+  app.post('/api/orgs/invite/:token/checkout', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const token = String(req.params.token || '')
+    const preview = await getInviteByToken(token)
+    if (!preview) return res.status(404).json({ error: 'Invite not found' })
+    if (normalizeUsername(user) !== normalizeUsername(preview.email)) {
+      return res.status(403).json({ error: 'Sign in with the invited email address to join' })
+    }
+    try {
+      const result = await acceptInvite(token, user)
+      return res.json({ ok: true, ...result })
     } catch (err) {
       return res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
     }
@@ -2270,7 +2608,22 @@ export function mountExpressApi(app) {
     const org = await getOrg(req.params.id)
     if (!org) return res.status(404).json({ error: 'Org not found' })
     const member = await getMember(req.params.id, user)
-    return res.json({ org, members: await listMembers(req.params.id), member })
+    return res.json({
+      org,
+      members: await listMembers(req.params.id),
+      member,
+      seatsAvailable: await seatsAvailable(req.params.id),
+    })
+  })
+
+  app.get('/api/orgs/:id/invites', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      return res.status(403).json({ error: 'Owner/admin required' })
+    }
+    return res.json({ invites: await listInvites(req.params.id) })
   })
 
   app.post('/api/orgs/:id/invites', async (req, res) => {
@@ -2282,7 +2635,102 @@ export function mountExpressApi(app) {
     }
     try {
       const invite = await createInvite(req.params.id, req.body || {})
-      return res.status(201).json({ invite })
+      const org = await getOrg(req.params.id)
+      const inviteUrl = absoluteInviteUrl(invite)
+      if (req.body?.sendEmail !== false) {
+        try {
+          await sendOrgInviteMail(invite, org?.name)
+        } catch {
+          /* best-effort */
+        }
+      }
+      return res.status(201).json({ invite: { ...invite, inviteUrl } })
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.post('/api/orgs/:id/invites/csv', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      return res.status(403).json({ error: 'Owner/admin required' })
+    }
+    const emails = parseInviteEmailsFromBody(req.body || {})
+    const org = await getOrg(req.params.id)
+    const { created, errors } = await createInvitesFromEmails(req.params.id, emails, {
+      role: req.body?.role || 'student',
+      cohort: req.body?.cohort ?? null,
+    })
+    for (const invite of created) {
+      try {
+        await sendOrgInviteMail(invite, org?.name)
+      } catch {
+        /* best-effort */
+      }
+    }
+    return res.status(201).json({
+      created: created.map((invite) => ({
+        ...invite,
+        inviteUrl: absoluteInviteUrl(invite),
+      })),
+      errors,
+    })
+  })
+
+  app.post('/api/orgs/:id/invites/revoke', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      return res.status(403).json({ error: 'Owner/admin required' })
+    }
+    if (!req.body?.email) return res.status(400).json({ error: 'email required' })
+    await revokeInvite(req.params.id, req.body.email)
+    return res.json({ ok: true })
+  })
+
+  app.post('/api/orgs/:id/members/remove', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      return res.status(403).json({ error: 'Owner/admin required' })
+    }
+    try {
+      await removeMember(req.params.id, req.body?.username)
+      return res.json({ ok: true })
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.delete('/api/orgs/:id/members/remove', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      return res.status(403).json({ error: 'Owner/admin required' })
+    }
+    try {
+      await removeMember(req.params.id, req.body?.username)
+      return res.json({ ok: true })
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.patch('/api/orgs/:id/members/role', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      return res.status(403).json({ error: 'Owner/admin required' })
+    }
+    try {
+      const updated = await setMemberRole(req.params.id, req.body?.username, req.body?.role)
+      return res.json({ member: updated })
     } catch (err) {
       return res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
     }

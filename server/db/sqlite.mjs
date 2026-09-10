@@ -228,7 +228,19 @@ function openSqlite() {
       email TEXT NOT NULL,
       role TEXT NOT NULL,
       cohort TEXT,
-      expires_at INTEGER NOT NULL
+      expires_at INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      activated_at INTEGER,
+      activated_username TEXT,
+      stripe_session_id TEXT,
+      created_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS user_billing (
+      username TEXT PRIMARY KEY,
+      stripe_customer_id TEXT,
+      stripe_subscription_id TEXT,
+      status TEXT NOT NULL DEFAULT 'none',
+      updated_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS trainer_publications (
       id TEXT PRIMARY KEY,
@@ -249,6 +261,7 @@ function openSqlite() {
   migrateUserPrefsColumns(db)
   migrateUsersColumns(db)
   migrateOrganisationsColumns(db)
+  migrateOrgInvitesColumns(db)
   dbSingleton = db
   return db
 }
@@ -269,6 +282,27 @@ function migrateOrganisationsColumns(db) {
   }
 }
 
+function migrateOrgInvitesColumns(db) {
+  const existing = new Set(
+    db.prepare('PRAGMA table_info(org_invites)').all().map((r) => r.name),
+  )
+  if (!existing.has('status')) {
+    db.exec(`ALTER TABLE org_invites ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'`)
+  }
+  if (!existing.has('activated_at')) {
+    db.exec(`ALTER TABLE org_invites ADD COLUMN activated_at INTEGER`)
+  }
+  if (!existing.has('activated_username')) {
+    db.exec(`ALTER TABLE org_invites ADD COLUMN activated_username TEXT`)
+  }
+  if (!existing.has('stripe_session_id')) {
+    db.exec(`ALTER TABLE org_invites ADD COLUMN stripe_session_id TEXT`)
+  }
+  if (!existing.has('created_at')) {
+    db.exec(`ALTER TABLE org_invites ADD COLUMN created_at INTEGER`)
+  }
+}
+
 function migrateUserPrefsColumns(db) {
   const existing = new Set(
     db.prepare('PRAGMA table_info(user_prefs)').all().map((r) => r.name),
@@ -281,6 +315,9 @@ function migrateUserPrefsColumns(db) {
   }
   if (!existing.has('pattern_combo_alerts_json')) {
     db.exec('ALTER TABLE user_prefs ADD COLUMN pattern_combo_alerts_json TEXT')
+  }
+  if (!existing.has('market_note_opt_in')) {
+    db.exec('ALTER TABLE user_prefs ADD COLUMN market_note_opt_in INTEGER NOT NULL DEFAULT 0')
   }
 }
 

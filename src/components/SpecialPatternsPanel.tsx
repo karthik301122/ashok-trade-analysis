@@ -25,6 +25,7 @@ import { useSharedUnifiedSpecialScans } from './patterns/UnifiedSpecialScansCont
 import { useDeferredPanelActive } from '../lib/useDeferredPanelActive'
 import { usePanelKeepAlive } from '../lib/usePanelKeepAlive'
 import { usePatternPrefs } from './patterns/usePatternPrefs'
+import { DailyScanPanel } from './DailyScanPanel'
 import { StockChartModal, type ChartPatternFocus } from './StockChartModal'
 
 type Props = { snapshot: MarketSnapshot; visible?: boolean }
@@ -430,6 +431,7 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
 
   return (
     <div className="space-y-4">
+      <DailyScanPanel />
       <div className="rounded-2xl border border-violet-400/50 bg-gradient-to-br from-violet-50/80 to-[var(--color-surface)] p-5 dark:from-violet-950/30">
         <div className="flex flex-wrap items-start gap-3">
           <Sparkles className="mt-0.5 shrink-0 text-violet-600 dark:text-violet-300" size={22} />

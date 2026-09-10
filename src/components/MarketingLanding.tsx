@@ -46,7 +46,7 @@ export function MarketingLanding({ onSignIn }: Props) {
             Open the desk
           </button>
           <a
-            href="#how"
+            href="/how"
             className="rounded-lg border border-slate-300 bg-white/70 px-5 py-2.5 text-sm font-semibold text-slate-800 hover:bg-white"
           >
             How it works
@@ -81,7 +81,8 @@ export function MarketingLanding({ onSignIn }: Props) {
           </h2>
           <p className="mt-3 text-sm leading-relaxed text-slate-600">
             Education firms get one shared scan of the day. Individuals get a fast, mobile-ready
-            desk with watchlists and alerts that follow the account — not the laptop.
+            desk with watchlists and alerts that follow the account — not the laptop. Free accounts
+            can explore Markets and Breadth; upgrade for Patterns, alerts, and full desk tools.
           </p>
         </section>
       </main>

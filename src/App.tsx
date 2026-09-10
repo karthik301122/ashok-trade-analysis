@@ -20,6 +20,8 @@ import { PrewarmSnapshotPatterns } from './components/PrewarmSnapshotPatterns'
 import { PanelErrorBoundary } from './components/PanelErrorBoundary'
 import { AppNavContext, type AppPage } from './lib/appPage'
 import { LegalDocumentPage } from './components/LegalDocumentPage'
+import { InviteLandingPage } from './components/InviteLandingPage'
+import { HowItWorksPage } from './components/HowItWorksPage'
 
 const REFRESH_COOLDOWN_MS = 5 * 60_000
 
@@ -37,9 +39,16 @@ export default function App() {
     if (search.includes('reset=')) return 'sector'
     if (path === '/terms') return 'terms'
     if (path === '/privacy') return 'privacy'
+    if (path === '/how') return 'how'
+    if (path === '/invite') return 'invite'
     if (path !== '/' && path !== '/index.html') return 'not-found'
     return 'sector'
   })
+  const [inviteToken] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    return new URLSearchParams(window.location.search).get('token') || ''
+  })
+  const [fullDeskAccess, setFullDeskAccess] = useState(true)
   const [, startNavTransition] = useTransition()
   const [view, setView] = useState<ViewId>('sector-table')
   const navigate = useCallback((next: AppPage) => {
@@ -54,6 +63,19 @@ export default function App() {
       }
       if (next === 'privacy') {
         window.history.replaceState({}, '', '/privacy')
+        return
+      }
+      if (next === 'how') {
+        window.history.replaceState({}, '', '/how')
+        return
+      }
+      if (next === 'invite') {
+        const token = new URLSearchParams(window.location.search).get('token')
+        window.history.replaceState(
+          {},
+          '',
+          token ? `/invite?token=${encodeURIComponent(token)}` : '/invite',
+        )
         return
       }
       if (next !== 'not-found') {
@@ -163,6 +185,29 @@ export default function App() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!user) {
+      setFullDeskAccess(true)
+      return
+    }
+    setFullDeskAccess(false)
+    ;(async () => {
+      try {
+        const res = await fetch('/api/entitlement', { credentials: 'include' })
+        const json = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (res.ok) setFullDeskAccess(Boolean(json.fullDeskAccess))
+        else setFullDeskAccess(false)
+      } catch {
+        if (!cancelled) setFullDeskAccess(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   const load = useCallback(async (forceRefresh = false) => {
     abortRef.current?.abort()
@@ -546,8 +591,23 @@ export default function App() {
   }, [canUseApp, deskConfig?.productionMode, load])
 
   useEffect(() => {
+    if (fullDeskAccess) return
+    if (page === 'special-patterns' || page === 'alerts' || page === 'create-pattern') {
+      navigate('sector')
+    }
+  }, [fullDeskAccess, page, navigate])
+
+  useEffect(() => {
     if (!canUseApp || startedLoad.current) return
-    if (page === 'not-found' || page === 'terms' || page === 'privacy') return
+    if (
+      page === 'not-found' ||
+      page === 'terms' ||
+      page === 'privacy' ||
+      page === 'invite' ||
+      page === 'how'
+    ) {
+      return
+    }
     startedLoad.current = true
     void loadRef.current(false)
     return () => abortRef.current?.abort()
@@ -605,6 +665,7 @@ export default function App() {
     const me = await fetchAuthMe()
     setDisplayName(me.displayName ?? null)
     setPatternAlertWatches(me.patternAlertWatches ?? [])
+    if (page === 'invite') setAuthScreen('landing')
   }
 
   const handleLogout = async () => {
@@ -613,6 +674,7 @@ export default function App() {
     setUser(null)
     setDisplayName(null)
     setPatternAlertWatches([])
+    setFullDeskAccess(true)
     setSnapshot(null)
     setMeta(null)
     setError(null)
@@ -687,6 +749,55 @@ export default function App() {
     return <MaintenancePage message={siteMaintenance.message} />
   }
 
+  if (page === 'how') {
+    return (
+      <HowItWorksPage
+        onBack={() => {
+          if (user) navigate('sector')
+          else {
+            setAuthScreen('landing')
+            window.history.replaceState({}, '', '/')
+            setPage('sector')
+          }
+        }}
+        onSignIn={
+          user
+            ? undefined
+            : () => {
+                setAuthScreen('signin')
+                window.history.replaceState({}, '', '/')
+                setPage('sector')
+              }
+        }
+      />
+    )
+  }
+
+  if (page === 'invite') {
+    if (authRequired && (!user || passwordResetPending) && authScreen === 'signin') {
+      return (
+        <div className="min-h-screen bg-[var(--color-muted)] text-[var(--color-ink)]">
+          <main className="mx-auto max-w-[1600px] px-4 py-5">
+            <AuthPage
+              onSuccess={handleLogin}
+              onBack={passwordResetPending ? undefined : () => setAuthScreen('landing')}
+            />
+          </main>
+        </div>
+      )
+    }
+    return (
+      <div className="min-h-screen bg-[var(--color-muted)] text-[var(--color-ink)]">
+        <InviteLandingPage
+          token={inviteToken}
+          user={user}
+          authChecking={authChecking}
+          onSignIn={() => setAuthScreen('signin')}
+        />
+      </div>
+    )
+  }
+
   if (page === 'terms' || page === 'privacy') {
     return (
       <LegalDocumentPage
@@ -712,11 +823,36 @@ export default function App() {
           dark={dark}
           onToggleDark={() => setDark((d) => !d)}
           page={page}
-          onPage={navigate}
+          onPage={(p) => {
+            if (
+              !fullDeskAccess &&
+              (p === 'special-patterns' || p === 'alerts' || p === 'create-pattern')
+            ) {
+              return
+            }
+            navigate(p)
+          }}
           authRequired={authRequired}
           user={user}
           displayName={displayName}
           onLogout={authRequired ? handleLogout : undefined}
+          fullDeskAccess={fullDeskAccess}
+          onUpgrade={() => {
+            void (async () => {
+              const res = await fetch('/api/billing/individual/checkout', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  successUrl: `${window.location.origin}/?billing=success`,
+                  cancelUrl: `${window.location.origin}/?billing=cancel`,
+                }),
+              })
+              const json = await res.json().catch(() => ({}))
+              if (res.ok && json.url) window.location.href = json.url
+              else navigate('profile')
+            })()
+          }}
         />
       )}
 

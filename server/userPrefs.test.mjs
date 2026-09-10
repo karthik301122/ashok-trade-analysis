@@ -14,6 +14,9 @@ import {
   setPatternAlertIds,
   setPatternAlertWatches,
   userSubscribedToPatternAlert,
+  getMarketNoteOptIn,
+  setMarketNoteOptIn,
+  listMarketNoteOptInUsers,
 } from './userPrefs.mjs'
 
 describe('userPrefs', () => {
@@ -36,6 +39,15 @@ describe('userPrefs', () => {
     expect(await getAlertEmailOptIn('user@example.com')).toBe(true)
     await setAlertEmailOptIn('user@example.com', false)
     expect(await getAlertEmailOptIn('user@example.com')).toBe(false)
+  })
+
+  it('stores and lists market note opt-in', async () => {
+    expect(await getMarketNoteOptIn('note@example.com')).toBe(false)
+    await setMarketNoteOptIn('note@example.com', true)
+    expect(await getMarketNoteOptIn('note@example.com')).toBe(true)
+    expect(await listMarketNoteOptInUsers()).toContain('note@example.com')
+    await setMarketNoteOptIn('note@example.com', false)
+    expect(await listMarketNoteOptInUsers()).not.toContain('note@example.com')
   })
 
   it(
