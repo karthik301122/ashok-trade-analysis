@@ -231,7 +231,7 @@ npm run create-user -- username password --admin
 | Setting | Value |
 |---------|--------|
 | `AUTH_SECRET` | Long random string |
-| `PUBLIC_APP_URL` | Canonical site URL for password-reset links (e.g. `https://traderscope.com`) |
+| `PUBLIC_APP_URL` | Canonical site URL for password-reset links (e.g. `https://tradersscope.com`) |
 | `AUTH_USERS` | `user:$2b$hash,...` (optional, alongside DB users) |
 | `PRODUCTION_MODE` | `true` |
 

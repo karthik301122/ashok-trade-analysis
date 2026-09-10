@@ -21,7 +21,7 @@ describe('alertEmail', () => {
 
   it('is configured when all SMTP vars are set', () => {
     process.env.SMTP_HOST = 'smtp.office365.com'
-    process.env.SMTP_USER = 'alerts@traderscope.com'
+    process.env.SMTP_USER = 'alerts@tradersscope.com'
     process.env.SMTP_PASS = 'secret'
     expect(alertEmailConfigured()).toBe(true)
   })
@@ -29,11 +29,11 @@ describe('alertEmail', () => {
   it('defaults From to official alerts@ mailbox (not SMTP_USER)', () => {
     process.env.SMTP_USER = 'legacy@gmail.com'
     expect(alertEmailFromAddress()).toBe(DEFAULT_ALERT_FROM)
-    expect(DEFAULT_ALERT_FROM).toContain('alerts@traderscope.com')
+    expect(DEFAULT_ALERT_FROM).toContain('alerts@tradersscope.com')
   })
 
   it('honours SMTP_FROM when set', () => {
-    process.env.SMTP_FROM = 'Custom <alerts@traderscope.com>'
-    expect(alertEmailFromAddress()).toBe('Custom <alerts@traderscope.com>')
+    process.env.SMTP_FROM = 'Custom <alerts@tradersscope.com>'
+    expect(alertEmailFromAddress()).toBe('Custom <alerts@tradersscope.com>')
   })
 })

@@ -883,7 +883,7 @@ export function AlertsPanel({ snapshot, watches: watchesProp, onWatchesChange }:
               </h2>
               <p className="mt-1 max-w-2xl text-xs text-[var(--color-ink-soft)]">
                 One email per stock/pattern when its score reaches your threshold (not a daily digest).
-                Sent from alerts@traderscope.com to your login email. UI hit % (≥{UI_HIT_MIN_SCORE}%) is
+                Sent from alerts@tradersscope.com to your login email. UI hit % (≥{UI_HIT_MIN_SCORE}%) is
                 separate from this email cutoff.
                 {!emailEnabled && ' Server SMTP is not set up yet; preference is saved for when it is.'}
               </p>

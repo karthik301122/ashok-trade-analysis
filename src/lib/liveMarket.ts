@@ -682,7 +682,7 @@ export async function loadLiveMarketSnapshot(
   // Extra guard: even if a misconfigured health response flips the flag, never
   // crawl the full universe from the browser on a known production host.
   const host = typeof window !== 'undefined' ? window.location.hostname : ''
-  if (config.productionMode || /(^|\.)traderscope\.com$/i.test(host)) {
+  if (config.productionMode || /(^|\.)tradersscope\.com$/i.test(host)) {
     throw new Error(
       'Server snapshot is still building. Wait a few minutes and reload — browser universe fetch is disabled in production mode.',
     )

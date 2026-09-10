@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer'
 import { log } from './log.mjs'
 
 /** Official outbound address for pattern alert mail. */
-export const DEFAULT_ALERT_FROM = 'TradersScope Alerts <alerts@traderscope.com>'
+export const DEFAULT_ALERT_FROM = 'TradersScope Alerts <alerts@tradersscope.com>'
 
 let transporter = null
 
@@ -60,7 +60,7 @@ export async function sendMail(opts) {
   try {
     await transport.sendMail({
       from: alertEmailFromAddress(),
-      replyTo: 'alerts@traderscope.com',
+      replyTo: 'alerts@tradersscope.com',
       to,
       subject: opts.subject,
       text: opts.text,
@@ -153,7 +153,7 @@ export async function sendAlertEmail(item, recipient) {
   if (!to) return false
 
   const from = alertEmailFromAddress()
-  const site = process.env.PUBLIC_SITE_URL?.trim() || 'https://traderscope.com'
+  const site = process.env.PUBLIC_SITE_URL?.trim() || 'https://tradersscope.com'
   const ticker = item.ticker ? String(item.ticker).toUpperCase() : null
   const score = Number(item.score)
   const scoreLabel = Number.isFinite(score) ? ` (${Math.round(score)}%)` : ''
@@ -194,7 +194,7 @@ export async function sendAlertEmail(item, recipient) {
   try {
     await transport.sendMail({
       from,
-      replyTo: 'alerts@traderscope.com',
+      replyTo: 'alerts@tradersscope.com',
       to,
       subject,
       text,

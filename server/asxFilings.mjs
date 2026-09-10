@@ -7,7 +7,7 @@ import {
 } from './asxFilingsParse.mjs'
 
 const MARKIT = 'https://asx.api.markitdigital.com/asx-research/1.0'
-const UA = 'Mozilla/5.0 (compatible; TradersScope/1.0; +https://traderscope.com)'
+const UA = 'Mozilla/5.0 (compatible; TradersScope/1.0; +https://tradersscope.com)'
 const FRESH_TICKER_MS = 6 * 60 * 60 * 1000
 const FRESH_MARKET_MS = 10 * 60 * 1000
 

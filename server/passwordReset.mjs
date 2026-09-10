@@ -27,7 +27,7 @@ export function publicAppOrigin(req) {
   const protoRaw = headers['x-forwarded-proto']
   const proto = (Array.isArray(protoRaw) ? protoRaw[0] : protoRaw) || 'https'
   if (host) return `${String(proto).split(',')[0].trim()}://${String(host).split(',')[0].trim()}`
-  return 'https://traderscope.com'
+  return 'https://tradersscope.com'
 }
 
 /**

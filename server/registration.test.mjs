@@ -10,6 +10,6 @@ describe('registration validation', () => {
 
   it('requires a real email', () => {
     expect(validateRegisterEmail('not-an-email')).toBeTruthy()
-    expect(validateRegisterEmail('user@traderscope.com')).toBeNull()
+    expect(validateRegisterEmail('user@tradersscope.com')).toBeNull()
   })
 })
