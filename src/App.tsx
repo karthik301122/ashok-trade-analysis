@@ -31,10 +31,14 @@ export default function App() {
   const [patternAlertWatches, setPatternAlertWatches] = useState<PatternAlertWatch[]>([])
   const [page, setPage] = useState<AppPage>('sector')
   const [, startNavTransition] = useTransition()
-  const navigate = useCallback((next: AppPage) => {
-    startNavTransition(() => setPage(next))
-  }, [])
   const [view, setView] = useState<ViewId>('sector-table')
+  const navigate = useCallback((next: AppPage) => {
+    startNavTransition(() => {
+      setPage(next)
+      // Markets always opens on the sector table (not a leftover Crypto/Commodities view).
+      if (next === 'sector') setView('sector-table')
+    })
+  }, [])
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [backfilling, setBackfilling] = useState(false)
@@ -878,6 +882,15 @@ export default function App() {
           </>
         ) : null}
       </main>
+      )}
+      {canUseApp && (
+        <footer className="border-t border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
+          <p className="mx-auto max-w-[1600px] text-[11px] leading-relaxed text-[var(--color-ink-soft)]">
+            Traders Scope provides market information for education and research. It is not personal
+            financial advice. Past pattern behaviour is not a guarantee of future results. Trading
+            involves risk of loss.
+          </p>
+        </footer>
       )}
     </div>
     </AppNavContext.Provider>

@@ -1062,7 +1062,15 @@ export async function handleConnectApi(req, res, send) {
     const asOf = url.searchParams.get('as_of') || 'latest'
     const day = await readPatternHitsDay(asOf)
     if (!day) {
-      send(404, { error: 'No pattern hits yet' })
+      // 200 + empty so the desk does not treat a pending job as a broken endpoint.
+      send(200, {
+        asOf: asOf === 'latest' ? new Date().toISOString().slice(0, 10) : asOf,
+        builtAt: 0,
+        universe: 'none',
+        hits: [],
+        counts: {},
+        pending: true,
+      })
       return true
     }
     send(200, day)
@@ -2106,7 +2114,16 @@ export function mountExpressApi(app) {
     }
     const asOf = typeof req.query.as_of === 'string' ? req.query.as_of : 'latest'
     const day = await readPatternHitsDay(asOf)
-    if (!day) return res.status(404).json({ error: 'No pattern hits yet' })
+    if (!day) {
+      return res.json({
+        asOf: asOf === 'latest' ? new Date().toISOString().slice(0, 10) : asOf,
+        builtAt: 0,
+        universe: 'none',
+        hits: [],
+        counts: {},
+        pending: true,
+      })
+    }
     return res.json(day)
   })
 

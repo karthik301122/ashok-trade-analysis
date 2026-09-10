@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer'
 import { log } from './log.mjs'
 
 /** Official outbound address for pattern alert mail. */
-export const DEFAULT_ALERT_FROM = 'TradersScope Alerts <alerts@tradersscope.com>'
+export const DEFAULT_ALERT_FROM = 'Traders Scope Alerts <alerts@tradersscope.com>'
 
 let transporter = null
 
@@ -158,11 +158,11 @@ export async function sendAlertEmail(item, recipient) {
   const score = Number(item.score)
   const scoreLabel = Number.isFinite(score) ? ` (${Math.round(score)}%)` : ''
   const subject = ticker
-    ? `TradersScope: ${ticker} — ${item.ruleName}${scoreLabel}`
-    : `TradersScope: ${item.ruleName}`
+    ? `Traders Scope: ${ticker} — ${item.ruleName}${scoreLabel}`
+    : `Traders Scope: ${item.ruleName}`
 
   const text = [
-    'TradersScope alert',
+    'Traders Scope alert',
     '',
     item.message,
     '',
@@ -172,13 +172,14 @@ export async function sendAlertEmail(item, recipient) {
     '',
     `View on site: ${site}/alerts`,
     '',
-    'You receive this because you opted in to pattern alert emails in TradersScope.',
+    'You receive this because you opted in to pattern alert emails in Traders Scope.',
+    'Traders Scope provides market information for education and research. It is not personal financial advice. Past pattern behaviour is not a guarantee of future results. Trading involves risk of loss.',
   ]
     .filter((line) => line != null)
     .join('\n')
 
   const html = [
-    '<p><strong>TradersScope alert</strong></p>',
+    '<p><strong>Traders Scope alert</strong></p>',
     `<p>${item.message}</p>`,
     '<ul>',
     `<li>Rule: ${item.ruleName}</li>`,
@@ -187,6 +188,7 @@ export async function sendAlertEmail(item, recipient) {
     '</ul>',
     `<p><a href="${site}/alerts">Open Alerts</a></p>`,
     '<p style="font-size:12px;color:#666">You opted in to pattern alert emails on your account.</p>',
+    '<p style="font-size:11px;color:#888">Traders Scope provides market information for education and research. It is not personal financial advice. Past pattern behaviour is not a guarantee of future results. Trading involves risk of loss.</p>',
   ]
     .filter(Boolean)
     .join('')

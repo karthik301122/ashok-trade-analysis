@@ -4,8 +4,8 @@ const GAP_MS = import.meta.env.PROD ? 120 : 40
 /** Match server SERIES_MAX_IN_FLIGHT (prod default 1). Extra client concurrency just queues 503s. */
 const MAX_CONCURRENT = import.meta.env.PROD ? 1 : 3
 const FETCH_TIMEOUT_MS = import.meta.env.PROD ? 12_000 : 35_000
-/** Busy (429/503) retries — do not chase forever under shedding. */
-const MAX_BUSY_ATTEMPTS = import.meta.env.PROD ? 2 : 4
+/** Busy (429/503 shedding) retries — honour retryAfterMs; cap so we don't hammer under load. */
+const MAX_BUSY_ATTEMPTS = import.meta.env.PROD ? 5 : 6
 
 let active = 0
 const waiters: Array<() => void> = []
@@ -58,10 +58,16 @@ function noteServerBusy(res: Response, body?: { retryAfterMs?: number; reason?: 
     if (Number.isFinite(sec) && sec > 0) waitMs = sec * 1000
   } else if (typeof body?.retryAfterMs === 'number' && body.retryAfterMs > 0) {
     waitMs = body.retryAfterMs
-  } else if (body?.reason === 'shedding' || body?.reason === 'timeout' || body?.reason === 'meta-recovering') {
-    waitMs = Math.max(waitMs, 8_000)
   }
-  waitMs = jitter(Math.min(waitMs, 20_000))
+  if (
+    body?.reason === 'shedding' ||
+    body?.reason === 'busy' ||
+    body?.reason === 'timeout' ||
+    body?.reason === 'meta-recovering'
+  ) {
+    waitMs = Math.max(waitMs, 2_000 * Math.pow(2, attempt), body?.retryAfterMs || 0)
+  }
+  waitMs = jitter(Math.min(Math.max(waitMs, 1_000), 30_000))
   pauseUntil = Math.max(pauseUntil, Date.now() + waitMs)
   return waitMs
 }

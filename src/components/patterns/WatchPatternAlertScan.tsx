@@ -1,17 +1,14 @@
 import { useMemo } from 'react'
 import type { MarketSnapshot } from '../../data/types'
-import { ASX_UNIVERSE_COUNT } from '../../data/universe'
 import type { PatternAlertWatch } from '../../lib/patterns/patternAlertWatches'
-import { hasOverviewChartWatch } from '../../lib/overviewPatternHits'
-import { usePatternPrefs } from './usePatternPrefs'
 import { useIndustryPatternScan } from './useIndustryPatternScan'
 
 /**
- * Background scan for alert targets — starred chart patterns, My Patterns,
- * and per-stock pattern watches — so server scores stay current.
+ * Background scan for alert targets — only the user's watched tickers.
+ * Never crawls the full ASX universe (that caused Patterns to freeze on 503s).
  */
 export function WatchPatternAlertScan({
-  snapshot,
+  snapshot: _snapshot,
   paused = false,
   alertWatches = [],
 }: {
@@ -19,23 +16,14 @@ export function WatchPatternAlertScan({
   paused?: boolean
   alertWatches?: PatternAlertWatch[]
 }) {
-  const { prefs } = usePatternPrefs()
-  const chartWatch = hasOverviewChartWatch(prefs)
+  void _snapshot
   const watchTickers = useMemo(
     () => [...new Set(alertWatches.map((w) => w.ticker.toUpperCase()))],
     [alertWatches],
   )
-  const useWatchList = watchTickers.length > 0
-  const universeReady = snapshot.stocks.length >= Math.floor(ASX_UNIVERSE_COUNT * 0.85)
-  const fullUniverse = !useWatchList && chartWatch && universeReady
-  const tickers = useMemo(
-    () => (useWatchList ? watchTickers : snapshot.stocks.map((s) => s.ticker)),
-    [useWatchList, watchTickers, snapshot.stocks.length],
-  )
-  const scanEnabled =
-    !paused && universeReady && (chartWatch || useWatchList)
+  const scanEnabled = !paused && watchTickers.length > 0
 
-  useIndustryPatternScan(tickers, scanEnabled, fullUniverse, alertWatches)
+  useIndustryPatternScan(watchTickers, scanEnabled, false, alertWatches)
 
   return null
 }

@@ -30,7 +30,23 @@ const dist = path.join(root, 'dist')
 const port = Number(process.env.PORT) || 4173
 
 const app = express()
+app.disable('x-powered-by')
 app.set('trust proxy', 1)
+
+/** Baseline security headers (CSP stays Report-Only until tightened). */
+app.use((_req, res, next) => {
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
+  res.setHeader(
+    'Content-Security-Policy-Report-Only',
+    "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; script-src 'self' 'unsafe-inline'; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+  )
+  next()
+})
+
 // Skip JSON parser for Stripe webhook so mountExpressApi can use express.raw.
 app.use((req, res, next) => {
   if (req.path === '/api/billing/webhook') return next()
@@ -62,7 +78,14 @@ app.use(
 
 mountExpressApi(app)
 
-app.get(/.*/, (_req, res) => {
+// SPA shell: known app entry stays 200; unknown paths return real 404 (still serve the app HTML).
+app.get('/', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  res.sendFile(path.join(dist, 'index.html'))
+})
+
+app.get(/.*/, (req, res) => {
+  res.status(404)
   res.setHeader('Cache-Control', 'no-store')
   res.sendFile(path.join(dist, 'index.html'))
 })
@@ -84,5 +107,9 @@ app.listen(port, '0.0.0.0', () => {
     if (process.env.SNAPSHOT_BACKGROUND_ON_BOOT === '1') {
       maybeStartBackgroundSnapshot()
     }
+    // Ensure today's pattern hits exist even if the last snapshot finished before the job ran.
+    void import('./patternJob.mjs')
+      .then(({ maybeStartFullUniversePatternJob }) => maybeStartFullUniversePatternJob())
+      .catch(() => {})
   }, 120_000)
 })

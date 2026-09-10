@@ -159,6 +159,10 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
     ReturnType<typeof scanAllSpecialPatterns>
   >([])
   const [serverAsOf, setServerAsOf] = useState<string | null>(null)
+  const [serverWeeklyById, setServerWeeklyById] = useState<
+    Map<string, WeeklySpecialHit[]>
+  >(() => new Map())
+  const [serverWeeklyCounts, setServerWeeklyCounts] = useState<Record<string, number>>({})
 
   useEffect(() => {
     if (!active) return
@@ -171,8 +175,29 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
       if (cancelled) return
       if (server?.hits?.length) {
         const byPattern = new Map<string, typeof server.hits>()
+        const weeklyMap = new Map<string, WeeklySpecialHit[]>()
         for (const h of server.hits) {
-          if (h.kind && h.kind !== 'snapshot') continue
+          const kind = h.kind || 'snapshot'
+          if (kind === 'weekly' || h.patternId === 'stage-2') {
+            const list = weeklyMap.get(h.patternId) || []
+            list.push({
+              patternId: h.patternId as KarthikPatternId,
+              ticker: h.ticker,
+              name: h.name || h.ticker,
+              sector: h.sector || '',
+              industry: h.industry || '',
+              rs: h.rs ?? 0,
+              relativeVolume: h.relativeVolume ?? 0,
+              tightness: null,
+              weekStartT: null,
+              weekEndT: null,
+              score: h.score,
+              confirmed: h.confirmed,
+            })
+            weeklyMap.set(h.patternId, list)
+            continue
+          }
+          if (kind !== 'snapshot') continue
           const list = byPattern.get(h.patternId) || []
           list.push(h)
           byPattern.set(h.patternId, list)
@@ -202,12 +227,16 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
           }
         })
         setSnapshotScan(mapped)
+        setServerWeeklyById(weeklyMap)
+        setServerWeeklyCounts(server.counts || {})
         setServerAsOf(server.asOf)
         return
       }
       startTransition(() => {
         if (cancelled) return
         setSnapshotScan(scanAllSpecialPatterns(stocks, indexM3))
+        setServerWeeklyById(new Map())
+        setServerWeeklyCounts({})
         setServerAsOf(null)
       })
     })()
@@ -224,7 +253,19 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
     SPECIAL_PATTERN_CATALOG.find((p) => p.id === selectedId) ?? SPECIAL_PATTERN_CATALOG[0]
 
   const weeklyHitsAll = useMemo(() => {
-    if (!computeHeavy || !selected || selected.kind !== 'weekly') return [] as WeeklySpecialHit[]
+    if (!selected || selected.kind !== 'weekly') return [] as WeeklySpecialHit[]
+    const fromServer = serverWeeklyById.get(selected.id)
+    if (fromServer?.length) {
+      return fromServer.map((h) => {
+        const stock = stockByTicker.get(h.ticker.toUpperCase())
+        return {
+          ...h,
+          rs: h.rs ?? stock?.rs ?? 0,
+          relativeVolume: h.relativeVolume ?? stock?.relativeVolume ?? 0,
+        }
+      })
+    }
+    if (!computeHeavy) return [] as WeeklySpecialHit[]
     void version
     return aggregateWeeklyHits(tickers, selected.id as KarthikPatternId).map((h) => {
       const stock = stockByTicker.get(h.ticker.toUpperCase())
@@ -234,7 +275,7 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
         relativeVolume: h.relativeVolume ?? stock?.relativeVolume ?? 0,
       }
     })
-  }, [computeHeavy, selected, tickers, version, stockByTicker])
+  }, [computeHeavy, selected, tickers, version, stockByTicker, serverWeeklyById])
 
   const weeklyHits = useMemo(
     () =>
@@ -344,7 +385,13 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
   }, [computeHeavy, snapshot.stocks, scriptScanVersion])
 
   const patternCount = (p: SpecialPatternDef) => {
-    if (p.kind === 'weekly') return weeklyHitCountMap.get(p.id) ?? 0
+    if (p.kind === 'weekly') {
+      const counted = Number(serverWeeklyCounts[p.id])
+      if (Number.isFinite(counted) && counted > 0) return counted
+      const serverHits = serverWeeklyById.get(p.id)
+      if (serverHits?.length) return serverHits.length
+      return weeklyHitCountMap.get(p.id) ?? 0
+    }
     if (p.kind === 'livermore') return livermoreHitCountMap.get(p.id) ?? 0
     if (p.kind === 'scan') return scriptHitCountMap.get(p.id) ?? 0
     return snapshotById.get(p.id)?.count ?? 0
@@ -394,7 +441,13 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
             )}
             {serverAsOf && !specialScanning && (
               <p className="mt-2 text-xs font-medium text-teal-800 dark:text-teal-200">
-                Snapshot specials from server scan · as of {serverAsOf} (identical for all users)
+                Server pattern scan · as of {serverAsOf} (identical for all users — no browser crawl)
+              </p>
+            )}
+            {!serverAsOf && !specialScanning && (
+              <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
+                Waiting for the nightly server pattern job. Snapshot specials still compute from the
+                desk map instantly.
               </p>
             )}
           </div>
@@ -731,10 +784,10 @@ function WeeklyHitsTable({
           <tr>
             <td colSpan={headers.length} className="px-3 py-8 text-center text-[var(--color-ink-soft)]">
               {scanning
-                ? 'Scanning weekly OHLC across the universe…'
+                ? 'Loading weekly hits…'
                 : priceFilterActive
                   ? 'No pattern hits in this price range.'
-                  : 'No stocks match this weekly pattern right now.'}
+                  : 'No stocks match this weekly pattern in the server scan yet.'}
             </td>
           </tr>
         ) : (

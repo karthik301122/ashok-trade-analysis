@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { BarChart3, Bitcoin, ChevronDown, Clock3, Coins, LayoutList, MoreHorizontal, RefreshCw, Table2, Volume2 } from 'lucide-react'
+import { BarChart3, ChevronDown, Clock3, LayoutList, MoreHorizontal, RefreshCw, Table2, Volume2 } from 'lucide-react'
 
 export type ViewId =
   | 'sector-table'
@@ -13,6 +13,7 @@ export type ViewId =
 
 type ViewDef = { id: ViewId; label: string; icon: ReactNode; group?: 'more' }
 
+/** Commodities/Crypto hidden until live quotes work — dead nav reads as a broken product. */
 const VIEWS: ViewDef[] = [
   { id: 'sector-table', label: 'Sector table', icon: <Table2 size={14} /> },
   { id: 'volume-scan', label: 'Volume scan', icon: <Volume2 size={14} /> },
@@ -20,8 +21,6 @@ const VIEWS: ViewDef[] = [
   { id: 'money-rotation', label: 'Money rotation', icon: <RefreshCw size={14} />, group: 'more' },
   { id: 'rotation-clock', label: 'Rotation clock', icon: <Clock3 size={14} />, group: 'more' },
   { id: 'industry-analytics', label: 'Industry analytics', icon: <LayoutList size={14} />, group: 'more' },
-  { id: 'commodities', label: 'Commodities', icon: <Coins size={14} />, group: 'more' },
-  { id: 'crypto', label: 'Crypto', icon: <Bitcoin size={14} />, group: 'more' },
 ]
 
 const PRIMARY = VIEWS.filter((v) => !v.group)
