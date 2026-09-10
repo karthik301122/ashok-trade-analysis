@@ -5,6 +5,7 @@ import { MainPagePanels } from './components/MainPagePanels'
 import { MarketingLanding } from './components/MarketingLanding'
 import { AuthPage } from './components/AuthPage'
 import { ProfilePage } from './components/ProfilePage'
+import { OrgPage } from './components/OrgPage'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
 import { clearPerfCache, clearOhlcSessionCache } from './lib/deskSeries'
 import { fetchDeskServerConfig, type DeskServerConfig } from './lib/deskConfig'
@@ -893,6 +894,8 @@ export default function App() {
               Back to Markets
             </button>
           </div>
+        ) : page === 'org' && user ? (
+          <OrgPage />
         ) : page === 'profile' && user ? (
           <ProfilePage user={user} onProfileChange={handleProfileChange} />
         ) : loading && !snapshot ? (

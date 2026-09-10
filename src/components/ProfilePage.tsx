@@ -6,6 +6,7 @@ import {
   requestPasswordReset,
   updateProfile,
 } from '../lib/auth'
+import { useAppNav } from '../lib/appPage'
 import { OrgWorkspacePanel } from './OrgWorkspacePanel'
 
 type Props = {
@@ -14,6 +15,7 @@ type Props = {
 }
 
 export function ProfilePage({ user, onProfileChange }: Props) {
+  const { setPage } = useAppNav()
   const [displayName, setDisplayName] = useState('')
   const [username, setUsername] = useState(user)
   const [canEdit, setCanEdit] = useState(true)
@@ -341,7 +343,22 @@ export function ProfilePage({ user, onProfileChange }: Props) {
         </div>
       )}
 
-      <OrgWorkspacePanel />
+      <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-sm">
+        <h2 className="text-sm font-semibold">Organisation</h2>
+        <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
+          Seats, invites, class publications, and school branding live on the Organisation tab —
+          the view changes for owners, trainers, and students.
+        </p>
+        <button
+          type="button"
+          onClick={() => setPage('org')}
+          className="mt-3 rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+        >
+          Open Organisation
+        </button>
+      </div>
+
+      <OrgWorkspacePanel showOrg={false} />
     </div>
   )
 }

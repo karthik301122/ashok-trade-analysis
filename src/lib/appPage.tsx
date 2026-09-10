@@ -6,6 +6,7 @@ export type AppPage =
   | 'alerts'
   | 'special-patterns'
   | 'create-pattern'
+  | 'org'
   | 'profile'
   | 'terms'
   | 'privacy'

@@ -24,6 +24,7 @@ const NAV: { id: AppPage; label: string; short: string; requiresFullDesk?: boole
   { id: 'special-patterns', label: 'Patterns', short: 'Pat', requiresFullDesk: true },
   { id: 'create-pattern', label: 'Create pattern', short: 'Create', requiresFullDesk: true },
   { id: 'alerts', label: 'Alerts', short: 'Alert', requiresFullDesk: true },
+  { id: 'org', label: 'Organisation', short: 'Org' },
 ]
 
 function labelInitials(label: string) {
