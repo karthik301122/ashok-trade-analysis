@@ -19,6 +19,7 @@ import { WatchPatternAlertScan } from './components/patterns/WatchPatternAlertSc
 import { PrewarmSnapshotPatterns } from './components/PrewarmSnapshotPatterns'
 import { PanelErrorBoundary } from './components/PanelErrorBoundary'
 import { AppNavContext, type AppPage } from './lib/appPage'
+import { LegalDocumentPage } from './components/LegalDocumentPage'
 
 const REFRESH_COOLDOWN_MS = 5 * 60_000
 
@@ -34,6 +35,8 @@ export default function App() {
     const path = window.location.pathname || '/'
     const search = window.location.search || ''
     if (search.includes('reset=')) return 'sector'
+    if (path === '/terms') return 'terms'
+    if (path === '/privacy') return 'privacy'
     if (path !== '/' && path !== '/index.html') return 'not-found'
     return 'sector'
   })
@@ -44,7 +47,16 @@ export default function App() {
       setPage(next)
       // Markets always opens on the sector table (not a leftover Crypto/Commodities view).
       if (next === 'sector') setView('sector-table')
-      if (next !== 'not-found' && typeof window !== 'undefined') {
+      if (typeof window === 'undefined') return
+      if (next === 'terms') {
+        window.history.replaceState({}, '', '/terms')
+        return
+      }
+      if (next === 'privacy') {
+        window.history.replaceState({}, '', '/privacy')
+        return
+      }
+      if (next !== 'not-found') {
         const path = window.location.pathname
         if (path && path !== '/' && path !== '/index.html') {
           window.history.replaceState({}, '', '/')
@@ -535,7 +547,7 @@ export default function App() {
 
   useEffect(() => {
     if (!canUseApp || startedLoad.current) return
-    if (page === 'not-found') return
+    if (page === 'not-found' || page === 'terms' || page === 'privacy') return
     startedLoad.current = true
     void loadRef.current(false)
     return () => abortRef.current?.abort()
@@ -673,6 +685,22 @@ export default function App() {
 
   if (siteMaintenance.active) {
     return <MaintenancePage message={siteMaintenance.message} />
+  }
+
+  if (page === 'terms' || page === 'privacy') {
+    return (
+      <LegalDocumentPage
+        kind={page}
+        onBack={() => {
+          if (user) navigate('sector')
+          else {
+            setAuthScreen('landing')
+            navigate('sector')
+          }
+        }}
+        onOpenOther={(kind) => navigate(kind)}
+      />
+    )
   }
 
   return (
@@ -938,11 +966,30 @@ export default function App() {
       )}
       {canUseApp && (
         <footer className="border-t border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
-          <p className="mx-auto max-w-[1600px] text-[11px] leading-relaxed text-[var(--color-ink-soft)]">
-            Traders Scope provides market information for education and research. It is not personal
-            financial advice. Past pattern behaviour is not a guarantee of future results. Trading
-            involves risk of loss.
-          </p>
+          <div className="mx-auto flex max-w-[1600px] flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <p className="text-[11px] leading-relaxed text-[var(--color-ink-soft)]">
+              Traders Scope provides market information for education and research. It is not personal
+              financial advice. Past pattern behaviour is not a guarantee of future results. Trading
+              involves risk of loss.
+            </p>
+            <p className="shrink-0 text-[11px] text-[var(--color-ink-soft)]">
+              <button
+                type="button"
+                className="underline underline-offset-2 hover:text-[var(--color-ink)]"
+                onClick={() => navigate('terms')}
+              >
+                Terms
+              </button>
+              <span className="mx-1.5">·</span>
+              <button
+                type="button"
+                className="underline underline-offset-2 hover:text-[var(--color-ink)]"
+                onClick={() => navigate('privacy')}
+              >
+                Privacy
+              </button>
+            </p>
+          </div>
         </footer>
       )}
     </div>

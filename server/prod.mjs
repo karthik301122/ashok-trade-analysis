@@ -79,15 +79,18 @@ app.use(
 mountExpressApi(app)
 
 // SPA shell: known app entry stays 200; unknown paths return real 404 (still serve the app HTML).
-app.get('/', (_req, res) => {
+function sendSpa(res, status = 200) {
+  res.status(status)
   res.setHeader('Cache-Control', 'no-store')
   res.sendFile(path.join(dist, 'index.html'))
-})
+}
+
+const SPA_OK = new Set(['/', '/index.html', '/terms', '/privacy'])
 
 app.get(/.*/, (req, res) => {
-  res.status(404)
-  res.setHeader('Cache-Control', 'no-store')
-  res.sendFile(path.join(dist, 'index.html'))
+  const pathOnly = (req.path || '/').split('?')[0] || '/'
+  if (SPA_OK.has(pathOnly)) return sendSpa(res, 200)
+  return sendSpa(res, 404)
 })
 
 app.listen(port, '0.0.0.0', () => {

@@ -6,6 +6,9 @@ type Org = {
   name: string
   seats: number
   role?: string
+  billingStatus?: string
+  stripeCustomerId?: string | null
+  stripeSubscriptionId?: string | null
   branding?: { productName?: string; primaryColor?: string; logoUrl?: string; supportEmail?: string }
 }
 
@@ -20,6 +23,21 @@ type Publication = {
   createdAt: number
 }
 
+function billingLabel(status?: string) {
+  switch (String(status || 'none')) {
+    case 'active':
+      return { text: 'Active', className: 'text-teal-800 dark:text-teal-200' }
+    case 'pending':
+      return { text: 'Payment pending', className: 'text-amber-800 dark:text-amber-200' }
+    case 'past_due':
+      return { text: 'Payment failed / past due', className: 'text-rose-700 dark:text-rose-300' }
+    case 'canceled':
+      return { text: 'Canceled', className: 'text-[var(--color-ink-soft)]' }
+    default:
+      return { text: 'No subscription', className: 'text-[var(--color-ink-soft)]' }
+  }
+}
+
 /** Org seats, branding, watchlists, trainer publishes — Profile extras. */
 export function OrgWorkspacePanel() {
   const [orgs, setOrgs] = useState<Org[]>([])
@@ -30,8 +48,19 @@ export function OrgWorkspacePanel() {
   const [inviteEmail, setInviteEmail] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   const [stripeConfigured, setStripeConfigured] = useState(false)
   const active = orgs[0]
+  const bill = billingLabel(active?.billingStatus)
+  const canManageBilling = Boolean(
+    active && ['owner', 'admin'].includes(String(active.role || '')),
+  )
+  const hasSubscription = Boolean(active?.stripeSubscriptionId || active?.stripeCustomerId)
+  const showBuySeats =
+    canManageBilling &&
+    (!active?.billingStatus ||
+      active.billingStatus === 'none' ||
+      active.billingStatus === 'canceled')
 
   const reload = async () => {
     setErr(null)
@@ -118,25 +147,85 @@ export function OrgWorkspacePanel() {
 
   const checkout = async () => {
     if (!active?.id) return
-    const res = await fetch(`/api/orgs/${active.id}/checkout`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        seats: 50,
-        successUrl: `${window.location.origin}/?billing=success`,
-        cancelUrl: `${window.location.origin}/?billing=cancel`,
-      }),
-    })
-    const json = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      setErr(
-        json.error ||
-          'Checkout unavailable — set STRIPE_SECRET_KEY and STRIPE_PRICE_ORG_SEATS, then retry',
-      )
-      return
+    setBusy(true)
+    setErr(null)
+    try {
+      const res = await fetch(`/api/orgs/${active.id}/checkout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          seats: 50,
+          successUrl: `${window.location.origin}/?billing=success`,
+          cancelUrl: `${window.location.origin}/?billing=cancel`,
+        }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setErr(
+          json.error ||
+            'Checkout unavailable — set STRIPE_SECRET_KEY and STRIPE_PRICE_ORG_SEATS, then retry',
+        )
+        return
+      }
+      if (json.url) window.location.href = json.url
+    } finally {
+      setBusy(false)
     }
-    if (json.url) window.location.href = json.url
+  }
+
+  const openBillingPortal = async () => {
+    if (!active?.id) return
+    setBusy(true)
+    setErr(null)
+    try {
+      const res = await fetch(`/api/orgs/${active.id}/billing-portal`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ returnUrl: `${window.location.origin}/` }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setErr(json.error || 'Could not open billing portal')
+        return
+      }
+      if (json.url) window.location.href = json.url
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const cancelSubscription = async () => {
+    if (!active?.id) return
+    const ok = window.confirm(
+      'Cancel subscription at the end of the current billing period? You keep access until then. You can also manage this in the billing portal.',
+    )
+    if (!ok) return
+    setBusy(true)
+    setErr(null)
+    setMsg(null)
+    try {
+      const res = await fetch(`/api/orgs/${active.id}/cancel-subscription`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ immediately: false }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setErr(json.error || 'Could not cancel subscription')
+        return
+      }
+      setMsg(
+        json.cancelAtPeriodEnd
+          ? 'Cancellation scheduled — access continues until the period ends. Confirm in Manage billing if needed.'
+          : 'Subscription cancellation requested.',
+      )
+      await reload()
+    } finally {
+      setBusy(false)
+    }
   }
 
   const publishDemo = async () => {
@@ -194,28 +283,29 @@ export function OrgWorkspacePanel() {
         </p>
       ) : (
         <p className="text-sm text-[var(--color-ink-soft)]">
-          Seat packs use Stripe. Individuals stay on a normal account until invited.
+          Seat packs use Stripe. Cancel or update your card anytime via Manage billing. Individuals
+          stay on a normal account until invited.
         </p>
       )}
       {err && <div className="text-sm text-rose-600">{err}</div>}
       {msg && <div className="text-sm text-teal-800 dark:text-teal-200">{msg}</div>}
 
       {stripeConfigured && (
-      <div className="flex flex-wrap gap-2">
-        <input
-          value={orgName}
-          onChange={(e) => setOrgName(e.target.value)}
-          placeholder="Organisation name"
-          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm"
-        />
-        <button
-          type="button"
-          onClick={() => void createOrg()}
-          className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white"
-        >
-          Create org
-        </button>
-      </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={orgName}
+            onChange={(e) => setOrgName(e.target.value)}
+            placeholder="Organisation name"
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => void createOrg()}
+            className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white"
+          >
+            Create org
+          </button>
+        </div>
       )}
 
       {stripeConfigured && active && (
@@ -223,6 +313,19 @@ export function OrgWorkspacePanel() {
           <div>
             Active: <strong>{active.name}</strong> · {active.seats} seats · role {active.role || '—'}
           </div>
+          <div className={`text-sm font-medium ${bill.className}`}>Billing: {bill.text}</div>
+          {active.billingStatus === 'past_due' && (
+            <p className="text-xs text-rose-700 dark:text-rose-300">
+              Payment failed. Open Manage billing to update your card; seats may be limited until
+              the invoice is paid.
+            </p>
+          )}
+          {active.billingStatus === 'pending' && (
+            <p className="text-xs text-amber-800 dark:text-amber-200">
+              Payment is still pending or needs an extra step (bank auth). Finish in Manage billing
+              or wait for confirmation.
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             <input
               value={inviteEmail}
@@ -237,13 +340,38 @@ export function OrgWorkspacePanel() {
             >
               Invite student
             </button>
-            <button
-              type="button"
-              onClick={() => void checkout()}
-              className="rounded-lg border border-teal-600 px-3 py-2 text-sm font-semibold text-teal-800"
-            >
-              Buy seats (Stripe)
-            </button>
+            {showBuySeats && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void checkout()}
+                className="rounded-lg border border-teal-600 px-3 py-2 text-sm font-semibold text-teal-800 disabled:opacity-60"
+              >
+                Buy seats (Stripe)
+              </button>
+            )}
+            {canManageBilling && hasSubscription && (
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void openBillingPortal()}
+                  className="rounded-lg border border-teal-600 px-3 py-2 text-sm font-semibold text-teal-800 disabled:opacity-60"
+                >
+                  Manage billing
+                </button>
+                {active.billingStatus !== 'canceled' && active.stripeSubscriptionId && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void cancelSubscription()}
+                    className="rounded-lg border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-800 disabled:opacity-60 dark:border-rose-800 dark:text-rose-200"
+                  >
+                    Cancel subscription
+                  </button>
+                )}
+              </>
+            )}
             <button
               type="button"
               onClick={() => void saveBranding()}

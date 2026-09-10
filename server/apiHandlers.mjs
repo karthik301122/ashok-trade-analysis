@@ -75,8 +75,10 @@ import {
 import { publish as publishTrainerDoc, listForMember as listTrainerPublications } from './trainerPublishStore.mjs'
 import {
   createCheckoutSession,
+  createBillingPortalSession,
+  cancelOrgSubscription,
   constructWebhookEvent,
-  handleCheckoutCompleted,
+  handleStripeWebhookEvent,
 } from './stripeBilling.mjs'
 import { checkRateLimit, clientKey, log, pruneRateLimitBuckets } from './log.mjs'
 import { seriesProviderName, isIntradayInterval } from './fetchSeries.mjs'
@@ -1206,7 +1208,9 @@ export async function handleConnectApi(req, res, send) {
     return true
   }
 
-  const orgPath = url.pathname.match(/^\/api\/orgs\/([^/]+)(?:\/(invites|checkout|branding|publications))?$/)
+  const orgPath = url.pathname.match(
+    /^\/api\/orgs\/([^/]+)(?:\/(invites|checkout|billing-portal|cancel-subscription|branding|publications))?$/,
+  )
   if (orgPath) {
     const user = requireUserOrSend(req, send)
     if (!user) return true
@@ -1260,6 +1264,44 @@ export async function handleConnectApi(req, res, send) {
         return true
       }
       send(200, { id: result.id, url: result.url })
+      return true
+    }
+
+    if (sub === 'billing-portal' && req.method === 'POST') {
+      const member = await getMember(orgId, user)
+      if (!member || !['owner', 'admin'].includes(member.role)) {
+        send(403, { error: 'Owner/admin required' })
+        return true
+      }
+      const body = await readJsonBody(req)
+      const result = await createBillingPortalSession({
+        orgId,
+        returnUrl: body?.returnUrl || '/',
+      })
+      if (!result.ok) {
+        send(400, { error: result.error })
+        return true
+      }
+      send(200, { url: result.url })
+      return true
+    }
+
+    if (sub === 'cancel-subscription' && req.method === 'POST') {
+      const member = await getMember(orgId, user)
+      if (!member || !['owner', 'admin'].includes(member.role)) {
+        send(403, { error: 'Owner/admin required' })
+        return true
+      }
+      const body = await readJsonBody(req)
+      const result = await cancelOrgSubscription({
+        orgId,
+        immediately: Boolean(body?.immediately),
+      })
+      if (!result.ok) {
+        send(400, { error: result.error })
+        return true
+      }
+      send(200, result)
       return true
     }
 
@@ -2265,6 +2307,36 @@ export function mountExpressApi(app) {
     return res.json({ id: result.id, url: result.url })
   })
 
+  app.post('/api/orgs/:id/billing-portal', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      return res.status(403).json({ error: 'Owner/admin required' })
+    }
+    const result = await createBillingPortalSession({
+      orgId: req.params.id,
+      returnUrl: req.body?.returnUrl || `${req.protocol}://${req.get('host')}/`,
+    })
+    if (!result.ok) return res.status(400).json({ error: result.error })
+    return res.json({ url: result.url })
+  })
+
+  app.post('/api/orgs/:id/cancel-subscription', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      return res.status(403).json({ error: 'Owner/admin required' })
+    }
+    const result = await cancelOrgSubscription({
+      orgId: req.params.id,
+      immediately: Boolean(req.body?.immediately),
+    })
+    if (!result.ok) return res.status(400).json({ error: result.error })
+    return res.json(result)
+  })
+
   app.get('/api/orgs/:id/branding', async (req, res) => {
     const user = requireUserExpress(req, res)
     if (!user) return
@@ -2314,9 +2386,7 @@ export function mountExpressApi(app) {
     const signature = req.headers['stripe-signature']
     try {
       const event = await constructWebhookEvent(req.body, signature)
-      if (event.type === 'checkout.session.completed') {
-        await handleCheckoutCompleted(event.data.object)
-      }
+      await handleStripeWebhookEvent(event)
       return res.json({ received: true })
     } catch (err) {
       log('warn', 'stripe.webhook.error', {

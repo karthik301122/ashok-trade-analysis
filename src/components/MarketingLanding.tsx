@@ -92,6 +92,14 @@ export function MarketingLanding({ onSignIn }: Props) {
           financial advice. Past pattern behaviour is not a guarantee of future results. Trading
           involves risk of loss.
         </p>
+        <p className="mt-3 space-x-3">
+          <a href="/terms" className="font-medium text-slate-700 underline underline-offset-2 hover:text-slate-900">
+            Terms of Use
+          </a>
+          <a href="/privacy" className="font-medium text-slate-700 underline underline-offset-2 hover:text-slate-900">
+            Privacy Policy
+          </a>
+        </p>
         <p className="mt-2">© {new Date().getFullYear()} {APP_NAME}. All rights reserved.</p>
       </footer>
     </div>

@@ -26,6 +26,7 @@ function rowToOrg(row) {
     branding: parseJson(row.brandingJson, null),
     stripeCustomerId: row.stripeCustomerId || null,
     stripeSubscriptionId: row.stripeSubscriptionId || null,
+    billingStatus: String(row.billingStatus || 'none'),
     createdAt: Number(row.createdAt),
   }
 }
@@ -64,6 +65,7 @@ export async function getOrg(orgId) {
     `SELECT id, name, seats, branding_json AS "brandingJson",
             stripe_customer_id AS "stripeCustomerId",
             stripe_subscription_id AS "stripeSubscriptionId",
+            billing_status AS "billingStatus",
             created_at AS "createdAt"
      FROM organisations WHERE id = ?`,
     [id],
@@ -81,6 +83,7 @@ export async function listOrgsForUser(username) {
     `SELECT o.id, o.name, o.seats, o.branding_json AS "brandingJson",
             o.stripe_customer_id AS "stripeCustomerId",
             o.stripe_subscription_id AS "stripeSubscriptionId",
+            o.billing_status AS "billingStatus",
             o.created_at AS "createdAt",
             m.role, m.cohort
      FROM org_members m
@@ -232,6 +235,53 @@ export async function setStripeIds(orgId, patch = {}) {
     [customerId || null, subId || null, id],
   )
   return getOrg(id)
+}
+
+/**
+ * @param {string} orgId
+ * @param {string} status
+ */
+export async function setBillingStatus(orgId, status) {
+  const id = String(orgId || '').trim()
+  const value = String(status || 'none').trim().slice(0, 32) || 'none'
+  await sqlRun('UPDATE organisations SET billing_status = ? WHERE id = ?', [value, id])
+  return getOrg(id)
+}
+
+/**
+ * @param {string} customerId
+ */
+export async function findOrgByStripeCustomerId(customerId) {
+  const cid = String(customerId || '').trim()
+  if (!cid) return null
+  const row = await sqlOne(
+    `SELECT id, name, seats, branding_json AS "brandingJson",
+            stripe_customer_id AS "stripeCustomerId",
+            stripe_subscription_id AS "stripeSubscriptionId",
+            billing_status AS "billingStatus",
+            created_at AS "createdAt"
+     FROM organisations WHERE stripe_customer_id = ?`,
+    [cid],
+  )
+  return rowToOrg(row)
+}
+
+/**
+ * @param {string} subscriptionId
+ */
+export async function findOrgByStripeSubscriptionId(subscriptionId) {
+  const sid = String(subscriptionId || '').trim()
+  if (!sid) return null
+  const row = await sqlOne(
+    `SELECT id, name, seats, branding_json AS "brandingJson",
+            stripe_customer_id AS "stripeCustomerId",
+            stripe_subscription_id AS "stripeSubscriptionId",
+            billing_status AS "billingStatus",
+            created_at AS "createdAt"
+     FROM organisations WHERE stripe_subscription_id = ?`,
+    [sid],
+  )
+  return rowToOrg(row)
 }
 
 /**

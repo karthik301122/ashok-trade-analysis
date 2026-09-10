@@ -440,6 +440,18 @@ export function AuthPage({ onSuccess, onBack }: Props) {
               </div>
             )}
 
+            <p className="text-xs leading-relaxed text-[var(--color-ink-soft)]">
+              By creating an account you agree to our{' '}
+              <a href="/terms" className="font-semibold text-teal-700 underline underline-offset-2 dark:text-teal-300">
+                Terms of Use
+              </a>{' '}
+              and{' '}
+              <a href="/privacy" className="font-semibold text-teal-700 underline underline-offset-2 dark:text-teal-300">
+                Privacy Policy
+              </a>
+              .
+            </p>
+
             <button
               type="submit"
               disabled={busy}

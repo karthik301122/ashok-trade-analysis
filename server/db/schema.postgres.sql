@@ -202,6 +202,7 @@ CREATE TABLE IF NOT EXISTS organisations (
   branding_json TEXT,
   stripe_customer_id TEXT,
   stripe_subscription_id TEXT,
+  billing_status TEXT NOT NULL DEFAULT 'none',
   created_at BIGINT NOT NULL
 );
 

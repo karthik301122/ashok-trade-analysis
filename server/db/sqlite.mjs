@@ -211,6 +211,7 @@ function openSqlite() {
       branding_json TEXT,
       stripe_customer_id TEXT,
       stripe_subscription_id TEXT,
+      billing_status TEXT NOT NULL DEFAULT 'none',
       created_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS org_members (
@@ -247,6 +248,7 @@ function openSqlite() {
   migrateBreadthDailyColumns(db)
   migrateUserPrefsColumns(db)
   migrateUsersColumns(db)
+  migrateOrganisationsColumns(db)
   dbSingleton = db
   return db
 }
@@ -255,6 +257,15 @@ function migrateUsersColumns(db) {
   const existing = new Set(db.prepare('PRAGMA table_info(users)').all().map((r) => r.name))
   if (!existing.has('display_name')) {
     db.exec('ALTER TABLE users ADD COLUMN display_name TEXT')
+  }
+}
+
+function migrateOrganisationsColumns(db) {
+  const existing = new Set(
+    db.prepare('PRAGMA table_info(organisations)').all().map((r) => r.name),
+  )
+  if (!existing.has('billing_status')) {
+    db.exec(`ALTER TABLE organisations ADD COLUMN billing_status TEXT NOT NULL DEFAULT 'none'`)
   }
 }
 
