@@ -1,9 +1,9 @@
-/** S&P/ASX indexes used by Index Analysis (EODHD `.INDX` symbols). */
+/** S&P/ASX indexes used by Index Analysis (EODHD `A{code}.INDX` symbols). */
 
 export type AsxIndexKind = 'benchmark' | 'market' | 'sector'
 
 export type AsxIndexDef = {
-  /** App / series cache key */
+  /** App / series cache key (mirrors ^AXJO style) */
   symbol: string
   /** Short ASX code shown in UI */
   code: string
@@ -28,21 +28,21 @@ export const ASX_MARKET_INDEXES: AsxIndexDef[] = [
 
 /**
  * S&P/ASX 200 GICS sector indexes.
- * Symbols resolve to `{CODE}.INDX` via server EODHD mapping.
+ * EODHD codes are AXEJ.INDX (not XEJ.INDX) — same A-prefix pattern as AXJO.
  */
 export const ASX_SECTOR_INDEXES: AsxIndexDef[] = [
-  { symbol: 'XEJ.INDX', code: 'XEJ', name: 'Energy', kind: 'sector' },
-  { symbol: 'XMJ.INDX', code: 'XMJ', name: 'Materials', kind: 'sector' },
-  { symbol: 'XNJ.INDX', code: 'XNJ', name: 'Industrials', kind: 'sector' },
-  { symbol: 'XDJ.INDX', code: 'XDJ', name: 'Consumer Discretionary', kind: 'sector' },
-  { symbol: 'XSJ.INDX', code: 'XSJ', name: 'Consumer Staples', kind: 'sector' },
-  { symbol: 'XHJ.INDX', code: 'XHJ', name: 'Health Care', kind: 'sector' },
-  { symbol: 'XFJ.INDX', code: 'XFJ', name: 'Financials', kind: 'sector' },
-  { symbol: 'XXJ.INDX', code: 'XXJ', name: 'Financials ex-A-REIT', kind: 'sector' },
-  { symbol: 'XIJ.INDX', code: 'XIJ', name: 'Information Technology', kind: 'sector' },
-  { symbol: 'XTJ.INDX', code: 'XTJ', name: 'Communication Services', kind: 'sector' },
-  { symbol: 'XUJ.INDX', code: 'XUJ', name: 'Utilities', kind: 'sector' },
-  { symbol: 'XPJ.INDX', code: 'XPJ', name: 'A-REIT / Property', kind: 'sector' },
+  { symbol: '^AXEJ', code: 'XEJ', name: 'Energy', kind: 'sector' },
+  { symbol: '^AXMJ', code: 'XMJ', name: 'Materials', kind: 'sector' },
+  { symbol: '^AXNJ', code: 'XNJ', name: 'Industrials', kind: 'sector' },
+  { symbol: '^AXDJ', code: 'XDJ', name: 'Consumer Discretionary', kind: 'sector' },
+  { symbol: '^AXSJ', code: 'XSJ', name: 'Consumer Staples', kind: 'sector' },
+  { symbol: '^AXHJ', code: 'XHJ', name: 'Health Care', kind: 'sector' },
+  { symbol: '^AXFJ', code: 'XFJ', name: 'Financials', kind: 'sector' },
+  { symbol: '^AXXJ', code: 'XXJ', name: 'Financials ex-A-REIT', kind: 'sector' },
+  { symbol: '^AXIJ', code: 'XIJ', name: 'Information Technology', kind: 'sector' },
+  { symbol: '^AXTJ', code: 'XTJ', name: 'Communication Services', kind: 'sector' },
+  { symbol: '^AXUJ', code: 'XUJ', name: 'Utilities', kind: 'sector' },
+  { symbol: '^AXPJ', code: 'XPJ', name: 'A-REIT / Property', kind: 'sector' },
 ]
 
 export const ASX_INDEX_ANALYSIS_UNIVERSE: AsxIndexDef[] = [

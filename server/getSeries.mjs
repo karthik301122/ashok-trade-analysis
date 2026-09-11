@@ -22,8 +22,9 @@ export function resolveSeriesSymbol(ticker) {
   if (t === '^AXJO' || t === 'XJO' || t === 'ASX200') return '^AXJO'
   if (t === '^AORD' || t === 'AORD' || t === 'XAO' || t === 'AORD.INDX') return '^AORD'
   if (t === '^AXSO' || t === 'AXSO' || t === 'AXSO.INDX') return '^AXSO'
-  if (/^(XEJ|XMJ|XNJ|XDJ|XSJ|XHJ|XFJ|XXJ|XIJ|XTJ|XUJ|XPJ|XRE)(\.INDX)?$/.test(t)) {
-    return t.endsWith('.INDX') ? t : `${t}.INDX`
+  {
+    const sector = t.match(/^\^?(A)?(XEJ|XMJ|XNJ|XDJ|XSJ|XHJ|XFJ|XXJ|XIJ|XTJ|XUJ|XPJ|XRE)(\.INDX)?$/)
+    if (sector) return `^A${sector[2]}`
   }
   if (t.endsWith('.CC') || t.endsWith('.FOREX') || t.endsWith('.AU') || t.endsWith('.INDX')) return t
   if (/^[A-Z0-9]+-[A-Z0-9]+$/.test(t)) return `${t}.CC`

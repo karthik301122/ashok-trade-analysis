@@ -22,9 +22,12 @@ describe('eodhd symbols', () => {
   })
 
   it('maps ASX sector indexes for Index Analysis', () => {
-    expect(toEodhdSymbol('XEJ')).toBe('XEJ.INDX')
-    expect(toEodhdSymbol('XIJ.INDX')).toBe('XIJ.INDX')
-    expect(toEodhdSymbol('XPJ')).toBe('XPJ.INDX')
+    expect(toEodhdSymbol('XEJ')).toBe('AXEJ.INDX')
+    expect(toEodhdSymbol('^AXEJ')).toBe('AXEJ.INDX')
+    expect(toEodhdSymbol('AXEJ.INDX')).toBe('AXEJ.INDX')
+    expect(toEodhdSymbol('XEJ.INDX')).toBe('AXEJ.INDX')
+    expect(toEodhdSymbol('XIJ')).toBe('AXIJ.INDX')
+    expect(toEodhdSymbol('XPJ')).toBe('AXPJ.INDX')
   })
 
   it('maps crypto and forex', () => {

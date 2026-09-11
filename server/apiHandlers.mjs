@@ -301,7 +301,7 @@ function noteSeriesLatency(ms) {
   }
 }
 
-function noteSeriesHitFromIp(ip) {
+function noteSeriesHitFromIp(ip, opts = {}) {
   const key = String(ip || 'unknown')
   const now = Date.now()
   const banUntil = seriesBanUntilByIp.get(key) || 0
@@ -315,10 +315,12 @@ function noteSeriesHitFromIp(ip) {
   hits.push(now)
   // Keep ~2 minutes of hits.
   while (hits.length && now - hits[0] > 120_000) hits.shift()
-  // Pattern full-universe scans + crawls — 25 admits / 2 min is plenty.
-  if (isProductionMode() && hits.length >= 25) {
+  // Desk Index Analysis alone needs ~15 series; allow more when desk=1 is present.
+  // Anonymous / old crawls stay on the tight 25/2min cap.
+  const maxHits = opts.desk ? 80 : 25
+  if (isProductionMode() && hits.length >= maxHits) {
     seriesBanUntilByIp.set(key, now + 5 * 60_000)
-    log('warn', 'series.ip_banned', { ip: key, hits: hits.length, banMs: 5 * 60_000 })
+    log('warn', 'series.ip_banned', { ip: key, hits: hits.length, banMs: 5 * 60_000, desk: Boolean(opts.desk) })
     killSeriesTraffic('crawl-detected', 120_000)
     return 'ip-banned'
   }
@@ -330,7 +332,7 @@ function seriesAdmissionBlocked(req) {
   if (seriesInFlight >= seriesMaxInFlight()) return 'busy'
   if (Date.now() < seriesShedUntil) return 'shedding'
   if (lastMetaTimeoutAt && Date.now() - lastMetaTimeoutAt < 120_000) return 'meta-recovering'
-  const ipBlock = noteSeriesHitFromIp(clientKey(req))
+  const ipBlock = noteSeriesHitFromIp(clientKey(req), { desk: seriesHasDeskToken(req) })
   if (ipBlock) return ipBlock
   return null
 }

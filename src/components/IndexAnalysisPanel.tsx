@@ -71,42 +71,52 @@ function IndexAnalysisBody({ paused }: { paused: boolean }) {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [loadedAt, setLoadedAt] = useState<number | null>(null)
+  const [progress, setProgress] = useState({ done: 0, total: ASX_INDEX_ANALYSIS_UNIVERSE.length })
 
   useEffect(() => {
     if (paused) return
     let cancelled = false
     setLoading(true)
     setErr(null)
+    setProgress({ done: 0, total: ASX_INDEX_ANALYSIS_UNIVERSE.length })
     void (async () => {
       try {
-        const xjoDaily = await withBudget(fetchDeskOhlc(ASX_RS_BENCHMARK.symbol, FROM, { staleOk: true }), PER_SYMBOL_MS)
-        const xjoWeekly = xjoDaily?.length ? weeklyBarsForIndexAnalysis(xjoDaily) : []
+        const out: IndexRow[] = []
+        let xjoWeekly: ReturnType<typeof weeklyBarsForIndexAnalysis> = []
 
-        const settled = await Promise.all(
-          ASX_INDEX_ANALYSIS_UNIVERSE.map(async (def) => {
-            const daily = await withBudget(fetchDeskOhlc(def.symbol, FROM, { staleOk: true }), PER_SYMBOL_MS)
-            if (!daily?.length) {
-              return {
-                def,
-                support20: null,
-                resistance20: null,
-                distSupport: null,
-                distResistance: null,
-                srStatus: '—' as const,
-                rs: null,
-                rsMom: null,
-                sectorScore: null,
-                error: 'No series',
-              } satisfies IndexRow
-            }
+        for (let i = 0; i < ASX_INDEX_ANALYSIS_UNIVERSE.length; i++) {
+          if (cancelled) return
+          const def = ASX_INDEX_ANALYSIS_UNIVERSE[i]
+          const daily = await withBudget(
+            fetchDeskOhlc(def.symbol, FROM, { staleOk: true }),
+            PER_SYMBOL_MS,
+          )
+          if (cancelled) return
+
+          if (def.symbol === ASX_RS_BENCHMARK.symbol && daily?.length) {
+            xjoWeekly = weeklyBarsForIndexAnalysis(daily)
+          }
+
+          if (!daily?.length) {
+            out.push({
+              def,
+              support20: null,
+              resistance20: null,
+              distSupport: null,
+              distResistance: null,
+              srStatus: '—',
+              rs: null,
+              rsMom: null,
+              sectorScore: null,
+              error: 'No series',
+            })
+          } else {
             const weekly = weeklyBarsForIndexAnalysis(daily)
             const sr = computeWeeklySr(weekly)
             const isSector = def.kind === 'sector'
             const rs =
-              isSector && xjoWeekly.length
-                ? computeSectorRs(weekly, xjoWeekly)
-                : null
-            return {
+              isSector && xjoWeekly.length ? computeSectorRs(weekly, xjoWeekly) : null
+            out.push({
               def,
               support20: sr?.support20 ?? null,
               resistance20: sr?.resistance20 ?? null,
@@ -116,11 +126,14 @@ function IndexAnalysisBody({ paused }: { paused: boolean }) {
               rs: rs?.rs ?? null,
               rsMom: rs?.rsMom ?? null,
               sectorScore: rs?.sectorScore ?? null,
-            } satisfies IndexRow
-          }),
-        )
+            })
+          }
+
+          setRows([...out])
+          setProgress({ done: i + 1, total: ASX_INDEX_ANALYSIS_UNIVERSE.length })
+        }
+
         if (cancelled) return
-        setRows(settled)
         setLoadedAt(Date.now())
       } catch (e) {
         if (!cancelled) setErr(e instanceof Error ? e.message : 'Failed to load index analysis')
@@ -158,7 +171,7 @@ function IndexAnalysisBody({ paused }: { paused: boolean }) {
         </p>
         <p className="text-xs text-[var(--color-ink-soft)]">
           {loading
-            ? 'Loading weekly series…'
+            ? `Loading weekly series… ${progress.done}/${progress.total}`
             : `${rows.filter((r) => !r.error).length}/${ASX_INDEX_ANALYSIS_UNIVERSE.length} indexes · ${nearCount} near S/R${
                 loadedAt ? ` · updated ${new Date(loadedAt).toLocaleTimeString()}` : ''
               }`}

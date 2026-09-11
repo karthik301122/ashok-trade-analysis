@@ -60,11 +60,10 @@ export function toEodhdSymbol(symbol) {
   if (t === '^AXJO' || t === 'XJO' || t === 'ASX200' || t === 'AXJO.INDX') return 'AXJO.INDX'
   if (t === '^AORD' || t === 'AORD' || t === 'XAO' || t === 'AORD.INDX') return 'AORD.INDX'
   if (t === '^AXSO' || t === 'AXSO' || t === 'AXSO.INDX') return 'AXSO.INDX'
-  // S&P/ASX 200 sector indexes (Index Analysis)
-  if (
-    /^(XEJ|XMJ|XNJ|XDJ|XSJ|XHJ|XFJ|XXJ|XIJ|XTJ|XUJ|XPJ|XRE)(\.INDX)?$/.test(t)
-  ) {
-    return t.endsWith('.INDX') ? t : `${t}.INDX`
+  // S&P/ASX 200 sector indexes — EODHD uses AXEJ.INDX (A + XEJ), not XEJ.INDX
+  {
+    const sector = t.match(/^\^?(A)?(XEJ|XMJ|XNJ|XDJ|XSJ|XHJ|XFJ|XXJ|XIJ|XTJ|XUJ|XPJ|XRE)(\.INDX)?$/)
+    if (sector) return `A${sector[2]}.INDX`
   }
   if (t.endsWith('.AU') || t.endsWith('.CC') || t.endsWith('.FOREX') || t.endsWith('.INDX')) return t
   if (t.endsWith('.AX')) return `${t.slice(0, -3)}.AU`
@@ -447,6 +446,10 @@ export function eodhdCodeToAppTicker(code) {
   if (c === 'AXJO.INDX' || c === '^AXJO') return '^AXJO'
   if (c === 'AORD.INDX' || c === '^AORD' || c === 'XAO' || c === 'AORD') return '^AORD'
   if (c === 'AXSO.INDX' || c === '^AXSO' || c === 'AXSO') return '^AXSO'
+  {
+    const sector = c.match(/^A(XEJ|XMJ|XNJ|XDJ|XSJ|XHJ|XFJ|XXJ|XIJ|XTJ|XUJ|XPJ|XRE)\.INDX$/)
+    if (sector) return `^A${sector[1]}`
+  }
   if (c.endsWith('.AU')) return c.slice(0, -3)
   if (c.endsWith('.AX')) return c.slice(0, -3)
   return c
