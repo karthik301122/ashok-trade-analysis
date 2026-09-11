@@ -50,6 +50,8 @@ function billingLabel(status?: string) {
       return { text: 'Payment pending', className: 'text-amber-800 dark:text-amber-200' }
     case 'past_due':
       return { text: 'Payment failed / past due', className: 'text-rose-700 dark:text-rose-300' }
+    case 'failed':
+      return { text: 'Checkout canceled', className: 'text-rose-700 dark:text-rose-300' }
     case 'canceled':
       return { text: 'Canceled', className: 'text-[var(--color-ink-soft)]' }
     default:
@@ -87,6 +89,7 @@ export function OrgWorkspacePanel({
   const [wlEditId, setWlEditId] = useState<string | null>(null)
   const [wlTickers, setWlTickers] = useState('')
   const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState<(typeof ROLE_OPTIONS)[number]>('student')
   const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null)
   const [pubTitle, setPubTitle] = useState('Today’s Stage 2 focus')
   const [pubNote, setPubNote] = useState('Review these names before the open.')
@@ -101,6 +104,7 @@ export function OrgWorkspacePanel({
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [stripeConfigured, setStripeConfigured] = useState(false)
+  const [seatCount, setSeatCount] = useState('10')
   const active = orgs[0]
   const bill = billingLabel(active?.billingStatus)
   const roleKey = String(active?.role || '').toLowerCase()
@@ -113,7 +117,9 @@ export function OrgWorkspacePanel({
     canManage &&
     (!active?.billingStatus ||
       active.billingStatus === 'none' ||
-      active.billingStatus === 'canceled')
+      active.billingStatus === 'canceled' ||
+      active.billingStatus === 'failed' ||
+      (active.billingStatus === 'pending' && !active.stripeSubscriptionId))
 
   const roleLabel = !active
     ? null
@@ -200,6 +206,11 @@ export function OrgWorkspacePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    if (!active?.seats || active.seats < 1) return
+    setSeatCount(String(active.seats))
+  }, [active?.id, active?.seats])
+
   const createOrg = async () => {
     setMsg(null)
     setErr(null)
@@ -260,7 +271,7 @@ export function OrgWorkspacePanel({
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: inviteEmail.trim(), role: 'student' }),
+      body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
     })
     const json = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -282,7 +293,7 @@ export function OrgWorkspacePanel({
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ csv: text, role: 'student' }),
+      body: JSON.stringify({ csv: text, role: inviteRole }),
     })
     const json = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -349,6 +360,15 @@ export function OrgWorkspacePanel({
 
   const checkout = async () => {
     if (!active?.id) return
+    const seats = Math.floor(Number(seatCount))
+    if (!Number.isFinite(seats) || seats < 1) {
+      setErr('Enter at least 1 seat')
+      return
+    }
+    if (seats > 500) {
+      setErr('Seat count cannot exceed 500 — contact support for larger schools')
+      return
+    }
     setBusy(true)
     setErr(null)
     try {
@@ -357,7 +377,7 @@ export function OrgWorkspacePanel({
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          seats: 50,
+          seats,
           successUrl: `${window.location.origin}/?billing=success`,
           cancelUrl: `${window.location.origin}/?billing=cancel`,
         }),
@@ -371,6 +391,27 @@ export function OrgWorkspacePanel({
         return
       }
       if (json.url) window.location.href = json.url
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const abandonCheckout = async () => {
+    if (!active?.id) return
+    setBusy(true)
+    setErr(null)
+    try {
+      const res = await fetch(`/api/orgs/${active.id}/checkout/abandon`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setErr(json.error || 'Could not clear checkout status')
+        return
+      }
+      setMsg('Checkout marked as canceled')
+      await reload()
     } finally {
       setBusy(false)
     }
@@ -683,15 +724,32 @@ export function OrgWorkspacePanel({
 
               <div className="space-y-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
                 <div className="text-xs font-semibold uppercase text-[var(--color-ink-soft)]">
-                  Invite students
+                  Invite people
                 </div>
+                <p className="text-xs text-[var(--color-ink-soft)]">
+                  Invite as student or trainer. After they join, you can change roles in Members
+                  below.
+                </p>
                 <div className="flex flex-wrap gap-2">
                   <input
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="student@school.edu"
+                    placeholder="person@school.edu"
                     className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm"
                   />
+                  <select
+                    value={inviteRole}
+                    onChange={(e) =>
+                      setInviteRole(e.target.value as (typeof ROLE_OPTIONS)[number])
+                    }
+                    className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm"
+                  >
+                    {ROLE_OPTIONS.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
                   <button
                     type="button"
                     onClick={() => void invite()}
@@ -736,11 +794,15 @@ export function OrgWorkspacePanel({
                 )}
               </div>
 
-              {members.length > 0 && (
-                <div className="space-y-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-                  <div className="text-xs font-semibold uppercase text-[var(--color-ink-soft)]">
-                    Members
-                  </div>
+              <div className="space-y-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+                <div className="text-xs font-semibold uppercase text-[var(--color-ink-soft)]">
+                  Members
+                </div>
+                <p className="text-xs text-[var(--color-ink-soft)]">
+                  Role dropdown (including trainer) appears for each person after they accept the
+                  invite and join — not while the invite is still pending.
+                </p>
+                {members.length > 0 ? (
                   <ul className="space-y-2 rounded-lg border border-[var(--color-border)] p-3">
                     {members.map((m) => (
                       <li key={m.username} className="flex flex-wrap items-center gap-2">
@@ -775,20 +837,50 @@ export function OrgWorkspacePanel({
                       </li>
                     ))}
                   </ul>
-                </div>
-              )}
-
-              <div className="flex flex-wrap gap-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-                {showBuySeats && (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void checkout()}
-                    className="rounded-lg border border-teal-600 px-3 py-2 text-sm font-semibold text-teal-800 disabled:opacity-60"
-                  >
-                    Buy seats (Stripe)
-                  </button>
+                ) : (
+                  <p className="text-sm text-[var(--color-ink-soft)]">
+                    No members yet besides you once invites are accepted.
+                  </p>
                 )}
+              </div>
+
+              <div className="flex flex-wrap items-end gap-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+                {showBuySeats && (
+                  <>
+                    <label className="flex flex-col gap-1 text-xs font-semibold uppercase text-[var(--color-ink-soft)]">
+                      Seats
+                      <input
+                        type="number"
+                        min={1}
+                        max={500}
+                        step={1}
+                        value={seatCount}
+                        onChange={(e) => setSeatCount(e.target.value)}
+                        className="w-24 rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-sm font-semibold text-[var(--color-ink)]"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void checkout()}
+                      className="rounded-lg border border-teal-600 px-3 py-2 text-sm font-semibold text-teal-800 disabled:opacity-60"
+                    >
+                      Buy seats (Stripe)
+                    </button>
+                  </>
+                )}
+                {canManage &&
+                  active.billingStatus === 'pending' &&
+                  !active.stripeSubscriptionId && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void abandonCheckout()}
+                      className="rounded-lg border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-800 disabled:opacity-60 dark:border-rose-800 dark:text-rose-200"
+                    >
+                      Mark checkout canceled
+                    </button>
+                  )}
                 {hasSubscription && (
                   <>
                     <button

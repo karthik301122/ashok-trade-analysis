@@ -187,6 +187,33 @@ export default function App() {
     }
   }, [])
 
+  // Stripe Checkout return: clear pending → failed on cancel; open Organisation tab.
+  useEffect(() => {
+    if (!user || typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const billing = params.get('billing')
+    if (billing !== 'cancel' && billing !== 'success') return
+    let cancelled = false
+    ;(async () => {
+      if (billing === 'cancel') {
+        try {
+          await fetch('/api/orgs/checkout/abandon', {
+            method: 'POST',
+            credentials: 'include',
+          })
+        } catch {
+          /* best-effort */
+        }
+      }
+      if (cancelled) return
+      window.history.replaceState({}, '', '/')
+      navigate('org')
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user, navigate])
+
   useEffect(() => {
     let cancelled = false
     if (!user) {

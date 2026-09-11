@@ -89,6 +89,7 @@ import {
   createIndividualCheckoutSession,
   createBillingPortalSession,
   cancelOrgSubscription,
+  abandonOrgCheckout,
   constructWebhookEvent,
   handleStripeWebhookEvent,
 } from './stripeBilling.mjs'
@@ -1455,6 +1456,38 @@ export async function handleConnectApi(req, res, send) {
     return true
   }
 
+  const orgCheckoutAbandon = url.pathname.match(/^\/api\/orgs\/([^/]+)\/checkout\/abandon$/)
+  if (orgCheckoutAbandon && req.method === 'POST') {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    const orgId = decodeURIComponent(orgCheckoutAbandon[1])
+    const member = await getMember(orgId, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      send(403, { error: 'Owner/admin required' })
+      return true
+    }
+    const result = await abandonOrgCheckout(orgId)
+    if (!result.ok) {
+      send(400, { error: result.error })
+      return true
+    }
+    send(200, result)
+    return true
+  }
+
+  if (url.pathname === '/api/orgs/checkout/abandon' && req.method === 'POST') {
+    const user = requireUserOrSend(req, send)
+    if (!user) return true
+    const orgs = await listOrgsForUser(user)
+    const results = []
+    for (const org of orgs) {
+      if (!['owner', 'admin'].includes(String(org.role || ''))) continue
+      results.push({ orgId: org.id, ...(await abandonOrgCheckout(org.id)) })
+    }
+    send(200, { results })
+    return true
+  }
+
   const orgPath = url.pathname.match(
     /^\/api\/orgs\/([^/]+)(?:\/(invites|checkout|billing-portal|cancel-subscription|branding|publications))?$/,
   )
@@ -2780,6 +2813,18 @@ export function mountExpressApi(app) {
     }
   })
 
+  app.post('/api/orgs/checkout/abandon', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const orgs = await listOrgsForUser(user)
+    const results = []
+    for (const org of orgs) {
+      if (!['owner', 'admin'].includes(String(org.role || ''))) continue
+      results.push({ orgId: org.id, ...(await abandonOrgCheckout(org.id)) })
+    }
+    return res.json({ results })
+  })
+
   app.post('/api/orgs/:id/checkout', async (req, res) => {
     const user = requireUserExpress(req, res)
     if (!user) return
@@ -2797,6 +2842,18 @@ export function mountExpressApi(app) {
     })
     if (!result.ok) return res.status(400).json({ error: result.error })
     return res.json({ id: result.id, url: result.url })
+  })
+
+  app.post('/api/orgs/:id/checkout/abandon', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    const member = await getMember(req.params.id, user)
+    if (!member || !['owner', 'admin'].includes(member.role)) {
+      return res.status(403).json({ error: 'Owner/admin required' })
+    }
+    const result = await abandonOrgCheckout(req.params.id)
+    if (!result.ok) return res.status(400).json({ error: result.error })
+    return res.json(result)
   })
 
   app.post('/api/orgs/:id/billing-portal', async (req, res) => {

@@ -9,6 +9,7 @@
  *
  * Webhook events to enable:
  *   checkout.session.completed
+ *   checkout.session.expired
  *   customer.subscription.updated
  *   customer.subscription.deleted
  *   invoice.paid
@@ -135,15 +136,26 @@ export async function createCheckoutSession(opts = {}) {
     delete sessionParams.customer_email
   }
 
-  // Mark pending until checkout + first invoice succeed (or webhook updates).
-  await setBillingStatus(orgId, 'pending')
+  // Mark pending while Checkout is open; cancel URL / session.expired clears to failed.
+  const priorStatus = String(org.billingStatus || 'none')
+  if (!org.stripeSubscriptionId || priorStatus === 'none' || priorStatus === 'canceled' || priorStatus === 'failed') {
+    await setBillingStatus(orgId, 'pending')
+  }
 
-  const session = await stripe.checkout.sessions.create(sessionParams)
-  return {
-    ok: true,
-    id: session.id,
-    url: session.url,
-    session,
+  try {
+    const session = await stripe.checkout.sessions.create(sessionParams)
+    return {
+      ok: true,
+      id: session.id,
+      url: session.url,
+      session,
+    }
+  } catch (err) {
+    // Don't leave the org stuck on pending if Stripe never opened.
+    if (!org.stripeSubscriptionId) {
+      await setBillingStatus(orgId, priorStatus === 'pending' ? 'none' : priorStatus)
+    }
+    throw err
   }
 }
 
@@ -277,6 +289,44 @@ async function resolveOrgIdFromStripeObject(obj) {
     if (byCust) return byCust.id
   }
   return ''
+}
+
+/**
+ * User left Stripe Checkout (cancel URL) or the session expired without paying.
+ * Only clears pending when there is no live subscription yet.
+ * @param {string} orgId
+ */
+export async function abandonOrgCheckout(orgId) {
+  const id = String(orgId || '').trim()
+  if (!id) return { ok: false, error: 'orgId required' }
+  const org = await getOrg(id)
+  if (!org) return { ok: false, error: 'Org not found' }
+
+  const status = String(org.billingStatus || 'none')
+  if (org.stripeSubscriptionId && (status === 'active' || status === 'past_due' || status === 'trialing')) {
+    return { ok: true, skipped: true, reason: 'has_subscription', status }
+  }
+  if (status !== 'pending') {
+    return { ok: true, skipped: true, reason: 'not_pending', status }
+  }
+
+  await setBillingStatus(id, 'failed')
+  log('info', 'stripe.checkout_abandoned', { orgId: id })
+  return { ok: true, status: 'failed' }
+}
+
+/**
+ * @param {import('stripe').Stripe.Checkout.Session} session
+ */
+export async function handleCheckoutExpired(session) {
+  const orgId = String(session?.metadata?.orgId || '').trim()
+  if (!orgId) {
+    log('info', 'stripe.checkout_expired.no_org', { sessionId: session?.id })
+    return { ok: true, ignored: true }
+  }
+  const result = await abandonOrgCheckout(orgId)
+  log('info', 'stripe.checkout_expired', { orgId, sessionId: session?.id, result })
+  return { ok: true, orgId, ...result }
 }
 
 /**
@@ -471,6 +521,8 @@ export async function handleStripeWebhookEvent(event) {
   switch (event.type) {
     case 'checkout.session.completed':
       return handleCheckoutCompleted(event.data.object)
+    case 'checkout.session.expired':
+      return handleCheckoutExpired(event.data.object)
     case 'customer.subscription.updated':
       return handleSubscriptionUpdated(event.data.object)
     case 'customer.subscription.deleted':
