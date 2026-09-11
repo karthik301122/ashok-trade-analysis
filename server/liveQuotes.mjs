@@ -7,21 +7,60 @@ function round1(n) {
   return Math.round(n * 10) / 10
 }
 
-/** Sydney session Mon–Fri 10:00–16:30 (approx ASX cash). */
-export function isAsxMarketSession(now = Date.now()) {
+export function sydneyClock(now = Date.now()) {
   const parts = new Intl.DateTimeFormat('en-AU', {
     timeZone: 'Australia/Sydney',
     weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
     hour: 'numeric',
     minute: 'numeric',
     hour12: false,
   }).formatToParts(new Date(now))
-  const weekday = parts.find((p) => p.type === 'weekday')?.value ?? ''
-  if (weekday === 'Sat' || weekday === 'Sun') return false
-  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0)
-  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0)
-  const mins = hour * 60 + minute
+  const get = (type) => parts.find((p) => p.type === type)?.value ?? ''
+  const year = get('year')
+  const month = get('month')
+  const day = get('day')
+  return {
+    weekday: get('weekday'),
+    hour: Number(get('hour') || 0),
+    minute: Number(get('minute') || 0),
+    dayKey: `${year}-${month}-${day}`,
+  }
+}
+
+/** Sydney session Mon–Fri 10:00–16:30 (approx ASX cash). */
+export function isAsxMarketSession(now = Date.now()) {
+  const p = sydneyClock(now)
+  if (p.weekday === 'Sat' || p.weekday === 'Sun') return false
+  const mins = p.hour * 60 + p.minute
   return mins >= 10 * 60 && mins <= 16 * 60 + 30
+}
+
+/**
+ * After the bell, keep today's delayed quotes on Markets until EOD desk-sync
+ * replaces them — otherwise the desk snaps back to yesterday's close.
+ */
+export function shouldKeepSessionLiveOverlay(updatedAt, now = Date.now()) {
+  if (!updatedAt) return false
+  const p = sydneyClock(now)
+  if (p.weekday === 'Sat' || p.weekday === 'Sun') return false
+  const mins = p.hour * 60 + p.minute
+  if (mins < 10 * 60) return false
+  const u = sydneyClock(updatedAt)
+  return u.dayKey === p.dayKey
+}
+
+/** Poll during cash session, plus post-close until desk EOD sync window ends. */
+export function shouldPollLiveQuotes(now = Date.now()) {
+  if (isAsxMarketSession(now)) return true
+  const p = sydneyClock(now)
+  if (p.weekday === 'Sat' || p.weekday === 'Sun') return false
+  const mins = p.hour * 60 + p.minute
+  // Keep pulling briefly after the bell so Markets can show today's session move
+  // until official EOD bars land (desk-sync ~16:45–19:30).
+  return mins > 16 * 60 + 30 && mins <= 19 * 60 + 30
 }
 
 export async function getLiveQuotesMeta(now = Date.now()) {
@@ -31,15 +70,16 @@ export async function getLiveQuotesMeta(now = Date.now()) {
   const age = updatedAt > 0 ? now - updatedAt : Number.POSITIVE_INFINITY
   const marketOpen = isAsxMarketSession(now)
   const fresh = count > 0 && age < LIVE_QUOTE_FRESH_MS
-  // Only overlay during the cash session. After the bell, delayed live ticks can
-  // disagree with the official EOD close (charts use EOD — Markets must match).
-  const usable = marketOpen && fresh
+  const sessionOverlay = !marketOpen && shouldKeepSessionLiveOverlay(updatedAt, now)
+  // During the cash session require fresh polls; after the bell keep today's session quotes.
+  const usable = (marketOpen && fresh) || sessionOverlay
   return {
     count,
     updatedAt,
     fresh,
     usable,
     marketOpen,
+    sessionOverlay,
     delayedMinutes: 15,
   }
 }

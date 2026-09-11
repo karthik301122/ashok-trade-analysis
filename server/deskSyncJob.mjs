@@ -36,14 +36,14 @@ function sydneyParts(now = Date.now()) {
   }
 }
 
-/** Weekday after the cash close — default window 17:30–19:00 Sydney. */
+/** Weekday after the cash close — default window 16:45–19:30 Sydney. */
 export function shouldRunDeskEodSync(now = Date.now()) {
   const p = sydneyParts(now)
   if (p.weekday === 'Sat' || p.weekday === 'Sun') return false
   if (isAsxMarketSession(now)) return false
   const mins = p.hour * 60 + p.minute
-  const start = 17 * 60 + 30
-  const end = 19 * 60
+  const start = 16 * 60 + 45
+  const end = 19 * 60 + 30
   return mins >= start && mins <= end
 }
 
@@ -91,5 +91,5 @@ export function maybeStartDeskSyncScheduler() {
   // Every 10 minutes is enough for a 90-minute post-close window.
   timer = setInterval(tick, 10 * 60 * 1000)
   setTimeout(tick, 60_000)
-  console.log('[desk-sync] scheduler armed (Sydney weekdays 17:30–19:00)')
+  console.log('[desk-sync] scheduler armed (Sydney weekdays 16:45–19:30)')
 }

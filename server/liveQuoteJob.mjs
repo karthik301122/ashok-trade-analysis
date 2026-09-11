@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url'
 import { fetchEodhdLiveQuotes, eodhdEnabled } from './eodhd.mjs'
 import { isEodhdDailyLimitExceeded } from './eodhdLimit.mjs'
 import { resolveSeriesSymbol } from './getSeries.mjs'
-import { isAsxMarketSession, upsertLiveQuotesFromEodhd } from './liveQuotes.mjs'
+import { shouldPollLiveQuotes, upsertLiveQuotesFromEodhd } from './liveQuotes.mjs'
 import { maintenanceEnabled } from './maintenance.mjs'
 import { getSnapshotJobStatus, readMarketSnapshotDbRow } from './snapshotJob.mjs'
 import { isProductionMode, readinessFromSnapshot } from './production.mjs'
@@ -38,7 +38,8 @@ async function loadLiveQuoteTickers() {
 function liveQuoteIntervalMs() {
   const n = Number(process.env.LIVE_QUOTE_INTERVAL_MS)
   if (Number.isFinite(n) && n > 0) return n
-  return isProductionMode() ? 30 * 60 * 1000 : 15 * 60 * 1000
+  // Keep Markets prices current during the session (EODHD delayed ~15m).
+  return isProductionMode() ? 10 * 60 * 1000 : 5 * 60 * 1000
 }
 
 export async function runLiveQuoteRefresh(opts = {}) {
@@ -56,7 +57,7 @@ export async function runLiveQuoteRefresh(opts = {}) {
       universeTotal(),
     )
     if (!readiness.snapshotAcceptable) return { skipped: true, reason: 'snapshot_not_ready' }
-    if (!isAsxMarketSession()) return { skipped: true, reason: 'market_closed' }
+    if (!shouldPollLiveQuotes()) return { skipped: true, reason: 'market_closed' }
   }
   if (runningJob) return runningJob
 

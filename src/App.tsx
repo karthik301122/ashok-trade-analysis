@@ -579,11 +579,7 @@ export default function App() {
       const cfg = await fetchDeskServerConfig()
       setDeskConfig(cfg)
       const liveAt = cfg.liveQuotes?.updatedAt ?? 0
-      if (
-        cfg.liveQuotes?.marketOpen &&
-        (cfg.liveQuotes?.usable || cfg.liveQuotes?.fresh) &&
-        liveAt > lastLiveAt
-      ) {
+      if (cfg.liveQuotes?.usable && liveAt > lastLiveAt) {
         lastLiveAt = liveAt
         await load(false)
       }
@@ -700,10 +696,11 @@ export default function App() {
     if (!meta) return null
     if (meta.source === 'server-sqlite') {
       const prov = deskConfig?.provider
-      const live =
-        deskConfig?.liveQuotes?.fresh && deskConfig.liveQuotes.marketOpen
+      const live = deskConfig?.liveQuotes?.usable
+        ? deskConfig.liveQuotes.marketOpen
           ? ` · live (~${deskConfig.liveQuotes.delayedMinutes}m delay)`
-          : ''
+          : ' · session (today)'
+        : ''
       if (deskConfig?.eodhdOnly || prov === 'eodhd') return ` · desk snapshot${live}`
       return ` · server snapshot${live}`
     }
@@ -1088,10 +1085,7 @@ export default function App() {
                 snapshot={displaySnapshot!}
                 view={view}
                 onViewChange={setView}
-                livePricesActive={Boolean(
-                  deskConfig?.liveQuotes?.marketOpen &&
-                    (deskConfig?.liveQuotes?.usable || deskConfig?.liveQuotes?.fresh),
-                )}
+                livePricesActive={Boolean(deskConfig?.liveQuotes?.usable)}
                 backfilling={backfilling}
                 patternAlertWatches={patternAlertWatches}
                 onPatternAlertWatchesChange={setPatternAlertWatches}
