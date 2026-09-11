@@ -60,6 +60,12 @@ export function toEodhdSymbol(symbol) {
   if (t === '^AXJO' || t === 'XJO' || t === 'ASX200' || t === 'AXJO.INDX') return 'AXJO.INDX'
   if (t === '^AORD' || t === 'AORD' || t === 'XAO' || t === 'AORD.INDX') return 'AORD.INDX'
   if (t === '^AXSO' || t === 'AXSO' || t === 'AXSO.INDX') return 'AXSO.INDX'
+  // S&P/ASX 200 sector indexes (Index Analysis)
+  if (
+    /^(XEJ|XMJ|XNJ|XDJ|XSJ|XHJ|XFJ|XXJ|XIJ|XTJ|XUJ|XPJ|XRE)(\.INDX)?$/.test(t)
+  ) {
+    return t.endsWith('.INDX') ? t : `${t}.INDX`
+  }
   if (t.endsWith('.AU') || t.endsWith('.CC') || t.endsWith('.FOREX') || t.endsWith('.INDX')) return t
   if (t.endsWith('.AX')) return `${t.slice(0, -3)}.AU`
   // Crypto pairs → CC exchange

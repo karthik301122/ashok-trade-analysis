@@ -21,6 +21,12 @@ describe('eodhd symbols', () => {
     expect(toEodhdSymbol('AXSO.INDX')).toBe('AXSO.INDX')
   })
 
+  it('maps ASX sector indexes for Index Analysis', () => {
+    expect(toEodhdSymbol('XEJ')).toBe('XEJ.INDX')
+    expect(toEodhdSymbol('XIJ.INDX')).toBe('XIJ.INDX')
+    expect(toEodhdSymbol('XPJ')).toBe('XPJ.INDX')
+  })
+
   it('maps crypto and forex', () => {
     expect(toEodhdSymbol('BTC-USD')).toBe('BTC-USD.CC')
     expect(toEodhdSymbol('BTC-USD.CC')).toBe('BTC-USD.CC')

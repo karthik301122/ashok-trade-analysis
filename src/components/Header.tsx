@@ -21,6 +21,7 @@ type Props = {
 const NAV: { id: AppPage; label: string; short: string; requiresFullDesk?: boolean }[] = [
   { id: 'sector', label: 'Markets', short: 'Mkt' },
   { id: 'breadth', label: 'Breadth', short: 'Brd' },
+  { id: 'index-analysis', label: 'Index Analysis', short: 'Idx' },
   { id: 'special-patterns', label: 'Patterns', short: 'Pat', requiresFullDesk: true },
   { id: 'create-pattern', label: 'Create pattern', short: 'Create', requiresFullDesk: true },
   { id: 'alerts', label: 'Alerts', short: 'Alert', requiresFullDesk: true },

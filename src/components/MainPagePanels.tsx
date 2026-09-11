@@ -2,6 +2,7 @@ import { memo } from 'react'
 import type { MarketSnapshot } from '../data/types'
 import { AlertsPanel } from './AlertsPanel'
 import { BreadthAnalysis } from './BreadthAnalysis'
+import { IndexAnalysisPanel } from './IndexAnalysisPanel'
 import { SpecialPatternsPanel } from './SpecialPatternsPanel'
 import { SectorMarketsSection } from './SectorMarketsSection'
 import { PatternCreatePage } from './patterns/PatternCreatePage'
@@ -68,6 +69,7 @@ function MainPagePanelsInner({
           visible={page === 'sector'}
         />
         <BreadthAnalysis snapshot={snapshot} visible={page === 'breadth'} />
+        <IndexAnalysisPanel visible={page === 'index-analysis'} />
         <SpecialPatternsPanel snapshot={snapshot} visible={page === 'special-patterns'} />
       </div>
       {page === 'alerts' && (

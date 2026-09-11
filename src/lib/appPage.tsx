@@ -3,6 +3,7 @@ import { createContext, useContext } from 'react'
 export type AppPage =
   | 'sector'
   | 'breadth'
+  | 'index-analysis'
   | 'alerts'
   | 'special-patterns'
   | 'create-pattern'
