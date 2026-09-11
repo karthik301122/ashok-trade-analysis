@@ -4,6 +4,8 @@
 import { authEnabled, handleAuthApi, requireAuthOrSend, getUserFromRequest, authPublicConfig, createSessionToken, sessionSetCookieHeader, verifyCredentials, sessionClearCookieHeader, envUserCount, loadUsers } from './auth.mjs'
 import { countDbUsers, createDbUser, listDbUsernames, normalizeUsername } from './userStore.mjs'
 import { getCachedSeries, getIntradaySeries, seriesCacheFileCount } from './getSeries.mjs'
+import { isAsxIndexSeriesTicker } from './asxIndexes.mjs'
+import { buildIndexAnalysis, warmIndexAnalysisSeries } from './indexAnalysis.mjs'
 import { readBreadthHistory, upsertBreadthPoint, UNIVERSE_IDS } from './breadthStore.mjs'
 import { computeBreadthChartHistory, getIndexBarsForChart } from './breadthHistory.mjs'
 import { dbPath, dbStoreLabel, initDb } from './db.mjs'
@@ -291,8 +293,9 @@ function noteSeriesLatency(ms) {
   if (!Number.isFinite(n) || n < 0) return
   seriesRecentMs.push(n)
   if (seriesRecentMs.length > 20) seriesRecentMs.shift()
-  // Any multi-second series means the PG pool is congested — shed hard.
-  if (n >= 2500) {
+  // Cold EODHD index pulls often take 3–8s — do not shed the whole desk on one slow miss.
+  // Only shed when the pool is clearly congested (very slow request or elevated p50).
+  if (n >= 12_000) {
     killSeriesTraffic('slow-series', 90_000)
   } else if (seriesRecentMs.length >= 6) {
     const sorted = seriesRecentMs.slice().sort((a, b) => a - b)
@@ -343,9 +346,11 @@ const SNAPSHOT_META_CACHE_MS = 2_000
 /** Last-good meta for emergency serve when DB is wedged. */
 let snapshotMetaLastGood = /** @type {{ at: number, body: object } | null} */ (null)
 
-function seriesHandlerTimeoutMs() {
+function seriesHandlerTimeoutMs(ticker) {
   const n = Number(process.env.SERIES_HANDLER_TIMEOUT_MS)
   if (Number.isFinite(n) && n > 0) return n
+  // Cold EODHD sector-index pulls often need >6s; keep equities tight.
+  if (ticker && isAsxIndexSeriesTicker(ticker)) return isProductionMode() ? 30_000 : 45_000
   return isProductionMode() ? 6_000 : 30_000
 }
 
@@ -635,8 +640,9 @@ export async function handleConnectApi(req, res, send) {
       return true
     }
     seriesInFlight += 1
+    let ticker = ''
     try {
-      const ticker = decodeURIComponent(url.pathname.replace('/api/series/', '')).toUpperCase()
+      ticker = decodeURIComponent(url.pathname.replace('/api/series/', '')).toUpperCase()
       if (!ticker || !/^[A-Z0-9.^=-]{1,20}$/.test(ticker)) {
         send(400, { error: 'Invalid ticker' })
         return true
@@ -645,7 +651,7 @@ export async function handleConnectApi(req, res, send) {
         loadSeriesForTicker(ticker, url.searchParams, {
           skipForceRefresh: true,
         }),
-        seriesHandlerTimeoutMs(),
+        seriesHandlerTimeoutMs(ticker),
       )
       if (result.status === 404) {
         log('info', 'series.miss', { ticker, ms: Date.now() - started })
@@ -673,8 +679,11 @@ export async function handleConnectApi(req, res, send) {
       const ms = Date.now() - started
       if (message === 'timeout') {
         noteSeriesLatency(ms)
-        killSeriesTraffic('series-timeout', 90_000)
-        log('warn', 'series.timeout', { ms })
+        // Index cold-fills are slow by nature — don't shed Markets/Patterns for them.
+        if (!isAsxIndexSeriesTicker(ticker)) {
+          killSeriesTraffic('series-timeout', 90_000)
+        }
+        log('warn', 'series.timeout', { ms, ticker, index: isAsxIndexSeriesTicker(ticker) })
         send(
           503,
           { error: 'Series busy', reason: 'timeout', retryAfterMs: 5000 },
@@ -687,6 +696,21 @@ export async function handleConnectApi(req, res, send) {
       return true
     } finally {
       seriesInFlight -= 1
+    }
+  }
+
+  if (url.pathname === '/api/index-analysis' && req.method === 'GET') {
+    if (requireAuthConnect(req, send)) return true
+    try {
+      const body = await buildIndexAnalysis()
+      if (body.missed > 0) warmIndexAnalysisSeries()
+      send(200, body)
+      return true
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log('error', 'index-analysis.error', { message })
+      send(500, { error: message })
+      return true
     }
   }
 
@@ -1972,14 +1996,15 @@ export function mountExpressApi(app) {
       return res.status(503).json({ error: 'Series busy', reason: blocked, retryAfterMs: 2000 })
     }
     seriesInFlight += 1
+    let ticker = ''
     try {
-      const ticker = decodeURIComponent(req.params.ticker).toUpperCase()
+      ticker = decodeURIComponent(req.params.ticker).toUpperCase()
       if (!ticker || !/^[A-Z0-9.^=-]{1,20}$/.test(ticker)) {
         return res.status(400).json({ error: 'Invalid ticker' })
       }
       const result = await withTimeout(
         loadSeriesForTicker(ticker, req.query, { skipForceRefresh: true }),
-        seriesHandlerTimeoutMs(),
+        seriesHandlerTimeoutMs(ticker),
       )
       if (result.status === 404) {
         log('info', 'series.miss', { ticker, ms: Date.now() - started })
@@ -2004,8 +2029,10 @@ export function mountExpressApi(app) {
       const ms = Date.now() - started
       if (message === 'timeout') {
         noteSeriesLatency(ms)
-        killSeriesTraffic('series-timeout', 90_000)
-        log('warn', 'series.timeout', { ms })
+        if (!isAsxIndexSeriesTicker(ticker)) {
+          killSeriesTraffic('series-timeout', 90_000)
+        }
+        log('warn', 'series.timeout', { ms, ticker, index: isAsxIndexSeriesTicker(ticker) })
         res.setHeader('Retry-After', '5')
         return res.status(503).json({ error: 'Series busy', reason: 'timeout', retryAfterMs: 5000 })
       }
@@ -2013,6 +2040,21 @@ export function mountExpressApi(app) {
       return res.status(500).json({ error: message })
     } finally {
       seriesInFlight -= 1
+    }
+  })
+
+  app.get('/api/index-analysis', async (req, res) => {
+    const user = requireUserExpress(req, res)
+    if (!user) return
+    try {
+      const body = await buildIndexAnalysis()
+      // Warm any remaining misses in the background for the next visit.
+      if (body.missed > 0) warmIndexAnalysisSeries()
+      return res.json(body)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log('error', 'index-analysis.error', { message })
+      return res.status(500).json({ error: message })
     }
   })
 

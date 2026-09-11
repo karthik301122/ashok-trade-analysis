@@ -103,6 +103,12 @@ app.listen(port, '0.0.0.0', () => {
     maybeStartLiveQuoteScheduler()
     maybeStartIndexMembersScheduler()
     maybeStartAsxFilingsScheduler()
+    void import('./indexAnalysis.mjs')
+      .then(({ warmIndexAnalysisSeries }) => {
+        warmIndexAnalysisSeries()
+        console.log('[index-analysis] sector index cache warm started')
+      })
+      .catch(() => {})
   }, 20_000)
   setTimeout(() => {
     maybeStartDeskSyncScheduler()
