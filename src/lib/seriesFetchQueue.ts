@@ -90,7 +90,7 @@ export async function fetchSeriesQueued(url: string, init?: RequestInit): Promis
             credentials: 'include',
             signal: controller.signal,
           })
-          if (res.status === 429 || res.status === 503) {
+          if (res.status === 429 || res.status === 503 || res.status === 502 || res.status === 504) {
             lastBusy = res
             let body: { retryAfterMs?: number; reason?: string } | undefined
             try {

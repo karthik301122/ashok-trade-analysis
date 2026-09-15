@@ -330,7 +330,7 @@ export function SectorTable({ snapshot, livePricesActive = false, active = true 
   }
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-full space-y-4 overflow-x-hidden">
       <div className="flex flex-wrap gap-1.5">
         {sectors.map((s) => {
           const sectorStars = sectorStarCounts.get(s.name) ?? []
@@ -477,7 +477,7 @@ export function SectorTable({ snapshot, livePricesActive = false, active = true 
           value={query}
           onDebouncedChange={setQuery}
           placeholder="Search sector or stock..."
-          className="relative ml-2 min-w-[200px] flex-1"
+          className="relative w-full min-w-0 flex-1 sm:ml-2 sm:min-w-[200px]"
         />
 
         <div

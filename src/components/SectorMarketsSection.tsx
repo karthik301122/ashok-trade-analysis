@@ -36,7 +36,7 @@ function SectorMarketsSectionBody({
   const contentReady = useDeferredPanelActive(active, true)
   const [filingChartTicker, setFilingChartTicker] = useState<string | null>(null)
   return (
-    <div className="space-y-4" aria-hidden={paused}>
+    <div className="space-y-4 max-w-full overflow-x-hidden" aria-hidden={paused}>
       <div>
         <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold tracking-tight md:text-3xl">
           {APP_NAME}

@@ -56,6 +56,9 @@ export function PatternPrefsProvider({
   const [hitsScanEpoch, setHitsScanEpoch] = useState(0)
   const pendingHitsRef = useRef<Map<string, TickerPatternCache>>(new Map())
   const flushHitsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Logged-in: block PUT until server hydrate finishes (avoids racing empty local over server). */
+  const prefsHydratedRef = useRef(!user)
+  const [prefsReady, setPrefsReady] = useState(!user)
 
   const flushHitsBatch = useCallback(() => {
     const pending = pendingHitsRef.current
@@ -97,6 +100,8 @@ export function PatternPrefsProvider({
 
   useEffect(() => {
     setPrefs(loadPatternPrefs(user))
+    prefsHydratedRef.current = !user
+    setPrefsReady(!user)
   }, [user])
 
   // Hydrate from server once per login. Logged-in: server is source of truth.
@@ -107,7 +112,13 @@ export function PatternPrefsProvider({
       const { fetchPatternPrefsFromServer, savePatternPrefsToServer } = await import(
         '../../lib/patternScanApi'
       )
-      const remote = await fetchPatternPrefsFromServer()
+      let remote = await fetchPatternPrefsFromServer()
+      if (!remote) {
+        // One retry on transient failure before treating as "no server row".
+        await new Promise((r) => setTimeout(r, 800))
+        if (cancelled) return
+        remote = await fetchPatternPrefsFromServer()
+      }
       if (cancelled) return
       const local = loadPatternPrefs(user)
       if (remote) {
@@ -125,6 +136,8 @@ export function PatternPrefsProvider({
         }
         setPrefs(merged)
         savePatternPrefs(user, merged)
+        prefsHydratedRef.current = true
+        setPrefsReady(true)
         return
       }
       // No server row yet — migrate local once, then server owns it.
@@ -136,6 +149,9 @@ export function PatternPrefsProvider({
           chartInterval: local.chartInterval,
         })
       }
+      if (cancelled) return
+      prefsHydratedRef.current = true
+      setPrefsReady(true)
     })()
     return () => {
       cancelled = true
@@ -143,9 +159,9 @@ export function PatternPrefsProvider({
   }, [user])
 
   useEffect(() => {
-    // Local cache only; logged-in writes also go to the server.
+    // Local cache only; logged-in writes also go to the server after hydrate.
     savePatternPrefs(user, prefs)
-    if (!user) return
+    if (!user || !prefsReady || !prefsHydratedRef.current) return
     const t = window.setTimeout(() => {
       void import('../../lib/patternScanApi').then(({ savePatternPrefsToServer }) =>
         savePatternPrefsToServer({
@@ -159,7 +175,7 @@ export function PatternPrefsProvider({
       )
     }, 800)
     return () => window.clearTimeout(t)
-  }, [user, prefs])
+  }, [user, prefs, prefsReady])
 
   const isStarred = useCallback(
     (name: string) => prefs.starredNames.includes(name),

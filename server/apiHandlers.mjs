@@ -1124,7 +1124,18 @@ export async function handleConnectApi(req, res, send) {
   if (url.pathname === '/api/filings/buys') {
     if (requireAuthConnect(req, send)) return true
     const window = url.searchParams.get('window') === 'today' ? 'today' : 'week'
-    send(200, await getLargestDisclosedBuys(window))
+    try {
+      send(200, await getLargestDisclosedBuys(window))
+    } catch (err) {
+      send(200, {
+        window,
+        buys: [],
+        stale: true,
+        source: 'asx-markit',
+        disclaimer: 'Largest disclosed director buys from ASX filings — temporarily unavailable.',
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
     return true
   }
 
@@ -1135,7 +1146,18 @@ export async function handleConnectApi(req, res, send) {
       send(400, { error: 'Invalid ticker' })
       return true
     }
-    send(200, await getFilingsForTicker(ticker, { forceRefresh: url.searchParams.get('refresh') === '1' }))
+    try {
+      send(200, await getFilingsForTicker(ticker, { forceRefresh: url.searchParams.get('refresh') === '1' }))
+    } catch (err) {
+      send(200, {
+        ticker,
+        filings: [],
+        stale: true,
+        source: 'asx-markit',
+        disclaimer: 'Disclosed ASX filings — temporarily unavailable.',
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
     return true
   }
 
@@ -2483,7 +2505,18 @@ export function mountExpressApi(app) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     const window = req.query.window === 'today' ? 'today' : 'week'
-    return res.json(await getLargestDisclosedBuys(window))
+    try {
+      return res.json(await getLargestDisclosedBuys(window))
+    } catch (err) {
+      return res.json({
+        window,
+        buys: [],
+        stale: true,
+        source: 'asx-markit',
+        disclaimer: 'Largest disclosed director buys from ASX filings — temporarily unavailable.',
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   })
 
   app.get('/api/filings/:ticker', async (req, res) => {
@@ -2494,9 +2527,20 @@ export function mountExpressApi(app) {
     if (!ticker || !/^[A-Z0-9]{1,6}$/.test(ticker)) {
       return res.status(400).json({ error: 'Invalid ticker' })
     }
-    return res.json(
-      await getFilingsForTicker(ticker, { forceRefresh: req.query.refresh === '1' }),
-    )
+    try {
+      return res.json(
+        await getFilingsForTicker(ticker, { forceRefresh: req.query.refresh === '1' }),
+      )
+    } catch (err) {
+      return res.json({
+        ticker,
+        filings: [],
+        stale: true,
+        source: 'asx-markit',
+        disclaimer: 'Disclosed ASX filings — temporarily unavailable.',
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   })
 
   app.get('/api/patterns/hits', async (req, res) => {

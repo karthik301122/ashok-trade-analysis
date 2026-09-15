@@ -559,7 +559,37 @@ export function maybeStartDeskPatternJob(opts = {}) {
   void runDeskPatternJob(opts).catch(() => {})
 }
 
-/** After full desk snapshot — scan every stock in the snapshot. */
+/**
+ * After full desk snapshot — scan every stock in the snapshot.
+ * Skips when today's published hits already look fresh (unless force).
+ */
 export function maybeStartFullUniversePatternJob(opts = {}) {
-  void runDeskPatternJob({ ...opts, universe: 'all' }).catch(() => {})
+  const force = Boolean(opts.force)
+  void (async () => {
+    if (!force) {
+      try {
+        const today = tradingDayAsOf()
+        const day = await readPatternHitsDay('latest')
+        const ageMs = day?.builtAt ? Date.now() - Number(day.builtAt) : Infinity
+        if (
+          day &&
+          day.asOf === today &&
+          Array.isArray(day.hits) &&
+          day.hits.length > 0 &&
+          ageMs < 6 * 60 * 60 * 1000
+        ) {
+          log('info', 'pattern.job.skip', {
+            reason: 'fresh-today',
+            asOf: day.asOf,
+            hits: day.hits.length,
+            ageMs,
+          })
+          return
+        }
+      } catch {
+        /* fall through and run */
+      }
+    }
+    await runDeskPatternJob({ ...opts, universe: 'all' })
+  })().catch(() => {})
 }

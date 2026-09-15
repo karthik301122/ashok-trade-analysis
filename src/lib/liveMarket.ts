@@ -86,6 +86,27 @@ function isServerStore(store?: string) {
 }
 
 /**
+ * Overlay EOD bar closes from series_meta onto the stock map.
+ * During a live session, chunked stocks already carry delayed live quotes (liveAt);
+ * meta lastPrices are prior-day EOD and must not clobber that overlay on final load.
+ */
+export function mergeEodLastPrices(
+  stockPerfs: Map<string, CachedPerf>,
+  lastPrices: Record<string, number> | null | undefined,
+  liveSession: boolean,
+) {
+  if (!lastPrices) return
+  for (const [ticker, px] of Object.entries(lastPrices)) {
+    if (!Number.isFinite(px) || px <= 0) continue
+    const perf = stockPerfs.get(ticker)
+    if (!perf) continue
+    if (liveSession && perf.liveAt) continue
+    // Prefer bar close (full precision) — snapshot may still hold round1 leftovers (1.88 → 1.9).
+    stockPerfs.set(ticker, { ...perf, lastPrice: px })
+  }
+}
+
+/**
  * Accept a server snapshot when:
  * - we have index + stock payloads, AND
  * - either enough of the ASX universe, OR we downloaded essentially everything
@@ -610,15 +631,7 @@ export async function loadLiveMarketSnapshot(
     asOfLabel?: string | null,
     lastPrices?: Record<string, number> | null,
   ) => {
-    if (lastPrices) {
-      for (const [ticker, px] of Object.entries(lastPrices)) {
-        if (!Number.isFinite(px) || px <= 0) continue
-        const perf = parsed.stockPerfs.get(ticker)
-        if (!perf) continue
-        // Always prefer bar close (full precision) — snapshot may still hold round1 leftovers (1.88 → 1.9).
-        parsed.stockPerfs.set(ticker, { ...perf, lastPrice: px })
-      }
-    }
+    mergeEodLastPrices(parsed.stockPerfs, lastPrices, Boolean(config.liveQuotes?.usable))
     const snapshot = assembleSnapshotFromPerfs(
       parsed.stockPerfs,
       parsed.indexPerf,

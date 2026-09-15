@@ -6,10 +6,16 @@ import { MarketingLanding } from './components/MarketingLanding'
 import { AuthPage } from './components/AuthPage'
 import { ProfilePage } from './components/ProfilePage'
 import { OrgPage } from './components/OrgPage'
+import { IndexAnalysisPanel } from './components/IndexAnalysisPanel'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
 import { clearPerfCache, clearOhlcSessionCache } from './lib/deskSeries'
 import { fetchDeskServerConfig, type DeskServerConfig } from './lib/deskConfig'
-import { fetchAuthMe, logout as apiLogout, type PatternAlertWatch } from './lib/auth'
+import {
+  fetchAuthConfig,
+  fetchAuthMe,
+  logout as apiLogout,
+  type PatternAlertWatch,
+} from './lib/auth'
 import type { MarketSnapshot } from './data/types'
 import { ASX_UNIVERSE_COUNT } from './data/universe'
 import { applyStocksOnlyFilter, STOCKS_ONLY_LS_KEY } from './lib/instrumentFilter'
@@ -50,6 +56,7 @@ export default function App() {
     return new URLSearchParams(window.location.search).get('token') || ''
   })
   const [fullDeskAccess, setFullDeskAccess] = useState(true)
+  const [stripeConfigured, setStripeConfigured] = useState(false)
   const [, startNavTransition] = useTransition()
   const [view, setView] = useState<ViewId>('sector-table')
   const navigate = useCallback((next: AppPage) => {
@@ -174,12 +181,13 @@ export default function App() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const me = await fetchAuthMe()
+      const [me, cfg] = await Promise.all([fetchAuthMe(), fetchAuthConfig()])
       if (cancelled) return
       setAuthRequired(me.authRequired)
       setUser(me.user)
       setDisplayName(me.displayName ?? null)
       setPatternAlertWatches(me.patternAlertWatches ?? [])
+      setStripeConfigured(Boolean(cfg.stripeConfigured))
       setAuthChecking(false)
     })()
     return () => {
@@ -862,6 +870,7 @@ export default function App() {
           displayName={displayName}
           onLogout={authRequired ? handleLogout : undefined}
           fullDeskAccess={fullDeskAccess}
+          stripeConfigured={stripeConfigured}
           onUpgrade={() => {
             void (async () => {
               const res = await fetch('/api/billing/individual/checkout', {
@@ -881,11 +890,66 @@ export default function App() {
         />
       )}
 
-      {!authChecking &&
-      authRequired &&
-      (!user || passwordResetPending) &&
-      authScreen === 'landing' &&
-      !passwordResetPending ? (
+      {!authChecking && page === 'not-found' ? (
+        <main className="mx-auto max-w-[1600px] px-4 py-5">
+          <div className="mx-auto mt-16 max-w-lg rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 text-center shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">
+              404
+            </p>
+            <h2 className="mt-2 font-[family-name:var(--font-display)] text-2xl font-semibold">
+              Page not found
+            </h2>
+            <p className="mt-2 text-sm text-[var(--color-ink-soft)]">
+              That URL is not part of Traders Scope.
+              {user
+                ? ' Head back to the markets desk.'
+                : ' Sign in from the home page, or return to Markets once you are signed in.'}
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+              {user ? (
+                <button
+                  type="button"
+                  onClick={() => navigate('sector')}
+                  className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+                >
+                  Back to Markets
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.history.replaceState({}, '', '/')
+                      navigate('sector')
+                      setAuthScreen('landing')
+                    }}
+                    className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+                  >
+                    Go to home
+                  </button>
+                  {authRequired && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.history.replaceState({}, '', '/')
+                        navigate('sector')
+                        setAuthScreen('signin')
+                      }}
+                      className="rounded-lg border border-teal-700 px-4 py-2 text-sm font-semibold text-teal-800 hover:bg-teal-50 dark:text-teal-200 dark:hover:bg-teal-950/40"
+                    >
+                      Sign in
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </main>
+      ) : !authChecking &&
+        authRequired &&
+        (!user || passwordResetPending) &&
+        authScreen === 'landing' &&
+        !passwordResetPending ? (
         <MarketingLanding onSignIn={() => setAuthScreen('signin')} />
       ) : (
       <main className="mx-auto max-w-[1600px] px-4 py-5">
@@ -899,29 +963,18 @@ export default function App() {
               onSuccess={handleLogin}
               onBack={passwordResetPending ? undefined : () => setAuthScreen('landing')}
             />
-        ) : page === 'not-found' ? (
-          <div className="mx-auto mt-16 max-w-lg rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 text-center shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">
-              404
-            </p>
-            <h2 className="mt-2 font-[family-name:var(--font-display)] text-2xl font-semibold">
-              Page not found
-            </h2>
-            <p className="mt-2 text-sm text-[var(--color-ink-soft)]">
-              That URL is not part of Traders Scope. Head back to the markets desk.
-            </p>
-            <button
-              type="button"
-              onClick={() => navigate('sector')}
-              className="mt-6 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
-            >
-              Back to Markets
-            </button>
-          </div>
         ) : page === 'org' && user ? (
           <OrgPage />
         ) : page === 'profile' && user ? (
-          <ProfilePage user={user} onProfileChange={handleProfileChange} />
+          <ProfilePage
+            user={user}
+            onProfileChange={handleProfileChange}
+            stripeConfigured={stripeConfigured}
+          />
+        ) : page === 'index-analysis' ? (
+          <PanelErrorBoundary title="Index Analysis failed to load">
+            <IndexAnalysisPanel visible />
+          </PanelErrorBoundary>
         ) : loading && !snapshot ? (
           <div className="mx-auto mt-16 max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-sm">
             <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-teal-200 border-t-teal-600" />

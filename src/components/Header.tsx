@@ -15,6 +15,8 @@ type Props = {
   onLogout?: () => void
   /** Paid org seat or individual subscription unlocks Patterns / Alerts. */
   fullDeskAccess?: boolean
+  /** Hide Organisation nav until Stripe billing is wired on this environment. */
+  stripeConfigured?: boolean
   onUpgrade?: () => void
 }
 
@@ -49,6 +51,7 @@ export function Header({
   displayName,
   onLogout,
   fullDeskAccess = true,
+  stripeConfigured = false,
   onUpgrade,
 }: Props) {
   const showSession = Boolean(authRequired && user)
@@ -72,7 +75,11 @@ export function Header({
     setMenuOpen(false)
   }, [page])
 
-  const navItems = NAV.filter((item) => fullDeskAccess || !item.requiresFullDesk)
+  const navItems = NAV.filter((item) => {
+    if (!fullDeskAccess && item.requiresFullDesk) return false
+    if (item.id === 'org' && !stripeConfigured) return false
+    return true
+  })
 
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-md">

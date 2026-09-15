@@ -230,51 +230,71 @@ export async function getFilingsForTicker(ticker, opts = {}) {
   await ensureAsxFilingsSchema()
   const t = String(ticker).toUpperCase().replace(/\.AX$/i, '')
   const force = Boolean(opts.forceRefresh)
-  const newest = await sqlOne(
-    'SELECT updated_at FROM asx_filings WHERE ticker = ? ORDER BY updated_at DESC LIMIT 1',
-    [t],
-  )
-  const fresh = newest && Date.now() - Number(newest.updated_at) < FRESH_TICKER_MS
-  if (force || !fresh) {
-    try {
-      const json = await fetchJson(`${MARKIT}/companies/${encodeURIComponent(t)}/announcements?count=50`)
-      const items = (json?.data?.items || []).filter(isDirectorInterestAnnouncement)
-      for (const item of items) {
-        await upsertFilingFromAnnouncement(item, t, { parsePdf: true, forceParse: force })
+  try {
+    const newest = await sqlOne(
+      'SELECT updated_at FROM asx_filings WHERE ticker = ? ORDER BY updated_at DESC LIMIT 1',
+      [t],
+    )
+    const fresh = newest && Date.now() - Number(newest.updated_at) < FRESH_TICKER_MS
+    if (force || !fresh) {
+      try {
+        const json = await fetchJson(`${MARKIT}/companies/${encodeURIComponent(t)}/announcements?count=50`)
+        const items = (json?.data?.items || []).filter(isDirectorInterestAnnouncement)
+        for (const item of items) {
+          await upsertFilingFromAnnouncement(item, t, { parsePdf: true, forceParse: force })
+        }
+      } catch (err) {
+        console.warn(`[asx-filings] ticker ${t}:`, err instanceof Error ? err.message : err)
       }
-    } catch (err) {
-      console.warn(`[asx-filings] ticker ${t}:`, err instanceof Error ? err.message : err)
     }
+  } catch (err) {
+    console.warn(`[asx-filings] ticker schema/query ${t}:`, err instanceof Error ? err.message : err)
   }
-  const rows = await sqlAll(
-    `SELECT * FROM asx_filings WHERE ticker = ? ORDER BY announced_at DESC LIMIT 30`,
-    [t],
-  )
-  return {
-    ticker: t,
-    source: 'asx-markit',
-    disclaimer: 'Disclosed ASX Appendix 3X/3Y/3Z filings — not live market buyers.',
-    filings: rows.map(rowToFiling),
+  try {
+    const rows = await sqlAll(
+      `SELECT * FROM asx_filings WHERE ticker = ? ORDER BY announced_at DESC LIMIT 30`,
+      [t],
+    )
+    return {
+      ticker: t,
+      source: 'asx-markit',
+      disclaimer: 'Disclosed ASX Appendix 3X/3Y/3Z filings — not live market buyers.',
+      filings: rows.map(rowToFiling),
+    }
+  } catch (err) {
+    console.warn(`[asx-filings] ticker read ${t}:`, err instanceof Error ? err.message : err)
+    return {
+      ticker: t,
+      source: 'asx-markit',
+      disclaimer: 'Disclosed ASX Appendix 3X/3Y/3Z filings — not live market buyers.',
+      filings: [],
+      stale: true,
+      error: err instanceof Error ? err.message : String(err),
+    }
   }
 }
 
-export async function getLargestDisclosedBuys(window = 'week') {
-  await ensureAsxFilingsSchema()
-  const w = window === 'today' ? 'today' : 'week'
-  // Refresh market cache if stale
-  const newest = await sqlOne('SELECT MAX(updated_at) AS u FROM asx_filings')
-  if (!newest?.u || Date.now() - Number(newest.u) > FRESH_MARKET_MS) {
-    try {
-      await ingestMarketDirectorAnnouncements({ parsePdf: true })
-    } catch (err) {
-      console.warn('[asx-filings] market ingest:', err instanceof Error ? err.message : err)
-    }
-  }
+/** Last successful market buys payload (survives Markit/ingest blips). */
+const lastGoodBuys = new Map()
 
-  const { from, to } = sydneyWindowBounds(w)
-  // Require shares >= 1 and (consideration_aud > 0, or null consideration if shares >= 100).
-  const rows = await sqlAll(
-    `SELECT * FROM asx_filings
+export async function getLargestDisclosedBuys(window = 'week') {
+  const w = window === 'today' ? 'today' : 'week'
+  try {
+    await ensureAsxFilingsSchema()
+    // Refresh market cache if stale
+    const newest = await sqlOne('SELECT MAX(updated_at) AS u FROM asx_filings')
+    if (!newest?.u || Date.now() - Number(newest.u) > FRESH_MARKET_MS) {
+      try {
+        await ingestMarketDirectorAnnouncements({ parsePdf: true })
+      } catch (err) {
+        console.warn('[asx-filings] market ingest:', err instanceof Error ? err.message : err)
+      }
+    }
+
+    const { from, to } = sydneyWindowBounds(w)
+    // Require shares >= 1 and (consideration_aud > 0, or null consideration if shares >= 100).
+    const rows = await sqlAll(
+      `SELECT * FROM asx_filings
      WHERE side = 'buy' AND announced_at >= ? AND announced_at < ?
        AND shares IS NOT NULL AND shares >= 1
        AND (
@@ -285,14 +305,33 @@ export async function getLargestDisclosedBuys(window = 'week') {
        CASE WHEN consideration_aud IS NOT NULL THEN consideration_aud ELSE 0 END DESC,
        shares DESC
      LIMIT 25`,
-    [from, to],
-  )
-  return {
-    window: w,
-    from,
-    to,
-    source: 'asx-markit',
-    disclaimer: 'Largest disclosed director buys from ASX filings (Appendix 3Y etc.) — not broker tape.',
-    buys: rows.map(rowToFiling),
+      [from, to],
+    )
+    const payload = {
+      window: w,
+      from,
+      to,
+      source: 'asx-markit',
+      disclaimer: 'Largest disclosed director buys from ASX filings (Appendix 3Y etc.) — not broker tape.',
+      buys: rows.map(rowToFiling),
+    }
+    lastGoodBuys.set(w, payload)
+    return payload
+  } catch (err) {
+    console.warn('[asx-filings] buys:', err instanceof Error ? err.message : err)
+    const cached = lastGoodBuys.get(w)
+    if (cached) {
+      return { ...cached, stale: true }
+    }
+    return {
+      window: w,
+      from: 0,
+      to: 0,
+      source: 'asx-markit',
+      disclaimer: 'Largest disclosed director buys from ASX filings (Appendix 3Y etc.) — not broker tape.',
+      buys: [],
+      stale: true,
+      error: err instanceof Error ? err.message : String(err),
+    }
   }
 }
