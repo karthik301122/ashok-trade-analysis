@@ -273,6 +273,32 @@ export const LANDSCAPE_PATTERNS: SpecialPatternDef[] = [
 ]
 
 /**
+ * RSI Surge — 1–2 session thrust into RSI 50±5 with price + weekly confirm.
+ * Bias on the hit flips bullish (from oversold) or bearish (from overbought).
+ */
+export const RSI_SURGE_PATTERNS: SpecialPatternDef[] = [
+  {
+    id: 'rsi-surge',
+    name: 'RSI Surge',
+    category: 'mean-reversion',
+    kind: 'scan',
+    bias: 'neutral',
+    formula:
+      'RSI_D = RSI(14, D); RSI_1/2 = RSI(14)[1]/[2]; RSI_W = RSI(14, W)\n' +
+      'In50Zone = RSI_D 45–55\n' +
+      'FromOversold = (RSI_1|RSI_2 ≤ 30) AND In50Zone\n' +
+      'FromOverbought = (RSI_1|RSI_2 ≥ 70) AND In50Zone\n' +
+      'MinChangeOK = |RSI_D−RSI_1| ≥ 10 OR |RSI_D−RSI_2| ≥ 10\n' +
+      'PriceConfirm = Close > High[10] OR Close < Low[10]\n' +
+      'WeeklyConfirm = RSI_W 50–60\n' +
+      'SurgeScore = min(|Δ1|,|Δ2|)×0.6 + (100−|RSI_D−50|)×0.4\n' +
+      'RSI_Surge = base AND MinChangeOK AND PriceConfirm AND WeeklyConfirm',
+    description:
+      'RSI reset into the 50±5 zone within 1–2 sessions from oversold (≤30) or overbought (≥70), with ≥10 RSI points of thrust, daily price break vs High/Low[10], and weekly RSI still in the 50–60 neutral band. Score ranks surge strength.',
+  },
+]
+
+/**
  * Ashok desk formula patterns — evaluated on snapshot metrics (not OHLC shapes).
  * Add new entries here; implement the matching rule in specialDetect.ts.
  */
@@ -447,6 +473,7 @@ export const SPECIAL_PATTERN_CATALOG: SpecialPatternDef[] = [
   ...VCP_PATTERNS,
   ...LAUNCHPAD_PATTERNS,
   ...LANDSCAPE_PATTERNS,
+  ...RSI_SURGE_PATTERNS,
   ...SNAPSHOT_PATTERN_CATALOG,
 ]
 

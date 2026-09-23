@@ -14,6 +14,11 @@ import {
 import { landscapeFormingScore, landscapePasses } from './landscapeDetect'
 import { rulesFromCustom } from './scanScript'
 import { detectLandscape } from './landscapeDetect'
+import {
+  detectRsiSurge,
+  rsiSurgeFormingScore,
+  rsiSurgePasses,
+} from './rsiSurgeDetect'
 import { detectVcpBreakout, detectVcpSetup, vcpBreakoutPasses } from './vcpDetect'
 import { comparePatternHitsByScore } from './rankPatternHits'
 
@@ -49,6 +54,11 @@ export function scoreSpecialScanPattern(
     const score = landscapeFormingScore(bars, i, ctx?.landscape)
     const confirmed = landscapePasses(bars, i, ctx?.landscape)
     return { score: confirmed ? 100 : score, confirmed }
+  }
+  if (pattern.id === 'rsi-surge') {
+    const score = rsiSurgeFormingScore(bars, i)
+    const confirmed = rsiSurgePasses(bars, i)
+    return { score: confirmed ? Math.max(score, 70) : score, confirmed }
   }
   if (pattern.id === 'vcp-setup') {
     const rules = rulesFromCustom(null, pattern.scanScript ?? '')
@@ -119,6 +129,9 @@ export function evaluateSpecialScanPattern(
   }
   if (pattern.id === 'landscape') {
     return detectLandscape(bars, pattern, ctx?.landscape)
+  }
+  if (pattern.id === 'rsi-surge') {
+    return detectRsiSurge(bars, pattern)
   }
   if (!pattern.scanScript?.trim()) return null
   const rules = rulesFromCustom(null, pattern.scanScript)

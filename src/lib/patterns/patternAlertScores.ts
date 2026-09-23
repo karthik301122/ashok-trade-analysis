@@ -5,6 +5,7 @@ import {
   LAUNCHPAD_PATTERNS,
   LANDSCAPE_PATTERNS,
   LIVERMORE_PATTERNS,
+  RSI_SURGE_PATTERNS,
   SNAPSHOT_PATTERN_CATALOG,
   VCP_PATTERNS,
 } from './specialCatalog'
@@ -221,7 +222,12 @@ export function livermoreAlertScore(
   }
 }
 
-const DAILY_SCAN_PATTERNS = [...VCP_PATTERNS, ...LAUNCHPAD_PATTERNS, ...LANDSCAPE_PATTERNS]
+const DAILY_SCAN_PATTERNS = [
+  ...VCP_PATTERNS,
+  ...LAUNCHPAD_PATTERNS,
+  ...LANDSCAPE_PATTERNS,
+  ...RSI_SURGE_PATTERNS,
+]
 
 export { snapshotAlertScore }
 
