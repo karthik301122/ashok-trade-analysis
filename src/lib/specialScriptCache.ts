@@ -28,7 +28,7 @@ export type ScriptScanRow = {
   confirmed: boolean
 }
 
-const KEY = 'asx-special-script-v1'
+const KEY = 'asx-special-script-v2'
 const MAX = 4000
 
 function readAll(): Record<string, TickerScriptScanCache> {

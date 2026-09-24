@@ -556,7 +556,9 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
                             }`}
                           >
                             {(serverPending && p.kind === 'weekly') ||
-                            (specialScanning && count === 0 && p.kind !== 'snapshot')
+                            (specialScanning &&
+                              count === 0 &&
+                              (p.kind === 'scan' || p.kind === 'livermore' || p.kind === 'weekly'))
                               ? '…'
                               : count}
                           </span>

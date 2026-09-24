@@ -81,20 +81,15 @@ export function useUnifiedSpecialScans(
     let flushTimer: ReturnType<typeof setTimeout> | null = null
 
     void (async () => {
+      // Server pattern job = snapshot specials + Stage 2 only.
+      // Still crawl OHLC for scan patterns (VCP / Launchpad / Landscape / RSI Surge) + Livermore.
+      let skipWeeklyFromServer = false
       try {
         const { fetchServerPatternHits } = await import('../../lib/patternScanApi')
         const server = await fetchServerPatternHits('latest')
         const today = new Date().toISOString().slice(0, 10)
-        if (
-          !cancelled &&
-          g === gen.current &&
-          server?.asOf === today &&
-          (server.hits?.length ?? 0) > 0
-        ) {
-          setScanning(false)
-          setDone(list.length)
-          setTotal(list.length)
-          return
+        if (server?.asOf === today && (server.hits?.length ?? 0) > 0) {
+          skipWeeklyFromServer = true
         }
       } catch {
         /* client scan */
@@ -109,11 +104,10 @@ export function useUnifiedSpecialScans(
         const w = getTickerWeeklySpecial(key)
         const l = getTickerLivermore(key)
         const s = getTickerScriptScan(key)
-        if (
-          isStale(w?.updatedAt, now) ||
-          isStale(l?.updatedAt, now) ||
-          isStale(s?.updatedAt, now)
-        ) {
+        const needWeekly = !skipWeeklyFromServer && isStale(w?.updatedAt, now)
+        const needLivermore = isStale(l?.updatedAt, now)
+        const needScript = isStale(s?.updatedAt, now)
+        if (needWeekly || needLivermore || needScript) {
           need.push(t)
         }
         if (i % 500 === 499) await new Promise<void>((r) => setTimeout(r, 0))
@@ -210,7 +204,8 @@ export function useUnifiedSpecialScans(
           const ticker = need[i]
           const key = ticker.toUpperCase()
           const meta = stockByTickerRef.current.get(key)
-          const needWeekly = isStale(getTickerWeeklySpecial(key)?.updatedAt, now)
+          const needWeekly =
+            !skipWeeklyFromServer && isStale(getTickerWeeklySpecial(key)?.updatedAt, now)
           const needLivermore = isStale(getTickerLivermore(key)?.updatedAt, now)
           const needScript = isStale(getTickerScriptScan(key)?.updatedAt, now)
 
