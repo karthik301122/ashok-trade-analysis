@@ -172,9 +172,16 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
     let pollId: ReturnType<typeof setInterval> | null = null
     const stocks = deferredStocks
 
+    // Snapshot specials (RSI oversold/overbought, stars, etc.) are cheap desk-map math —
+    // always compute locally so counts stay correct even when the server day payload is
+    // pending, capped, or missing those pattern ids.
+    startTransition(() => {
+      if (cancelled) return
+      setSnapshotScan(scanAllSpecialPatterns(stocks, indexM3))
+    })
+
     const applyServer = async () => {
       const { fetchServerPatternHits } = await import('../lib/patternScanApi')
-      const { SNAPSHOT_PATTERN_CATALOG } = await import('../lib/patterns/specialCatalog')
       const server = await fetchServerPatternHits('latest')
       if (cancelled) return false
       if (!server || server.pending || server.universe === 'none') {
@@ -182,14 +189,9 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
         setServerAsOf(null)
         setServerWeeklyById(new Map())
         setServerWeeklyCounts({})
-        startTransition(() => {
-          if (cancelled) return
-          setSnapshotScan(scanAllSpecialPatterns(stocks, indexM3))
-        })
         return false
       }
       setServerPending(false)
-      const byPattern = new Map<string, NonNullable<typeof server.hits>>()
       const weeklyMap = new Map<string, WeeklySpecialHit[]>()
       for (const h of server.hits) {
         const kind = h.kind || 'snapshot'
@@ -210,38 +212,8 @@ function SpecialPatternsPanelBody({ snapshot, active = true }: { snapshot: Marke
             confirmed: h.confirmed,
           })
           weeklyMap.set(h.patternId, list)
-          continue
         }
-        if (kind !== 'snapshot') continue
-        const list = byPattern.get(h.patternId) || []
-        list.push(h)
-        byPattern.set(h.patternId, list)
       }
-      const mapped = SNAPSHOT_PATTERN_CATALOG.map((pattern) => {
-        const hits = (byPattern.get(pattern.id) || []).map((h) => ({
-          patternId: h.patternId,
-          patternName: h.patternName || pattern.name,
-          bias: (h.bias as 'bullish' | 'bearish' | 'neutral') || pattern.bias,
-          ticker: h.ticker,
-          name: h.name,
-          sector: h.sector,
-          industry: h.industry,
-          rs: h.rs,
-          m3: h.m3,
-          relativeVolume: h.relativeVolume,
-          rsi: h.rsi,
-          lastPrice: h.lastPrice,
-          score: h.score,
-          confirmed: h.confirmed,
-        }))
-        const counted = Number(server.counts?.[pattern.id])
-        return {
-          pattern,
-          hits,
-          count: Number.isFinite(counted) && counted > 0 ? counted : hits.length,
-        }
-      })
-      setSnapshotScan(mapped)
       setServerWeeklyById(weeklyMap)
       setServerWeeklyCounts(server.counts || {})
       setServerAsOf(server.asOf)

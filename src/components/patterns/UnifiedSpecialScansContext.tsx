@@ -8,17 +8,19 @@ const UnifiedSpecialScansContext = createContext<UnifiedSpecialScansState | null
 
 export function UnifiedSpecialScansProvider({
   snapshot,
-  enabled: _enabled,
+  enabled,
   children,
 }: {
   snapshot: MarketSnapshot
+  /** Only true on Patterns / Alerts — avoids crawling /api/series on Markets. */
   enabled: boolean
   children: ReactNode
 }) {
-  // Never auto-crawl the full ASX universe from the browser — that stamps /api/series
-  // and freezes Patterns. Server patternJob + /api/patterns/hits is the source of truth.
-  void _enabled
-  const scans = useUnifiedSpecialScans(snapshot.stocks, false, snapshot.benchmarkPerf.m3)
+  const scans = useUnifiedSpecialScans(
+    snapshot.stocks,
+    enabled,
+    snapshot.benchmarkPerf.m3,
+  )
   return (
     <UnifiedSpecialScansContext.Provider value={scans}>{children}</UnifiedSpecialScansContext.Provider>
   )
@@ -31,8 +33,6 @@ export function useSharedUnifiedSpecialScans(
   indexM3: number,
 ): UnifiedSpecialScansState {
   const shared = useContext(UnifiedSpecialScansContext)
-  // Never fall back to a full-universe browser crawl.
-  void fallbackEnabled
-  const local = useUnifiedSpecialScans(stocks, false, indexM3)
+  const local = useUnifiedSpecialScans(stocks, shared ? false : fallbackEnabled, indexM3)
   return shared ?? local
 }

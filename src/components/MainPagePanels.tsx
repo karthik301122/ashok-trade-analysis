@@ -56,7 +56,7 @@ function MainPagePanelsInner({
   return (
     <UnifiedSpecialScansProvider
       snapshot={snapshot}
-      enabled={page !== 'create-pattern' && page !== 'profile'}
+      enabled={page === 'special-patterns' || page === 'alerts'}
     >
       <div hidden={overlayPage} aria-hidden={overlayPage}>
         <SectorMarketsSection
