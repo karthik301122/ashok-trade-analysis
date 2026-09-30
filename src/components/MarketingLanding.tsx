@@ -6,20 +6,23 @@ type Props = {
   onCreateAccount: () => void
 }
 
+/** Landing stays light even when html.dark is set from a prior desk session. */
+const landingTheme: CSSProperties = {
+  colorScheme: 'light',
+  // Custom properties are valid on style; cast keeps tsc happy.
+  ...({
+    '--color-ink': '#0f172a',
+    '--color-ink-soft': '#475569',
+    '--color-surface': '#ffffff',
+    '--color-border': '#cbd5e1',
+  } as CSSProperties),
+}
+
 export function MarketingLanding({ onSignIn, onCreateAccount }: Props) {
   return (
     <div
       className="min-h-screen bg-[radial-gradient(1200px_600px_at_10%_-10%,#ccfbf1_0%,transparent_55%),radial-gradient(900px_500px_at_90%_0%,#e0f2fe_0%,transparent_50%),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-900"
-      style={
-        {
-          colorScheme: 'light',
-          // Landing is always light; ignore html.dark ink tokens on buttons.
-          '--color-ink': '#0f172a',
-          '--color-ink-soft': '#475569',
-          '--color-surface': '#ffffff',
-          '--color-border': '#cbd5e1',
-        } as React.CSSProperties
-      }
+      style={landingTheme}
     >
       <header className="mx-auto flex max-w-5xl items-center justify-between px-4 py-5">
         <div className="flex items-center gap-2.5">
