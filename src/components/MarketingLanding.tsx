@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { APP_NAME, APP_TAGLINE } from '../lib/brand'
 
 type Props = {
@@ -7,12 +8,26 @@ type Props = {
 
 export function MarketingLanding({ onSignIn, onCreateAccount }: Props) {
   return (
-    <div className="min-h-screen bg-[radial-gradient(1200px_600px_at_10%_-10%,#ccfbf1_0%,transparent_55%),radial-gradient(900px_500px_at_90%_0%,#e0f2fe_0%,transparent_50%),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-900">
+    <div
+      className="min-h-screen bg-[radial-gradient(1200px_600px_at_10%_-10%,#ccfbf1_0%,transparent_55%),radial-gradient(900px_500px_at_90%_0%,#e0f2fe_0%,transparent_50%),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-900"
+      style={
+        {
+          colorScheme: 'light',
+          // Landing is always light; ignore html.dark ink tokens on buttons.
+          '--color-ink': '#0f172a',
+          '--color-ink-soft': '#475569',
+          '--color-surface': '#ffffff',
+          '--color-border': '#cbd5e1',
+        } as React.CSSProperties
+      }
+    >
       <header className="mx-auto flex max-w-5xl items-center justify-between px-4 py-5">
         <div className="flex items-center gap-2.5">
           <img src="/favicon.svg" alt="" className="h-9 w-9 rounded-lg" />
           <div>
-            <div className="font-[family-name:var(--font-display)] text-lg font-semibold">{APP_NAME}</div>
+            <div className="font-[family-name:var(--font-display)] text-lg font-semibold text-slate-900">
+              {APP_NAME}
+            </div>
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
               {APP_TAGLINE}
             </div>
@@ -22,7 +37,7 @@ export function MarketingLanding({ onSignIn, onCreateAccount }: Props) {
           <button
             type="button"
             onClick={onCreateAccount}
-            className="rounded-lg border border-slate-300 bg-white/80 px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-white"
+            className="rounded-lg border-2 border-teal-700 bg-white px-3.5 py-2 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50"
           >
             Create account
           </button>
@@ -58,13 +73,13 @@ export function MarketingLanding({ onSignIn, onCreateAccount }: Props) {
           <button
             type="button"
             onClick={onSignIn}
-            className="rounded-lg border border-slate-300 bg-white/70 px-5 py-2.5 text-sm font-semibold text-slate-800 hover:bg-white"
+            className="rounded-lg border-2 border-teal-700 bg-white px-5 py-2.5 text-sm font-semibold text-teal-900 hover:bg-teal-50"
           >
             Sign in
           </button>
           <a
             href="/how"
-            className="rounded-lg border border-slate-300 bg-white/70 px-5 py-2.5 text-sm font-semibold text-slate-800 hover:bg-white"
+            className="rounded-lg border-2 border-slate-400 bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50"
           >
             How it works
           </a>

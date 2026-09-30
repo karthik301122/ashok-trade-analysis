@@ -54,12 +54,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
-  color: var(--color-ink);
+/* Keep in @layer base so utility classes (e.g. text-slate-900) can override. */
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: var(--color-ink);
+  }
 }
 
 select {
