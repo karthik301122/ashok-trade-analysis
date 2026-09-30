@@ -9,8 +9,8 @@ const BUILTIN_FREE_FULL_DESK = [
   'testtraderscope@gmail.com',
 ]
 
-/** All signed-in users get full desk until this instant (inclusive window ends). Sydney AEST. */
-const PROMO_FULL_DESK_UNTIL = new Date('2026-09-30T23:59:59+10:00')
+/** All signed-in users get full desk until this instant (inclusive window ends). Sydney AEDT. */
+const PROMO_FULL_DESK_UNTIL = new Date('2026-10-31T23:59:59+11:00')
 
 function freeFullDeskAllowlist() {
   const fromEnv = String(process.env.FULL_DESK_FREE_USERS || '')
@@ -21,7 +21,7 @@ function freeFullDeskAllowlist() {
 }
 
 /**
- * Temporary launch promo: every logged-in user has full desk through month end.
+ * Temporary launch promo: every logged-in user has full desk through 31 Oct 2026.
  * Override with FULL_DESK_PROMO_UNTIL=ISO date, or FULL_DESK_PROMO=0 to disable early.
  */
 export function isLaunchPromoFullDeskActive(now = new Date()) {

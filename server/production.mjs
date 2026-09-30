@@ -48,14 +48,14 @@ export async function isAdminUser(username) {
 export async function isAdminRequest(req) {
   const key = process.env.ADMIN_API_KEY?.trim()
   if (key && req.headers?.['x-admin-key'] === key) return true
-  const user = getUserFromRequest(req)
+  const user = await getUserFromRequest(req)
   return await isAdminUser(user)
 }
 
 /** Cron / ops: signed-in user or valid `x-admin-key` when auth is enabled. */
 export async function requireSessionOrAdmin(req, send) {
   if (!authEnabled()) return false
-  if (getUserFromRequest(req) || (await isAdminRequest(req))) return false
+  if ((await getUserFromRequest(req)) || (await isAdminRequest(req))) return false
   send(401, { error: 'Unauthorized', authRequired: true })
   return true
 }

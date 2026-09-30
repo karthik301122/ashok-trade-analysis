@@ -13,6 +13,8 @@ import { APP_NAME, APP_TAGLINE } from '../lib/brand'
 type Props = {
   onSuccess: (user: string) => void
   onBack?: () => void
+  /** Open on register when arriving from “Create account” on the landing page. */
+  initialMode?: 'signin' | 'register'
 }
 
 type Mode = 'signin' | 'register' | 'otp' | 'forgot' | 'reset'
@@ -36,8 +38,10 @@ function clearResetTokenFromUrl() {
   }
 }
 
-export function AuthPage({ onSuccess, onBack }: Props) {
-  const [mode, setMode] = useState<Mode>(() => (readResetTokenFromUrl() ? 'reset' : 'signin'))
+export function AuthPage({ onSuccess, onBack, initialMode = 'signin' }: Props) {
+  const [mode, setMode] = useState<Mode>(() =>
+    readResetTokenFromUrl() ? 'reset' : initialMode === 'register' ? 'register' : 'signin',
+  )
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
@@ -201,7 +205,7 @@ export function AuthPage({ onSuccess, onBack }: Props) {
           </div>
         </div>
 
-        {onBack && mode === 'signin' && (
+        {onBack && (mode === 'signin' || mode === 'register') && (
           <button
             type="button"
             onClick={onBack}

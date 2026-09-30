@@ -195,6 +195,40 @@ export default function App() {
     }
   }, [])
 
+  // Single-device sessions: detect when another login invalidated this cookie.
+  useEffect(() => {
+    if (!user || !authRequired) return
+    let cancelled = false
+    const check = async () => {
+      const me = await fetchAuthMe()
+      if (cancelled) return
+      if (me.user) return
+      abortRef.current?.abort()
+      setUser(null)
+      setDisplayName(null)
+      setPatternAlertWatches([])
+      setFullDeskAccess(true)
+      setSnapshot(null)
+      setMeta(null)
+      setLoading(false)
+      setBackfilling(false)
+      startedLoad.current = false
+      setError('Signed out — this account signed in on another device.')
+    }
+    const id = window.setInterval(() => {
+      void check()
+    }, 45_000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void check()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [user, authRequired])
+
   // Stripe Checkout return: clear pending → failed on cancel; open Organisation tab.
   useEffect(() => {
     if (!user || typeof window === 'undefined') return
@@ -527,7 +561,7 @@ export default function App() {
     snapshotJob?.status,
   ])
 
-  const [authScreen, setAuthScreen] = useState<'landing' | 'signin'>('landing')
+  const [authScreen, setAuthScreen] = useState<'landing' | 'signin' | 'register'>('landing')
 
   const passwordResetPending = (() => {
     try {
@@ -693,6 +727,7 @@ export default function App() {
 
   const handleLogin = async (u: string) => {
     startedLoad.current = false
+    setError(null)
     setUser(u)
     const me = await fetchAuthMe()
     setDisplayName(me.displayName ?? null)
@@ -950,7 +985,10 @@ export default function App() {
         (!user || passwordResetPending) &&
         authScreen === 'landing' &&
         !passwordResetPending ? (
-        <MarketingLanding onSignIn={() => setAuthScreen('signin')} />
+        <MarketingLanding
+          onSignIn={() => setAuthScreen('signin')}
+          onCreateAccount={() => setAuthScreen('register')}
+        />
       ) : (
       <main className="mx-auto max-w-[1600px] px-4 py-5">
         {authChecking ? (
@@ -960,6 +998,8 @@ export default function App() {
           </div>
         ) : authRequired && (!user || passwordResetPending) ? (
             <AuthPage
+              key={authScreen === 'register' ? 'register' : 'signin'}
+              initialMode={authScreen === 'register' ? 'register' : 'signin'}
               onSuccess={handleLogin}
               onBack={passwordResetPending ? undefined : () => setAuthScreen('landing')}
             />

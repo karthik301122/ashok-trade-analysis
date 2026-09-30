@@ -6,6 +6,10 @@
  *   AUTH_USERS   — "user1:$2b$...,user2:$2b$..." (bcrypt hashes)
  *
  * When either is missing, auth is disabled (open access) — useful for local dev.
+ *
+ * Sessions are single-device: login / register / password change bumps
+ * `auth_sessions.session_version`, which is embedded in the cookie. Older
+ * cookies fail verification so prior devices are signed out.
  */
 import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
@@ -13,6 +17,7 @@ import {
   normalizeUsername,
   verifyDbCredentials,
 } from './userStore.mjs'
+import { sqlOne, sqlRun } from './db.mjs'
 import {
   getAlertEmailMinScore,
   getAlertEmailOptIn,
@@ -29,6 +34,15 @@ import {
 
 export const COOKIE_NAME = 'asx_sid'
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+const SESSION_VERSION_CACHE_MS = 3_000
+
+/** @type {Map<string, { v: number, at: number }>} */
+const sessionVersionCache = new Map()
+
+/** Clears the in-memory session-version cache (tests only). */
+export function clearSessionVersionCache() {
+  sessionVersionCache.clear()
+}
 
 function authSecret() {
   return process.env.AUTH_SECRET?.trim() || ''
@@ -127,17 +141,74 @@ function fromB64url(str) {
   return Buffer.from(b64, 'base64').toString('utf8')
 }
 
-export function createSessionToken(username) {
+/**
+ * Current single-session version for a user (0 if never bumped).
+ * @param {string} username
+ */
+export async function getSessionVersion(username) {
+  const u = normalizeUsername(username)
+  const now = Date.now()
+  const hit = sessionVersionCache.get(u)
+  if (hit && now - hit.at < SESSION_VERSION_CACHE_MS) return hit.v
+  try {
+    const row = await sqlOne('SELECT session_version FROM auth_sessions WHERE username = ?', [u])
+    const v = Number(row?.session_version) || 0
+    sessionVersionCache.set(u, { v, at: now })
+    return v
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Invalidate all existing session cookies for this user; returns the new version.
+ * @param {string} username
+ */
+export async function bumpSessionVersion(username) {
+  const u = normalizeUsername(username)
+  const now = Date.now()
+  const row = await sqlOne('SELECT session_version FROM auth_sessions WHERE username = ?', [u])
+  const next = (Number(row?.session_version) || 0) + 1
+  if (row) {
+    await sqlRun(
+      'UPDATE auth_sessions SET session_version = ?, updated_at = ? WHERE username = ?',
+      [next, now, u],
+    )
+  } else {
+    await sqlRun(
+      'INSERT INTO auth_sessions (username, session_version, updated_at) VALUES (?, ?, ?)',
+      [u, next, now],
+    )
+  }
+  sessionVersionCache.set(u, { v: next, at: now })
+  return next
+}
+
+/**
+ * @param {string} username
+ * @param {number} [sessionVersion]
+ */
+export function createSessionToken(username, sessionVersion = 0) {
   const secret = authSecret()
   if (!secret) throw new Error('AUTH_SECRET missing')
   const exp = Date.now() + MAX_AGE_MS
-  const payload = b64url(`${username}|${exp}`)
+  const sv = Number(sessionVersion) || 0
+  const payload = b64url(`${username}|${exp}|${sv}`)
   const sig = crypto.createHmac('sha256', secret).update(payload).digest('base64url')
   return `${payload}.${sig}`
 }
 
-/** @returns {string | null} username */
-export function verifySessionToken(token) {
+/** Bump session version and return a fresh cookie token (kicks other devices). */
+export async function issueSessionToken(username) {
+  const sv = await bumpSessionVersion(username)
+  return createSessionToken(username, sv)
+}
+
+/**
+ * @param {string} token
+ * @returns {{ username: string, sessionVersion: number } | null}
+ */
+export function parseSessionToken(token) {
   const secret = authSecret()
   if (!token || !secret) return null
   const [payload, sig] = String(token).split('.')
@@ -148,13 +219,23 @@ export function verifySessionToken(token) {
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null
   try {
     const decoded = fromB64url(payload)
-    const [username, expStr] = decoded.split('|')
-    const exp = Number(expStr)
+    const parts = decoded.split('|')
+    const username = parts[0]
+    const exp = Number(parts[1])
+    const sessionVersion = parts.length >= 3 ? Number(parts[2]) : 0
     if (!username || !Number.isFinite(exp) || Date.now() > exp) return null
-    return username
+    return {
+      username,
+      sessionVersion: Number.isFinite(sessionVersion) ? sessionVersion : 0,
+    }
   } catch {
     return null
   }
+}
+
+/** @returns {string | null} username (signature + expiry only; no single-session check) */
+export function verifySessionToken(token) {
+  return parseSessionToken(token)?.username ?? null
 }
 
 export function parseCookies(cookieHeader) {
@@ -171,10 +252,28 @@ export function parseCookies(cookieHeader) {
   return out
 }
 
-export function getUserFromRequest(req) {
+/** @returns {Promise<string | null>} */
+export async function getUserFromRequest(req) {
   if (!authEnabled()) return null
   const cookies = parseCookies(req.headers?.cookie)
-  return verifySessionToken(cookies[COOKIE_NAME] || '')
+  const parsed = parseSessionToken(cookies[COOKIE_NAME] || '')
+  if (!parsed) return null
+  const current = await getSessionVersion(parsed.username)
+  if (parsed.sessionVersion !== current) return null
+  return parsed.username
+}
+
+/** Invalidate the session version for whoever owns this request cookie (best-effort). */
+export async function invalidateRequestSession(req) {
+  if (!authEnabled()) return
+  const cookies = parseCookies(req.headers?.cookie)
+  const parsed = parseSessionToken(cookies[COOKIE_NAME] || '')
+  if (!parsed?.username) return
+  try {
+    await bumpSessionVersion(parsed.username)
+  } catch {
+    /* ignore */
+  }
 }
 
 function secureCookiesEnabled() {
@@ -236,7 +335,7 @@ export async function handleAuthApi(req, res, send) {
     if (!authEnabled()) {
       return send(200, { user: null, authRequired: false })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return send(200, { user: null, authRequired: true })
     const canReceiveAlertEmail = isEmailLogin(user)
     const alertEmailOptIn = canReceiveAlertEmail ? await getAlertEmailOptIn(user) : false
@@ -261,7 +360,7 @@ export async function handleAuthApi(req, res, send) {
     if (!authEnabled()) {
       return send(400, { error: 'Auth is not configured on this server' })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return send(401, { error: 'Unauthorized', authRequired: true })
     return send(200, {
       patternAlertIds: await getPatternAlertIds(user),
@@ -274,7 +373,7 @@ export async function handleAuthApi(req, res, send) {
     if (!authEnabled()) {
       return send(400, { error: 'Auth is not configured on this server' })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return send(401, { error: 'Unauthorized', authRequired: true })
     let body
     try {
@@ -310,7 +409,7 @@ export async function handleAuthApi(req, res, send) {
     if (!authEnabled()) {
       return send(400, { error: 'Auth is not configured on this server' })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return send(401, { error: 'Unauthorized', authRequired: true })
     if (!isEmailLogin(user)) {
       return send(400, {
@@ -379,7 +478,7 @@ export async function handleAuthApi(req, res, send) {
     const { verifyRegistration } = await import('./registration.mjs')
     const result = await verifyRegistration(body)
     if (!result.ok) return send(result.status || 400, { error: result.error })
-    const token = createSessionToken(result.user)
+    const token = await issueSessionToken(result.user)
     return send(
       200,
       { ok: true, user: result.user, displayName: result.displayName },
@@ -430,11 +529,12 @@ export async function handleAuthApi(req, res, send) {
       })
       return send(401, { error: 'Invalid username or password' })
     }
-    const token = createSessionToken(user)
+    const token = await issueSessionToken(user)
     return send(200, { user }, { 'Set-Cookie': sessionSetCookieHeader(token) })
   }
 
   if (path === '/api/auth/logout' && method === 'POST') {
+    await invalidateRequestSession(req)
     return send(200, { ok: true }, { 'Set-Cookie': sessionClearCookieHeader() })
   }
 
@@ -474,7 +574,7 @@ export async function handleAuthApi(req, res, send) {
     if (!authEnabled()) {
       return send(400, { error: 'Auth is not configured on this server' })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return send(401, { error: 'Unauthorized', authRequired: true })
     const { getDbUserProfile } = await import('./userStore.mjs')
     const profile = await getDbUserProfile(user)
@@ -490,7 +590,7 @@ export async function handleAuthApi(req, res, send) {
     if (!authEnabled()) {
       return send(400, { error: 'Auth is not configured on this server' })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return send(401, { error: 'Unauthorized', authRequired: true })
     let body
     try {
@@ -512,7 +612,7 @@ export async function handleAuthApi(req, res, send) {
       current = r.user
     }
     const profile = await getDbUserProfile(current)
-    const token = createSessionToken(current)
+    const token = await issueSessionToken(current)
     return send(
       200,
       {
@@ -530,7 +630,7 @@ export async function handleAuthApi(req, res, send) {
     if (!authEnabled()) {
       return send(400, { error: 'Auth is not configured on this server' })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return send(401, { error: 'Unauthorized', authRequired: true })
     let body
     try {
@@ -541,16 +641,21 @@ export async function handleAuthApi(req, res, send) {
     const { changeDbPassword } = await import('./userStore.mjs')
     const result = await changeDbPassword(user, body?.currentPassword, body?.newPassword)
     if (!result.ok) return send(400, { error: result.error })
-    return send(200, { ok: true, message: 'Password updated' })
+    const token = await issueSessionToken(user)
+    return send(
+      200,
+      { ok: true, message: 'Password updated' },
+      { 'Set-Cookie': sessionSetCookieHeader(token) },
+    )
   }
 
   return false
 }
 
 /** Returns true if request should be blocked (401 already sent via send). */
-export function requireAuthOrSend(req, send) {
+export async function requireAuthOrSend(req, send) {
   if (!authEnabled()) return false
-  const user = getUserFromRequest(req)
+  const user = await getUserFromRequest(req)
   if (user) return false
   send(401, { error: 'Unauthorized', authRequired: true })
   return true

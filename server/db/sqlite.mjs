@@ -133,6 +133,11 @@ function openSqlite() {
       expires_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      username TEXT PRIMARY KEY,
+      session_version INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS user_prefs (
       username TEXT PRIMARY KEY,
       alert_email_opt_in INTEGER NOT NULL DEFAULT 0,

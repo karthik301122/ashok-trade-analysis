@@ -1,7 +1,7 @@
 /**
  * Shared /api handlers for Vite middleware and Express prod server.
  */
-import { authEnabled, handleAuthApi, requireAuthOrSend, getUserFromRequest, authPublicConfig, createSessionToken, sessionSetCookieHeader, verifyCredentials, sessionClearCookieHeader, envUserCount, loadUsers } from './auth.mjs'
+import { authEnabled, handleAuthApi, requireAuthOrSend, getUserFromRequest, authPublicConfig, issueSessionToken, invalidateRequestSession, sessionSetCookieHeader, verifyCredentials, sessionClearCookieHeader, envUserCount, loadUsers } from './auth.mjs'
 import { countDbUsers, createDbUser, listDbUsernames, normalizeUsername } from './userStore.mjs'
 import { getCachedSeries, getIntradaySeries, seriesCacheFileCount } from './getSeries.mjs'
 import { isAsxIndexSeriesTicker } from './asxIndexes.mjs'
@@ -428,14 +428,14 @@ async function buildSnapshotMetaPayload() {
   return body
 }
 
-function requireAuthConnect(req, send) {
+async function requireAuthConnect(req, send) {
   return requireAuthOrSend(req, send)
 }
 
 /** Auth gate that also requires a resolved session user (for user-scoped stores). */
-function requireUserOrSend(req, send) {
-  if (requireAuthOrSend(req, send)) return null
-  const user = getUserFromRequest(req)
+async function requireUserOrSend(req, send) {
+  if (await requireAuthOrSend(req, send)) return null
+  const user = await getUserFromRequest(req)
   if (!user) {
     send(401, { error: 'Unauthorized', authRequired: true })
     return null
@@ -449,7 +449,7 @@ function expressSend(res) {
   }
 }
 
-function requireUserExpress(req, res) {
+async function requireUserExpress(req, res) {
   return requireUserOrSend(req, expressSend(res))
 }
 
@@ -621,7 +621,7 @@ export async function handleConnectApi(req, res, send) {
   if (authHandled !== false) return true
 
   if (url.pathname.startsWith('/api/series/')) {
-    if (requireAuthConnect(req, send)) return true
+    if (await requireAuthConnect(req, send)) return true
     if (!seriesClientAllowed(req)) {
       log('warn', 'series.rejected_legacy_client', { key: clientKey(req) })
       send(403, {
@@ -701,7 +701,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/index-analysis' && req.method === 'GET') {
-    if (requireAuthConnect(req, send)) return true
+    if (await requireAuthConnect(req, send)) return true
     try {
       const body = await buildIndexAnalysis()
       if (body.missed > 0) warmIndexAnalysisSeries()
@@ -942,7 +942,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/breadth/daily') {
-    if (requireAuthConnect(req, send)) return true
+    if (await requireAuthConnect(req, send)) return true
     if (req.method === 'GET') {
       const universe = url.searchParams.get('universe') || 'asx200'
       if (!UNIVERSE_IDS.has(universe)) {
@@ -1021,7 +1021,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/alerts/rules') {
-    if (requireAuthConnect(req, send)) return true
+    if (await requireAuthConnect(req, send)) return true
     if (req.method === 'GET') {
       send(200, { rules: await listAlertRules() })
       return true
@@ -1037,7 +1037,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname.startsWith('/api/alerts/rules/')) {
-    if (requireAuthConnect(req, send)) return true
+    if (await requireAuthConnect(req, send)) return true
     const id = Number(url.pathname.replace('/api/alerts/rules/', ''))
     if (!Number.isFinite(id)) {
       send(400, { error: 'Invalid id' })
@@ -1053,7 +1053,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/pattern-scan/batch' && req.method === 'POST') {
-    if (requireAuthConnect(req, send)) return true
+    if (await requireAuthConnect(req, send)) return true
     const body = await readJsonBody(req)
     const upserted = await upsertPatternScanBatch(body?.rows)
     const alerts = await evaluateAlerts()
@@ -1062,7 +1062,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/pattern-scan/state' && req.method === 'GET') {
-    if (requireAuthConnect(req, send)) return true
+    if (await requireAuthConnect(req, send)) return true
     const ticker = String(url.searchParams.get('ticker') || '')
       .trim()
       .toUpperCase()
@@ -1091,21 +1091,21 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/alerts/events' && req.method === 'GET') {
-    if (requireAuthConnect(req, send)) return true
-    const user = getUserFromRequest(req)
+    if (await requireAuthConnect(req, send)) return true
+    const user = await getUserFromRequest(req)
     send(200, { events: await listAlertEvents(50, user) })
     return true
   }
 
   if (url.pathname === '/api/alerts/evaluate' && req.method === 'POST') {
-    if (requireAuthConnect(req, send)) return true
+    if (await requireAuthConnect(req, send)) return true
     const result = await evaluateAlerts()
     send(200, result)
     return true
   }
 
   if (url.pathname.startsWith('/api/fundamentals/')) {
-    if (requireAuthConnect(req, send)) return true
+    if (await requireAuthConnect(req, send)) return true
     const ticker = decodeURIComponent(url.pathname.replace('/api/fundamentals/', '')).toUpperCase()
     if (!ticker || !/^[A-Z0-9]{1,6}$/.test(ticker)) {
       send(400, { error: 'Invalid ticker' })
@@ -1122,7 +1122,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/filings/buys') {
-    if (requireAuthConnect(req, send)) return true
+    if (await requireAuthConnect(req, send)) return true
     const window = url.searchParams.get('window') === 'today' ? 'today' : 'week'
     try {
       send(200, await getLargestDisclosedBuys(window))
@@ -1140,7 +1140,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname.startsWith('/api/filings/')) {
-    if (requireAuthConnect(req, send)) return true
+    if (await requireAuthConnect(req, send)) return true
     const ticker = decodeURIComponent(url.pathname.replace('/api/filings/', '')).toUpperCase()
     if (!ticker || !/^[A-Z0-9]{1,6}$/.test(ticker)) {
       send(400, { error: 'Invalid ticker' })
@@ -1163,7 +1163,7 @@ export async function handleConnectApi(req, res, send) {
 
   // --- Patterns / watchlists / share / orgs (connect) ---
   if (url.pathname === '/api/patterns/hits' && req.method === 'GET') {
-    if (isProductionMode() && authEnabled() && !getUserFromRequest(req)) {
+    if (isProductionMode() && authEnabled() && !await getUserFromRequest(req)) {
       send(401, { error: 'Unauthorized', authRequired: true })
       return true
     }
@@ -1194,7 +1194,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/patterns/prefs') {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     if (req.method === 'GET') {
       send(200, { prefs: (await getUserPatternPrefs(user)) || null })
@@ -1211,7 +1211,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/watchlists') {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     if (req.method === 'GET') {
       send(200, { watchlists: await listWatchlists(user) })
@@ -1232,7 +1232,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname.startsWith('/api/watchlists/')) {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     const id = decodeURIComponent(url.pathname.replace('/api/watchlists/', ''))
     if (req.method === 'PATCH') {
@@ -1259,7 +1259,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/share-links' && req.method === 'POST') {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     const body = await readJsonBody(req)
     const id = await createShareLink(user, body?.payload ?? body)
@@ -1268,7 +1268,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname.startsWith('/api/share-links/') && req.method === 'GET') {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     const id = decodeURIComponent(url.pathname.replace('/api/share-links/', ''))
     const link = await getShareLink(id)
@@ -1281,14 +1281,14 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/entitlement' && req.method === 'GET') {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     send(200, await getDeskEntitlement(user))
     return true
   }
 
   if (url.pathname === '/api/billing/individual/checkout' && req.method === 'POST') {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     const body = await readJsonBody(req).catch(() => ({}))
     const result = await createIndividualCheckoutSession({
@@ -1325,7 +1325,7 @@ export async function handleConnectApi(req, res, send) {
 
   const inviteJoin = url.pathname.match(/^\/api\/orgs\/invite\/([^/]+)\/(?:join|checkout)$/)
   if (inviteJoin && req.method === 'POST') {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     const token = decodeURIComponent(inviteJoin[1])
     const preview = await getInviteByToken(token)
@@ -1347,7 +1347,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/orgs/accept-invite' && req.method === 'POST') {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     const body = await readJsonBody(req)
     try {
@@ -1360,7 +1360,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/orgs') {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     if (req.method === 'GET') {
       send(200, { orgs: await listOrgsForUser(user) })
@@ -1382,7 +1382,7 @@ export async function handleConnectApi(req, res, send) {
 
   const orgInvitesCsv = url.pathname.match(/^\/api\/orgs\/([^/]+)\/invites\/csv$/)
   if (orgInvitesCsv && req.method === 'POST') {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     const orgId = decodeURIComponent(orgInvitesCsv[1])
     const member = await getMember(orgId, user)
@@ -1416,7 +1416,7 @@ export async function handleConnectApi(req, res, send) {
 
   const orgInvitesRevoke = url.pathname.match(/^\/api\/orgs\/([^/]+)\/invites\/revoke$/)
   if (orgInvitesRevoke && req.method === 'POST') {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     const orgId = decodeURIComponent(orgInvitesRevoke[1])
     const member = await getMember(orgId, user)
@@ -1436,7 +1436,7 @@ export async function handleConnectApi(req, res, send) {
 
   const orgMemberRemove = url.pathname.match(/^\/api\/orgs\/([^/]+)\/members\/remove$/)
   if (orgMemberRemove && (req.method === 'POST' || req.method === 'DELETE')) {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     const orgId = decodeURIComponent(orgMemberRemove[1])
     const member = await getMember(orgId, user)
@@ -1460,7 +1460,7 @@ export async function handleConnectApi(req, res, send) {
 
   const orgMemberRole = url.pathname.match(/^\/api\/orgs\/([^/]+)\/members\/role$/)
   if (orgMemberRole && req.method === 'PATCH') {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     const orgId = decodeURIComponent(orgMemberRole[1])
     const member = await getMember(orgId, user)
@@ -1480,7 +1480,7 @@ export async function handleConnectApi(req, res, send) {
 
   const orgCheckoutAbandon = url.pathname.match(/^\/api\/orgs\/([^/]+)\/checkout\/abandon$/)
   if (orgCheckoutAbandon && req.method === 'POST') {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     const orgId = decodeURIComponent(orgCheckoutAbandon[1])
     const member = await getMember(orgId, user)
@@ -1498,7 +1498,7 @@ export async function handleConnectApi(req, res, send) {
   }
 
   if (url.pathname === '/api/orgs/checkout/abandon' && req.method === 'POST') {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     const orgs = await listOrgsForUser(user)
     const results = []
@@ -1514,7 +1514,7 @@ export async function handleConnectApi(req, res, send) {
     /^\/api\/orgs\/([^/]+)(?:\/(invites|checkout|billing-portal|cancel-subscription|branding|publications))?$/,
   )
   if (orgPath) {
-    const user = requireUserOrSend(req, send)
+    const user = await requireUserOrSend(req, send)
     if (!user) return true
     const orgId = decodeURIComponent(orgPath[1])
     const sub = orgPath[2] || null
@@ -1731,7 +1731,7 @@ export function mountExpressApi(app) {
     if (!authEnabled()) {
       return res.json({ user: null, authRequired: false })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return res.json({ user: null, authRequired: true })
     const canReceiveAlertEmail = isEmailLogin(user)
     const alertEmailOptIn = canReceiveAlertEmail ? await getAlertEmailOptIn(user) : false
@@ -1756,7 +1756,7 @@ export function mountExpressApi(app) {
     if (!authEnabled()) {
       return res.status(400).json({ error: 'Auth is not configured on this server' })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     if (!isEmailLogin(user)) {
       return res.status(400).json({
@@ -1785,7 +1785,7 @@ export function mountExpressApi(app) {
     if (!authEnabled()) {
       return res.status(400).json({ error: 'Auth is not configured on this server' })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     return res.json({
       marketNoteOptIn: await getMarketNoteOptIn(user),
@@ -1797,7 +1797,7 @@ export function mountExpressApi(app) {
     if (!authEnabled()) {
       return res.status(400).json({ error: 'Auth is not configured on this server' })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     if (!isEmailLogin(user)) {
       return res.status(400).json({
@@ -1812,7 +1812,7 @@ export function mountExpressApi(app) {
     if (!authEnabled()) {
       return res.status(400).json({ error: 'Auth is not configured on this server' })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     return res.json({
       patternAlertIds: await getPatternAlertIds(user),
@@ -1825,7 +1825,7 @@ export function mountExpressApi(app) {
     if (!authEnabled()) {
       return res.status(400).json({ error: 'Auth is not configured on this server' })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     const rawCombos = req.body?.combos ?? req.body?.patternComboAlerts
     if (Array.isArray(rawCombos)) {
@@ -1877,7 +1877,7 @@ export function mountExpressApi(app) {
     const { verifyRegistration } = await import('./registration.mjs')
     const result = await verifyRegistration(req.body || {})
     if (!result.ok) return res.status(result.status || 400).json({ error: result.error })
-    const token = createSessionToken(result.user)
+    const token = await issueSessionToken(result.user)
     res.setHeader('Set-Cookie', sessionSetCookieHeader(token))
     return res.json({ ok: true, user: result.user, displayName: result.displayName })
   })
@@ -1912,12 +1912,13 @@ export function mountExpressApi(app) {
       })
       return res.status(401).json({ error: 'Invalid username or password' })
     }
-    const token = createSessionToken(user)
+    const token = await issueSessionToken(user)
     res.setHeader('Set-Cookie', sessionSetCookieHeader(token))
     return res.json({ user })
   })
 
-  app.post('/api/auth/logout', (_req, res) => {
+  app.post('/api/auth/logout', async (req, res) => {
+    await invalidateRequestSession(req)
     res.setHeader('Set-Cookie', sessionClearCookieHeader())
     return res.json({ ok: true })
   })
@@ -1946,7 +1947,7 @@ export function mountExpressApi(app) {
     if (!authEnabled()) {
       return res.status(400).json({ error: 'Auth is not configured on this server' })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     const { getDbUserProfile } = await import('./userStore.mjs')
     const profile = await getDbUserProfile(user)
@@ -1962,7 +1963,7 @@ export function mountExpressApi(app) {
     if (!authEnabled()) {
       return res.status(400).json({ error: 'Auth is not configured on this server' })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     const { updateDbDisplayName, updateDbUsername, getDbUserProfile } = await import(
       './userStore.mjs'
@@ -1981,7 +1982,7 @@ export function mountExpressApi(app) {
       current = r.user
     }
     const profile = await getDbUserProfile(current)
-    const token = createSessionToken(current)
+    const token = await issueSessionToken(current)
     res.setHeader('Set-Cookie', sessionSetCookieHeader(token))
     return res.json({
       ok: true,
@@ -1996,11 +1997,13 @@ export function mountExpressApi(app) {
     if (!authEnabled()) {
       return res.status(400).json({ error: 'Auth is not configured on this server' })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     if (!user) return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     const { changeDbPassword } = await import('./userStore.mjs')
     const result = await changeDbPassword(user, req.body?.currentPassword, req.body?.newPassword)
     if (!result.ok) return res.status(400).json({ error: result.error })
+    const token = await issueSessionToken(user)
+    res.setHeader('Set-Cookie', sessionSetCookieHeader(token))
     return res.json({ ok: true, message: 'Password updated' })
   })
 
@@ -2031,7 +2034,7 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/series/:ticker', async (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
+    if (authEnabled() && !await getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     const started = Date.now()
@@ -2099,7 +2102,7 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/index-analysis', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     try {
       const body = await buildIndexAnalysis()
@@ -2370,7 +2373,7 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/breadth/daily', async (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
+    if (authEnabled() && !await getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     const universe = typeof req.query.universe === 'string' ? req.query.universe : 'asx200'
@@ -2393,7 +2396,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/breadth/daily', async (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
+    if (authEnabled() && !await getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     try {
@@ -2410,21 +2413,21 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/alerts/rules', async (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
+    if (authEnabled() && !await getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     return res.json({ rules: await listAlertRules() })
   })
 
   app.post('/api/alerts/rules', async (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
+    if (authEnabled() && !await getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     return res.status(201).json({ rule: await createAlertRule(req.body || {}) })
   })
 
   app.delete('/api/alerts/rules/:id', async (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
+    if (authEnabled() && !await getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     await deleteAlertRule(Number(req.params.id))
@@ -2432,7 +2435,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/pattern-scan/batch', async (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
+    if (authEnabled() && !await getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     const upserted = await upsertPatternScanBatch(req.body?.rows)
@@ -2441,7 +2444,7 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/pattern-scan/state', async (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
+    if (authEnabled() && !await getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     const ticker = String(req.query.ticker || '')
@@ -2472,15 +2475,15 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/alerts/events', async (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
+    if (authEnabled() && !await getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
-    const user = getUserFromRequest(req)
+    const user = await getUserFromRequest(req)
     return res.json({ events: await listAlertEvents(50, user) })
   })
 
   app.post('/api/alerts/evaluate', async (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
+    if (authEnabled() && !await getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     const result = await evaluateAlerts()
@@ -2488,7 +2491,7 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/fundamentals/:ticker', async (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
+    if (authEnabled() && !await getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     const ticker = decodeURIComponent(req.params.ticker).toUpperCase()
@@ -2501,7 +2504,7 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/filings/buys', async (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
+    if (authEnabled() && !await getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     const window = req.query.window === 'today' ? 'today' : 'week'
@@ -2520,7 +2523,7 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/filings/:ticker', async (req, res) => {
-    if (authEnabled() && !getUserFromRequest(req)) {
+    if (authEnabled() && !await getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     const ticker = decodeURIComponent(req.params.ticker).toUpperCase()
@@ -2544,7 +2547,7 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/patterns/hits', async (req, res) => {
-    if (isProductionMode() && authEnabled() && !getUserFromRequest(req)) {
+    if (isProductionMode() && authEnabled() && !await getUserFromRequest(req)) {
       return res.status(401).json({ error: 'Unauthorized', authRequired: true })
     }
     const asOf = typeof req.query.as_of === 'string' ? req.query.as_of : 'latest'
@@ -2569,26 +2572,26 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/patterns/prefs', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     return res.json({ prefs: (await getUserPatternPrefs(user)) || null })
   })
 
   app.put('/api/patterns/prefs', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const prefs = await saveUserPatternPrefs(user, req.body?.prefs ?? req.body)
     return res.json({ ok: true, prefs })
   })
 
   app.get('/api/watchlists', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     return res.json({ watchlists: await listWatchlists(user) })
   })
 
   app.post('/api/watchlists', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     try {
       const wl = await createWatchlist(user, req.body?.name, req.body?.tickers)
@@ -2599,7 +2602,7 @@ export function mountExpressApi(app) {
   })
 
   app.patch('/api/watchlists/:id', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const wl = await updateWatchlist(req.params.id, user, req.body || {})
     if (!wl) return res.status(404).json({ error: 'Watchlist not found' })
@@ -2607,7 +2610,7 @@ export function mountExpressApi(app) {
   })
 
   app.delete('/api/watchlists/:id', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const ok = await deleteWatchlist(req.params.id, user)
     if (!ok) return res.status(404).json({ error: 'Watchlist not found' })
@@ -2615,14 +2618,14 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/share-links', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const id = await createShareLink(user, req.body?.payload ?? req.body)
     return res.status(201).json({ id })
   })
 
   app.get('/api/share-links/:id', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const link = await getShareLink(req.params.id)
     if (!link) return res.status(404).json({ error: 'Share link not found' })
@@ -2630,13 +2633,13 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/entitlement', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     return res.json(await getDeskEntitlement(user))
   })
 
   app.post('/api/billing/individual/checkout', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const result = await createIndividualCheckoutSession({
       username: user,
@@ -2649,13 +2652,13 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/orgs', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     return res.json({ orgs: await listOrgsForUser(user) })
   })
 
   app.post('/api/orgs', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     try {
       const org = await createOrg(req.body?.name, user)
@@ -2678,7 +2681,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/orgs/invite/:token/join', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const token = String(req.params.token || '')
     const preview = await getInviteByToken(token)
@@ -2696,7 +2699,7 @@ export function mountExpressApi(app) {
 
   // Legacy path — same as join (org seat only; no individual Checkout).
   app.post('/api/orgs/invite/:token/checkout', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const token = String(req.params.token || '')
     const preview = await getInviteByToken(token)
@@ -2713,7 +2716,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/orgs/accept-invite', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     try {
       const result = await acceptInvite(req.body?.token, user)
@@ -2724,7 +2727,7 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/orgs/:id', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const org = await getOrg(req.params.id)
     if (!org) return res.status(404).json({ error: 'Org not found' })
@@ -2738,7 +2741,7 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/orgs/:id/invites', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member || !['owner', 'admin'].includes(member.role)) {
@@ -2748,7 +2751,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/orgs/:id/invites', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member || !['owner', 'admin'].includes(member.role)) {
@@ -2772,7 +2775,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/orgs/:id/invites/csv', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member || !['owner', 'admin'].includes(member.role)) {
@@ -2801,7 +2804,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/orgs/:id/invites/revoke', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member || !['owner', 'admin'].includes(member.role)) {
@@ -2813,7 +2816,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/orgs/:id/members/remove', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member || !['owner', 'admin'].includes(member.role)) {
@@ -2828,7 +2831,7 @@ export function mountExpressApi(app) {
   })
 
   app.delete('/api/orgs/:id/members/remove', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member || !['owner', 'admin'].includes(member.role)) {
@@ -2843,7 +2846,7 @@ export function mountExpressApi(app) {
   })
 
   app.patch('/api/orgs/:id/members/role', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member || !['owner', 'admin'].includes(member.role)) {
@@ -2858,7 +2861,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/orgs/checkout/abandon', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const orgs = await listOrgsForUser(user)
     const results = []
@@ -2870,7 +2873,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/orgs/:id/checkout', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member || !['owner', 'admin'].includes(member.role)) {
@@ -2889,7 +2892,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/orgs/:id/checkout/abandon', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member || !['owner', 'admin'].includes(member.role)) {
@@ -2901,7 +2904,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/orgs/:id/billing-portal', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member || !['owner', 'admin'].includes(member.role)) {
@@ -2916,7 +2919,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/orgs/:id/cancel-subscription', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member || !['owner', 'admin'].includes(member.role)) {
@@ -2931,7 +2934,7 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/orgs/:id/branding', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member) return res.status(403).json({ error: 'Org membership required' })
@@ -2939,7 +2942,7 @@ export function mountExpressApi(app) {
   })
 
   app.put('/api/orgs/:id/branding', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member || !['owner', 'admin'].includes(member.role)) {
@@ -2950,7 +2953,7 @@ export function mountExpressApi(app) {
   })
 
   app.get('/api/orgs/:id/publications', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member) return res.status(403).json({ error: 'Org membership required' })
@@ -2960,7 +2963,7 @@ export function mountExpressApi(app) {
   })
 
   app.post('/api/orgs/:id/publications', async (req, res) => {
-    const user = requireUserExpress(req, res)
+    const user = await requireUserExpress(req, res)
     if (!user) return
     const member = await getMember(req.params.id, user)
     if (!member || !['owner', 'admin', 'trainer'].includes(member.role)) {

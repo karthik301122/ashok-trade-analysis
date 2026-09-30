@@ -2,9 +2,10 @@ import { APP_NAME, APP_TAGLINE } from '../lib/brand'
 
 type Props = {
   onSignIn: () => void
+  onCreateAccount: () => void
 }
 
-export function MarketingLanding({ onSignIn }: Props) {
+export function MarketingLanding({ onSignIn, onCreateAccount }: Props) {
   return (
     <div className="min-h-screen bg-[radial-gradient(1200px_600px_at_10%_-10%,#ccfbf1_0%,transparent_55%),radial-gradient(900px_500px_at_90%_0%,#e0f2fe_0%,transparent_50%),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-900">
       <header className="mx-auto flex max-w-5xl items-center justify-between px-4 py-5">
@@ -17,13 +18,22 @@ export function MarketingLanding({ onSignIn }: Props) {
             </div>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onSignIn}
-          className="rounded-lg bg-teal-700 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-teal-800"
-        >
-          Sign in
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onCreateAccount}
+            className="rounded-lg border border-slate-300 bg-white/80 px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-white"
+          >
+            Create account
+          </button>
+          <button
+            type="button"
+            onClick={onSignIn}
+            className="rounded-lg bg-teal-700 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-teal-800"
+          >
+            Sign in
+          </button>
+        </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-4 pb-16 pt-8 sm:pt-14">
@@ -40,10 +50,17 @@ export function MarketingLanding({ onSignIn }: Props) {
         <div className="mt-8 flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={onSignIn}
+            onClick={onCreateAccount}
             className="rounded-lg bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-teal-800"
           >
-            Open the desk
+            Create free account
+          </button>
+          <button
+            type="button"
+            onClick={onSignIn}
+            className="rounded-lg border border-slate-300 bg-white/70 px-5 py-2.5 text-sm font-semibold text-slate-800 hover:bg-white"
+          >
+            Sign in
           </button>
           <a
             href="/how"

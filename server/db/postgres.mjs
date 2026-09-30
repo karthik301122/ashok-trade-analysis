@@ -62,6 +62,13 @@ export async function createPostgresBackend(connectionString) {
         updated_at BIGINT NOT NULL
       )
     `)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS auth_sessions (
+        username TEXT PRIMARY KEY,
+        session_version INTEGER NOT NULL DEFAULT 0,
+        updated_at BIGINT NOT NULL
+      )
+    `)
   }
 
   async function sqlOne(sql, params = []) {

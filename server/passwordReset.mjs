@@ -119,5 +119,11 @@ export async function completePasswordReset(body) {
   const username = normalizeUsername(row.username)
   const result = await setDbPassword(username, password)
   if (!result.ok) return { ok: false, status: 400, error: result.error }
+  try {
+    const { bumpSessionVersion } = await import('./auth.mjs')
+    await bumpSessionVersion(username)
+  } catch {
+    /* best-effort — password is already updated */
+  }
   return { ok: true, message: 'Password updated. You can sign in now.' }
 }

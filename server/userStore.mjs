@@ -147,6 +147,8 @@ export async function updateDbUsername(currentUsername, newUsername) {
   await sqlRun('DELETE FROM user_prefs WHERE username = ?', [to])
   await sqlRun('UPDATE user_prefs SET username = ? WHERE username = ?', [to, from])
   await sqlRun('DELETE FROM password_reset_tokens WHERE username = ? OR username = ?', [from, to])
+  await sqlRun('DELETE FROM auth_sessions WHERE username = ?', [to])
+  await sqlRun('UPDATE auth_sessions SET username = ? WHERE username = ?', [to, from])
 
   return { ok: true, user: to }
 }

@@ -27,10 +27,10 @@ describe('complimentary full desk', () => {
     expect(isComplimentaryFullDesk('random@example.com')).toBe(false)
   })
 
-  it('launch promo is active through end of September 2026', () => {
+  it('launch promo is active through end of October 2026', () => {
     expect(isLaunchPromoFullDeskActive(new Date('2026-09-15T12:00:00+10:00'))).toBe(true)
-    expect(isLaunchPromoFullDeskActive(new Date('2026-09-30T23:59:59+10:00'))).toBe(true)
-    expect(isLaunchPromoFullDeskActive(new Date('2026-10-01T00:00:00+10:00'))).toBe(false)
+    expect(isLaunchPromoFullDeskActive(new Date('2026-10-31T23:59:59+11:00'))).toBe(true)
+    expect(isLaunchPromoFullDeskActive(new Date('2026-11-01T00:00:00+11:00'))).toBe(false)
   })
 
   it('getDeskEntitlement grants full access to any signed-in user during promo', async () => {
