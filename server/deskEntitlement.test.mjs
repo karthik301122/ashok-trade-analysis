@@ -34,6 +34,8 @@ describe('complimentary full desk', () => {
   })
 
   it('getDeskEntitlement grants full access to any signed-in user during promo', async () => {
+    // Pin promo end so this assertion does not depend on wall-clock after Oct 2026.
+    process.env.FULL_DESK_PROMO_UNTIL = '2099-12-31T23:59:59+11:00'
     const ent = await getDeskEntitlement('anyone@example.com')
     expect(ent.fullDeskAccess).toBe(true)
     expect(ent.launchPromo).toBe(true)
