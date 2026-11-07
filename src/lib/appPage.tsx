@@ -4,6 +4,7 @@ export type AppPage =
   | 'sector'
   | 'breadth'
   | 'index-analysis'
+  | 'paper'
   | 'alerts'
   | 'special-patterns'
   | 'create-pattern'

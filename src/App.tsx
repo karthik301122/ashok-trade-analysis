@@ -7,6 +7,7 @@ import { AuthPage } from './components/AuthPage'
 import { ProfilePage } from './components/ProfilePage'
 import { OrgPage } from './components/OrgPage'
 import { IndexAnalysisPanel } from './components/IndexAnalysisPanel'
+import { PaperTradingPanel } from './components/PaperTradingPanel'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
 import { clearPerfCache, clearOhlcSessionCache } from './lib/deskSeries'
 import { fetchDeskServerConfig, type DeskServerConfig } from './lib/deskConfig'
@@ -1014,6 +1015,10 @@ export default function App() {
         ) : page === 'index-analysis' ? (
           <PanelErrorBoundary title="Index Analysis failed to load">
             <IndexAnalysisPanel visible />
+          </PanelErrorBoundary>
+        ) : page === 'paper' && user ? (
+          <PanelErrorBoundary title="Paper trade failed to load">
+            <PaperTradingPanel />
           </PanelErrorBoundary>
         ) : loading && !snapshot ? (
           <div className="mx-auto mt-16 max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-sm">

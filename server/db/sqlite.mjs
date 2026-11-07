@@ -261,6 +261,30 @@ function openSqlite() {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_trainer_pub_org ON trainer_publications (org_id, cohort);
+    CREATE TABLE IF NOT EXISTS paper_accounts (
+      username TEXT PRIMARY KEY,
+      cash REAL NOT NULL,
+      starting_cash REAL NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS paper_positions (
+      username TEXT NOT NULL,
+      ticker TEXT NOT NULL,
+      qty REAL NOT NULL,
+      avg_cost REAL NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (username, ticker)
+    );
+    CREATE TABLE IF NOT EXISTS paper_trades (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      ticker TEXT NOT NULL,
+      side TEXT NOT NULL,
+      qty REAL NOT NULL,
+      price REAL NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_paper_trades_user ON paper_trades (username, created_at DESC);
   `)
   migrateBreadthDailyColumns(db)
   migrateUserPrefsColumns(db)

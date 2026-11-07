@@ -64,6 +64,12 @@ import {
   updateWatchlist,
   deleteWatchlist,
 } from './watchlistStore.mjs'
+import {
+  getOrCreatePortfolio,
+  placeMarketOrder,
+  listTrades,
+  resetPortfolio,
+} from './paperPortfolioStore.mjs'
 import { createShareLink, getShareLink } from './shareLinkStore.mjs'
 import {
   createOrg,
@@ -1284,6 +1290,41 @@ export async function handleConnectApi(req, res, send) {
     const user = await requireUserOrSend(req, send)
     if (!user) return true
     send(200, await getDeskEntitlement(user))
+    return true
+  }
+
+  if (url.pathname === '/api/paper/portfolio' && req.method === 'GET') {
+    const user = await requireUserOrSend(req, send)
+    if (!user) return true
+    send(200, { portfolio: await getOrCreatePortfolio(user) })
+    return true
+  }
+
+  if (url.pathname === '/api/paper/orders' && req.method === 'POST') {
+    const user = await requireUserOrSend(req, send)
+    if (!user) return true
+    const body = await readJsonBody(req).catch(() => ({}))
+    const result = await placeMarketOrder(user, body || {})
+    if (!result.ok) {
+      send(result.status || 400, { error: result.error })
+      return true
+    }
+    send(200, result)
+    return true
+  }
+
+  if (url.pathname === '/api/paper/trades' && req.method === 'GET') {
+    const user = await requireUserOrSend(req, send)
+    if (!user) return true
+    const limit = Number(url.searchParams.get('limit')) || 50
+    send(200, { trades: await listTrades(user, { limit }) })
+    return true
+  }
+
+  if (url.pathname === '/api/paper/reset' && req.method === 'POST') {
+    const user = await requireUserOrSend(req, send)
+    if (!user) return true
+    send(200, { ok: true, portfolio: await resetPortfolio(user) })
     return true
   }
 
@@ -2636,6 +2677,33 @@ export function mountExpressApi(app) {
     const user = await requireUserExpress(req, res)
     if (!user) return
     return res.json(await getDeskEntitlement(user))
+  })
+
+  app.get('/api/paper/portfolio', async (req, res) => {
+    const user = await requireUserExpress(req, res)
+    if (!user) return
+    return res.json({ portfolio: await getOrCreatePortfolio(user) })
+  })
+
+  app.post('/api/paper/orders', async (req, res) => {
+    const user = await requireUserExpress(req, res)
+    if (!user) return
+    const result = await placeMarketOrder(user, req.body || {})
+    if (!result.ok) return res.status(result.status || 400).json({ error: result.error })
+    return res.json(result)
+  })
+
+  app.get('/api/paper/trades', async (req, res) => {
+    const user = await requireUserExpress(req, res)
+    if (!user) return
+    const limit = Number(req.query?.limit) || 50
+    return res.json({ trades: await listTrades(user, { limit }) })
+  })
+
+  app.post('/api/paper/reset', async (req, res) => {
+    const user = await requireUserExpress(req, res)
+    if (!user) return
+    return res.json({ ok: true, portfolio: await resetPortfolio(user) })
   })
 
   app.post('/api/billing/individual/checkout', async (req, res) => {

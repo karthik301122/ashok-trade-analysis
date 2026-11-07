@@ -257,3 +257,30 @@ CREATE TABLE IF NOT EXISTS trainer_publications (
   updated_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_trainer_pub_org ON trainer_publications (org_id, cohort);
+
+CREATE TABLE IF NOT EXISTS paper_accounts (
+  username TEXT PRIMARY KEY,
+  cash DOUBLE PRECISION NOT NULL,
+  starting_cash DOUBLE PRECISION NOT NULL,
+  updated_at BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS paper_positions (
+  username TEXT NOT NULL,
+  ticker TEXT NOT NULL,
+  qty DOUBLE PRECISION NOT NULL,
+  avg_cost DOUBLE PRECISION NOT NULL,
+  updated_at BIGINT NOT NULL,
+  PRIMARY KEY (username, ticker)
+);
+
+CREATE TABLE IF NOT EXISTS paper_trades (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL,
+  ticker TEXT NOT NULL,
+  side TEXT NOT NULL,
+  qty DOUBLE PRECISION NOT NULL,
+  price DOUBLE PRECISION NOT NULL,
+  created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_paper_trades_user ON paper_trades (username, created_at DESC);
