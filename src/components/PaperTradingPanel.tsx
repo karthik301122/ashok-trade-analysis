@@ -5,6 +5,7 @@ import { PaperDayReplay } from './learn/PaperDayReplay'
 import { PaperRiskSizer } from './learn/PaperRiskSizer'
 import { PaperPatternDrill } from './learn/PaperPatternDrill'
 import { PaperWhatIf } from './learn/PaperWhatIf'
+import { PaperLearnGuide } from './learn/PaperLearnGuide'
 
 type Position = {
   ticker: string
@@ -36,7 +37,7 @@ type Trade = {
   createdAt: number
 }
 
-type LearnTab = 'portfolio' | 'replay' | 'risk' | 'drill' | 'whatif'
+type LearnTab = 'guide' | 'portfolio' | 'replay' | 'risk' | 'drill' | 'whatif'
 
 function pnlClass(n: number) {
   if (n > 0) return 'text-emerald-700 dark:text-emerald-300'
@@ -154,8 +155,9 @@ export function PaperTradingPanel() {
   }
 
   const tabs: { id: LearnTab; label: string }[] = [
+    { id: 'guide', label: 'Guide' },
     { id: 'portfolio', label: 'Portfolio' },
-    { id: 'replay', label: 'Day replay' },
+    { id: 'replay', label: 'Session replay' },
     { id: 'risk', label: 'Risk sizing' },
     { id: 'drill', label: 'Pattern drill' },
     { id: 'whatif', label: 'What-if' },
@@ -208,6 +210,7 @@ export function PaperTradingPanel() {
         </div>
       )}
 
+      {tab === 'guide' && <PaperLearnGuide />}
       {tab === 'replay' && <PaperDayReplay onPortfolioChange={() => void refresh()} />}
       {tab === 'risk' && <PaperRiskSizer onPortfolioChange={() => void refresh()} />}
       {tab === 'drill' && <PaperPatternDrill onPortfolioChange={() => void refresh()} />}

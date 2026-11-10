@@ -82,6 +82,8 @@ export function Header({
   const navItems = NAV.filter((item) => {
     if (!fullDeskAccess && item.requiresFullDesk) return false
     if (item.id === 'org' && !stripeConfigured) return false
+    // Learn needs a signed-in session when auth is enabled.
+    if (item.id === 'paper' && authRequired && !user) return false
     return true
   })
 

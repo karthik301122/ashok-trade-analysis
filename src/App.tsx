@@ -1023,6 +1023,38 @@ export default function App() {
           <PanelErrorBoundary title="Paper trade failed to load">
             <PaperTradingPanel />
           </PanelErrorBoundary>
+        ) : page === 'paper' && !user ? (
+          <div className="mx-auto mt-16 max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-sm">
+            <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold">
+              Sign in to use Learn
+            </h2>
+            <p className="mt-2 text-sm text-[var(--color-ink-soft)]">
+              Paper mode and the Learn simulators need a signed-in account so your practice
+              portfolio can be saved.
+            </p>
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+              {authRequired ? (
+                <button
+                  type="button"
+                  onClick={() => setAuthScreen('signin')}
+                  className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+                >
+                  Sign in
+                </button>
+              ) : (
+                <p className="text-xs text-[var(--color-ink-soft)]">
+                  Auth is disabled on this environment — enable auth or sign in to use Learn.
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => navigate('sector')}
+                className="rounded-lg border border-[var(--color-border)] px-4 py-2 text-sm font-semibold"
+              >
+                Back to Markets
+              </button>
+            </div>
+          </div>
         ) : loading && !snapshot ? (
           <div className="mx-auto mt-16 max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-sm">
             <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-teal-200 border-t-teal-600" />

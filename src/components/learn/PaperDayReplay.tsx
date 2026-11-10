@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchDeskOhlc } from '../../lib/deskSeries'
-import type { OhlcBar } from '../../lib/patterns'
+import { useEffect, useRef, useState } from 'react'
+import { fetchDeskIntraday, fetchDeskOhlc, type OhlcBar } from '../../lib/deskSeries'
 import { formatAud, placePaperOrder } from '../../lib/paperApi'
 import { useTradingMode } from '../../lib/tradingMode'
 
@@ -8,9 +7,109 @@ type Props = {
   onPortfolioChange?: () => void
 }
 
+type ReplayInterval = '5m' | '15m' | '1h'
+type ReplayMode = 'intraday' | 'daily'
+
+function lastWeekdayIso(now = new Date()): string {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) {
+    d.setUTCDate(d.getUTCDate() - 1)
+  }
+  // If "today" UTC is still weekend-adjusted; prefer previous weekday when early
+  if (d.getTime() > Date.now()) {
+    d.setUTCDate(d.getUTCDate() - 1)
+    while (d.getUTCDay() === 0 || d.getUTCDay() === 6) {
+      d.setUTCDate(d.getUTCDate() - 1)
+    }
+  }
+  return d.toISOString().slice(0, 10)
+}
+
+/** Wide UTC window covering an ASX calendar session (AEST/AEDT). */
+function sessionFetchRange(dateIso: string): { fromTs: number; toTs: number } {
+  const dayStartUtc = Math.floor(new Date(`${dateIso}T00:00:00Z`).getTime() / 1000)
+  return {
+    fromTs: dayStartUtc - 14 * 3600,
+    toTs: dayStartUtc + 14 * 3600,
+  }
+}
+
+function sydneyDateIso(tsSec: number): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Australia/Sydney',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(tsSec * 1000))
+}
+
+function formatSessionClock(tsSec: number): string {
+  return new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'Australia/Sydney',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(tsSec * 1000))
+}
+
+function CandleStrip({ bars, cursor }: { bars: OhlcBar[]; cursor: number }) {
+  const visible = bars.slice(0, cursor + 1)
+  const windowBars = visible.slice(-48)
+  if (!windowBars.length) return null
+  let min = Infinity
+  let max = -Infinity
+  for (const b of windowBars) {
+    min = Math.min(min, Number(b.l), Number(b.c), Number(b.o))
+    max = Math.max(max, Number(b.h), Number(b.c), Number(b.o))
+  }
+  const span = Math.max(max - min, 1e-6)
+  const h = 72
+
+  return (
+    <div className="mt-3 flex h-[72px] items-end gap-px">
+      {windowBars.map((b, i) => {
+        const o = Number(b.o)
+        const c = Number(b.c)
+        const hi = Number(b.h)
+        const lo = Number(b.l)
+        const up = c >= o
+        const bodyTop = ((Math.max(o, c) - min) / span) * h
+        const bodyBot = ((Math.min(o, c) - min) / span) * h
+        const wickTop = ((hi - min) / span) * h
+        const wickBot = ((lo - min) / span) * h
+        const isLast = i === windowBars.length - 1
+        return (
+          <div key={`${b.t}-${i}`} className="relative flex-1" style={{ height: h }}>
+            <div
+              className={`absolute left-1/2 w-px -translate-x-1/2 ${
+                up ? 'bg-emerald-600/70' : 'bg-rose-600/70'
+              } ${isLast ? 'opacity-100' : 'opacity-80'}`}
+              style={{ bottom: wickBot, height: Math.max(2, wickTop - wickBot) }}
+            />
+            <div
+              className={`absolute left-0 right-0 rounded-[1px] ${
+                up ? 'bg-emerald-600' : 'bg-rose-600'
+              } ${isLast ? 'ring-1 ring-amber-400' : ''}`}
+              style={{
+                bottom: bodyBot,
+                height: Math.max(2, bodyTop - bodyBot),
+              }}
+            />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export function PaperDayReplay({ onPortfolioChange }: Props) {
   const { setPaperToast, refreshPaperSummary, setMode } = useTradingMode()
   const [ticker, setTicker] = useState('BHP')
+  const [sessionDate, setSessionDate] = useState(() => lastWeekdayIso())
+  const [interval, setIntervalPref] = useState<ReplayInterval>('5m')
+  const [mode, setReplayMode] = useState<ReplayMode>('intraday')
   const [bars, setBars] = useState<OhlcBar[]>([])
   const [cursor, setCursor] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -21,21 +120,44 @@ export function PaperDayReplay({ onPortfolioChange }: Props) {
   const [ack, setAck] = useState(false)
   const timer = useRef<number | null>(null)
 
-  const load = async () => {
+  const loadIntraday = async () => {
+    setLoading(true)
+    setError(null)
+    setPlaying(false)
+    const { fromTs, toTs } = sessionFetchRange(sessionDate)
+    const data = await fetchDeskIntraday(ticker.trim().toUpperCase(), interval, fromTs, toTs)
+    setLoading(false)
+    if (!data?.bars?.length) {
+      setError(
+        `No ${interval} bars for ${ticker.toUpperCase()} on ${sessionDate}. Try another date/interval, or load daily bars.`,
+      )
+      setBars([])
+      setReplayMode('intraday')
+      return
+    }
+    const sessionBars = data.bars.filter((b) => sydneyDateIso(b.t) === sessionDate)
+    const useBars = sessionBars.length >= 5 ? sessionBars : data.bars
+    setBars(useBars)
+    setCursor(0)
+    setReplayMode('intraday')
+  }
+
+  const loadDailyFallback = async () => {
     setLoading(true)
     setError(null)
     setPlaying(false)
     const data = await fetchDeskOhlc(ticker.trim().toUpperCase(), '2024-01-01', { staleOk: true })
     setLoading(false)
     if (!data?.length) {
-      setError('Could not load bars for this ticker')
+      setError('Could not load daily bars for this ticker')
       setBars([])
       return
     }
-    // Start ~60 bars from the end so the replay is a recent stretch.
     const start = Math.max(0, data.length - 60)
     setBars(data.slice(start))
     setCursor(0)
+    setReplayMode('daily')
+    setError(null)
   }
 
   useEffect(() => {
@@ -65,7 +187,6 @@ export function PaperDayReplay({ onPortfolioChange }: Props) {
   }, [playing, bars.length, speedMs])
 
   const bar = bars[cursor] || null
-  const visible = useMemo(() => bars.slice(0, cursor + 1), [bars, cursor])
   const lastClose = bar ? Number(bar.c) : null
 
   const trade = async (side: 'buy' | 'sell') => {
@@ -93,15 +214,15 @@ export function PaperDayReplay({ onPortfolioChange }: Props) {
     onPortfolioChange?.()
   }
 
+  const title = mode === 'daily' ? 'Session replay (daily fallback)' : 'Session replay'
+
   return (
     <div className="space-y-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
       <div>
-        <h3 className="font-[family-name:var(--font-display)] text-base font-semibold">
-          Day replay
-        </h3>
+        <h3 className="font-[family-name:var(--font-display)] text-base font-semibold">{title}</h3>
         <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
-          Play recent daily bars and paper-trade at each bar&apos;s close. Same paper cash as Live Paper
-          mode.
+          Play an ASX session (intraday bars) and paper-trade at each bar&apos;s close. Fills hit the
+          same shared paper cash as Live Paper mode.
         </p>
       </div>
 
@@ -119,13 +240,36 @@ export function PaperDayReplay({ onPortfolioChange }: Props) {
           className="w-28 rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm"
           placeholder="Ticker"
         />
+        <input
+          type="date"
+          value={sessionDate}
+          onChange={(e) => setSessionDate(e.target.value)}
+          className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm"
+        />
+        <select
+          value={interval}
+          onChange={(e) => setIntervalPref(e.target.value as ReplayInterval)}
+          className="rounded-lg border border-[var(--color-border)] px-2 py-2 text-sm"
+        >
+          <option value="5m">5m</option>
+          <option value="15m">15m</option>
+          <option value="1h">1h</option>
+        </select>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => void loadIntraday()}
           disabled={loading}
           className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
         >
-          {loading ? 'Loading…' : 'Load bars'}
+          {loading ? 'Loading…' : 'Load session'}
+        </button>
+        <button
+          type="button"
+          onClick={() => void loadDailyFallback()}
+          disabled={loading}
+          className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-semibold"
+        >
+          Daily fallback
         </button>
         <select
           value={speedMs}
@@ -161,24 +305,17 @@ export function PaperDayReplay({ onPortfolioChange }: Props) {
           <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-muted)]/40 p-3 text-sm">
             <div className="text-xs font-semibold uppercase text-[var(--color-ink-soft)]">Sim clock</div>
             <div className="mt-1 font-semibold">
-              {new Date(bar.t * 1000).toLocaleDateString()} · bar {cursor + 1}/{bars.length}
+              {mode === 'intraday'
+                ? formatSessionClock(bar.t)
+                : new Date(bar.t * 1000).toLocaleDateString()}{' '}
+              · bar {cursor + 1}/{bars.length}
+              {mode === 'intraday' ? ` · ${interval}` : ' · daily'}
             </div>
             <div className="mt-2 tabular-nums">
-              O {bar.o?.toFixed(2)} · H {bar.h?.toFixed(2)} · L {bar.l?.toFixed(2)} ·{' '}
-              <span className="font-semibold">C {Number(bar.c).toFixed(2)}</span>
+              O {Number(bar.o).toFixed(2)} · H {Number(bar.h).toFixed(2)} · L{' '}
+              {Number(bar.l).toFixed(2)} · <span className="font-semibold">C {Number(bar.c).toFixed(2)}</span>
             </div>
-            <div className="mt-3 h-16 flex items-end gap-px">
-              {visible.slice(-40).map((b, i) => {
-                const h = Math.max(4, ((Number(b.c) - Number(visible[0]?.c || b.c)) / (Number(b.c) || 1) + 1) * 24)
-                return (
-                  <div
-                    key={`${b.t}-${i}`}
-                    className="flex-1 rounded-t bg-teal-600/80"
-                    style={{ height: `${Math.min(64, Math.abs(h) + 8)}px` }}
-                  />
-                )
-              })}
-            </div>
+            <CandleStrip bars={bars} cursor={cursor} />
           </div>
           <div className="space-y-2 rounded-xl border border-amber-300/80 bg-amber-50/80 p-3 dark:border-amber-800 dark:bg-amber-950/40">
             <div className="text-xs font-semibold uppercase text-amber-900 dark:text-amber-100">
