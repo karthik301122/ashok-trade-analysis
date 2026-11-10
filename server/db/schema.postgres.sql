@@ -281,6 +281,7 @@ CREATE TABLE IF NOT EXISTS paper_trades (
   side TEXT NOT NULL,
   qty DOUBLE PRECISION NOT NULL,
   price DOUBLE PRECISION NOT NULL,
-  created_at BIGINT NOT NULL
+  created_at BIGINT NOT NULL,
+  source TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_paper_trades_user ON paper_trades (username, created_at DESC);

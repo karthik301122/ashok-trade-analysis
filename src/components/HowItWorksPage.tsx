@@ -39,8 +39,12 @@ export function HowItWorksPage({ onBack, onSignIn }: Props) {
               'Sector heat, rotation, and participation — free for signed-in accounts so you can learn the layout.',
             ],
             [
+              'Paper mode & Learn',
+              'Switch Live / Paper in the header to practice with fake A$100,000 on desk prices. Learn hub adds day replay, risk sizing, pattern drills, and what-if tools — not real brokerage.',
+            ],
+            [
               'Patterns & alerts',
-              'Full pattern desk and email alerts unlock with an individual upgrade or a school seat.',
+              'Full pattern desk and email alerts unlock with an individual upgrade or a school seat. Paper mode does not bypass those gates.',
             ],
             [
               'Schools & cohorts',

@@ -282,7 +282,8 @@ function openSqlite() {
       side TEXT NOT NULL,
       qty REAL NOT NULL,
       price REAL NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      source TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_paper_trades_user ON paper_trades (username, created_at DESC);
   `)
@@ -291,6 +292,7 @@ function openSqlite() {
   migrateUsersColumns(db)
   migrateOrganisationsColumns(db)
   migrateOrgInvitesColumns(db)
+  migratePaperTradesColumns(db)
   dbSingleton = db
   return db
 }
@@ -299,6 +301,17 @@ function migrateUsersColumns(db) {
   const existing = new Set(db.prepare('PRAGMA table_info(users)').all().map((r) => r.name))
   if (!existing.has('display_name')) {
     db.exec('ALTER TABLE users ADD COLUMN display_name TEXT')
+  }
+}
+
+function migratePaperTradesColumns(db) {
+  try {
+    const existing = new Set(db.prepare('PRAGMA table_info(paper_trades)').all().map((r) => r.name))
+    if (!existing.has('source')) {
+      db.exec('ALTER TABLE paper_trades ADD COLUMN source TEXT')
+    }
+  } catch {
+    /* table may not exist yet on very old DBs before create block */
   }
 }
 

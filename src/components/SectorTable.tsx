@@ -27,6 +27,8 @@ import {
   isStarredOverviewHit,
 } from '../lib/overviewPatternHits'
 import { useSharedUnifiedSpecialScans } from './patterns/UnifiedSpecialScansContext'
+import { useTradingModeOptional } from '../lib/tradingMode'
+import { PaperOrderTicket } from './PaperOrderTicket'
 
 type Props = {
   snapshot: MarketSnapshot
@@ -102,6 +104,11 @@ export function SectorTable({ snapshot, livePricesActive = false, active = true 
   const [copiedSectorStars, setCopiedSectorStars] = useState<string | null>(null)
   const [copiedIndustry, setCopiedIndustry] = useState<string | null>(null)
   const [chartStock, setChartStock] = useState<{ ticker: string; name: string } | null>(null)
+  const [paperTradeStock, setPaperTradeStock] = useState<{
+    ticker: string
+    lastPrice?: number
+  } | null>(null)
+  const trading = useTradingModeOptional()
   const [watchlistTickers, setWatchlistTickers] = useState<Set<string>>(() => new Set())
   const { prefs, overviewHitsFor } = usePatternPrefs()
 
@@ -647,6 +654,11 @@ export function SectorTable({ snapshot, livePricesActive = false, active = true 
                 }
                 starsCopied={copiedIndustry === ind.name}
                 onOpenChart={(ticker, name) => setChartStock({ ticker, name })}
+                onPaperTrade={
+                  trading?.isPaper
+                    ? (ticker, lastPrice) => setPaperTradeStock({ ticker, lastPrice })
+                    : undefined
+                }
                 overviewHitsFor={overviewHitsFor}
                 prefs={prefs}
                 indexM3={indexM3}
@@ -679,6 +691,24 @@ export function SectorTable({ snapshot, livePricesActive = false, active = true 
           name={chartStock.name}
           onClose={() => setChartStock(null)}
         />
+      )}
+      {trading?.isPaper && paperTradeStock && (
+        <div className="fixed bottom-4 right-4 z-[90] w-[min(100%-2rem,320px)] shadow-lg">
+          <div className="mb-1 flex justify-end">
+            <button
+              type="button"
+              className="rounded bg-[var(--color-surface)] px-2 py-0.5 text-xs font-semibold text-[var(--color-ink-soft)]"
+              onClick={() => setPaperTradeStock(null)}
+            >
+              Close
+            </button>
+          </div>
+          <PaperOrderTicket
+            ticker={paperTradeStock.ticker}
+            hintPrice={paperTradeStock.lastPrice}
+            onFilled={() => setPaperTradeStock(null)}
+          />
+        </div>
       )}
     </div>
   )
@@ -722,6 +752,7 @@ function IndustryRows({
   onCopyStars,
   starsCopied,
   onOpenChart,
+  onPaperTrade,
   overviewHitsFor,
   prefs,
   indexM3,
@@ -740,6 +771,7 @@ function IndustryRows({
   onCopyStars: () => void
   starsCopied: boolean
   onOpenChart: (ticker: string, name: string) => void
+  onPaperTrade?: (ticker: string, lastPrice?: number) => void
   overviewHitsFor: (
     ticker: string,
     extras?: {
@@ -887,6 +919,19 @@ function IndustryRows({
                 >
                   | {s.ticker}
                 </button>
+                {onPaperTrade && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onPaperTrade(s.ticker, resolveStockPrice(s) ?? undefined)
+                    }}
+                    className="rounded bg-amber-700 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white hover:bg-amber-800"
+                    title={`Paper trade ${s.ticker}`}
+                  >
+                    Trade
+                  </button>
+                )}
               </div>
               <PatternHitChips hits={patternHits} prefs={prefs} />
             </td>

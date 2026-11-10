@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { LogOut, Menu, Moon, Sun, User, X } from 'lucide-react'
 import { APP_NAME, APP_TAGLINE, getBrand } from '../lib/brand'
 import type { AppPage } from '../lib/appPage'
+import { useTradingModeOptional } from '../lib/tradingMode'
+import { formatAud } from '../lib/paperApi'
 
 type Props = {
   dark: boolean
@@ -24,7 +26,7 @@ const NAV: { id: AppPage; label: string; short: string; requiresFullDesk?: boole
   { id: 'sector', label: 'Markets', short: 'Mkt' },
   { id: 'breadth', label: 'Breadth', short: 'Brd' },
   { id: 'index-analysis', label: 'Index Analysis', short: 'Idx' },
-  { id: 'paper', label: 'Paper trade', short: 'Paper' },
+  { id: 'paper', label: 'Learn', short: 'Learn' },
   { id: 'special-patterns', label: 'Patterns', short: 'Pat', requiresFullDesk: true },
   { id: 'create-pattern', label: 'Create pattern', short: 'Create', requiresFullDesk: true },
   { id: 'alerts', label: 'Alerts', short: 'Alert', requiresFullDesk: true },
@@ -76,6 +78,7 @@ export function Header({
     setMenuOpen(false)
   }, [page])
 
+  const trading = useTradingModeOptional()
   const navItems = NAV.filter((item) => {
     if (!fullDeskAccess && item.requiresFullDesk) return false
     if (item.id === 'org' && !stripeConfigured) return false
@@ -123,6 +126,55 @@ export function Header({
         </nav>
 
         <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+          {trading && showSession && (
+            <div className="flex items-center gap-1.5">
+              <div
+                className="flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs font-semibold"
+                role="group"
+                aria-label="Trading mode"
+              >
+                <button
+                  type="button"
+                  onClick={() => trading.setMode('live')}
+                  className={`rounded-md px-2 py-1 ${
+                    trading.mode === 'live'
+                      ? 'bg-teal-700 text-white'
+                      : 'text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]'
+                  }`}
+                >
+                  Live
+                </button>
+                <button
+                  type="button"
+                  onClick={() => trading.setMode('paper')}
+                  className={`rounded-md px-2 py-1 ${
+                    trading.mode === 'paper'
+                      ? 'bg-amber-700 text-white'
+                      : 'text-[var(--color-ink-soft)] hover:bg-[var(--color-muted)]'
+                  }`}
+                >
+                  Paper
+                </button>
+              </div>
+              {trading.isPaper && (
+                <>
+                  <span className="hidden rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-950 dark:text-amber-100 sm:inline">
+                    Paper · fake money
+                  </span>
+                  {trading.paperSummary && (
+                    <button
+                      type="button"
+                      title="Open Learn portfolio"
+                      onClick={() => onPage('paper')}
+                      className="hidden rounded-lg border border-amber-300/80 bg-amber-50 px-2 py-1 text-[11px] font-semibold tabular-nums text-amber-950 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100 lg:inline"
+                    >
+                      {formatAud(trading.paperSummary.equity)}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           {!fullDeskAccess && onUpgrade && (
             <button
               type="button"

@@ -8,6 +8,7 @@ import { ProfilePage } from './components/ProfilePage'
 import { OrgPage } from './components/OrgPage'
 import { IndexAnalysisPanel } from './components/IndexAnalysisPanel'
 import { PaperTradingPanel } from './components/PaperTradingPanel'
+import { TradingModeProvider, useTradingModeOptional } from './lib/tradingMode'
 import { loadLiveMarketSnapshot, type LiveLoadProgress } from './lib/liveMarket'
 import { clearPerfCache, clearOhlcSessionCache } from './lib/deskSeries'
 import { fetchDeskServerConfig, type DeskServerConfig } from './lib/deskConfig'
@@ -885,8 +886,10 @@ export default function App() {
 
   return (
     <PatternPrefsProvider user={user}>
+    <TradingModeProvider user={user}>
     <AppNavContext.Provider value={{ page, setPage: navigate }}>
     <div className="min-h-screen bg-[var(--color-muted)] text-[var(--color-ink)]">
+      <PaperModeBanner />
       {canUseApp && (
         <Header
           dark={dark}
@@ -1252,6 +1255,24 @@ export default function App() {
       )}
     </div>
     </AppNavContext.Provider>
+    </TradingModeProvider>
     </PatternPrefsProvider>
+  )
+}
+
+function PaperModeBanner() {
+  const trading = useTradingModeOptional()
+  if (!trading?.isPaper) return null
+  return (
+    <>
+      <div className="border-b border-amber-300/80 bg-amber-50 px-3 py-1.5 text-center text-xs font-medium text-amber-950 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100">
+        Paper mode — practice with fake money. Fills use desk live/last prices and are not real trades.
+      </div>
+      {trading.lastPaperToast && (
+        <div className="pointer-events-none fixed bottom-4 left-1/2 z-[200] -translate-x-1/2 rounded-lg bg-amber-900 px-4 py-2 text-sm font-semibold text-white shadow-lg">
+          {trading.lastPaperToast}
+        </div>
+      )}
+    </>
   )
 }

@@ -195,7 +195,7 @@ export async function getOrCreatePortfolio(username) {
 
 /**
  * @param {string} username
- * @param {{ ticker?: string, side?: string, qty?: number }} order
+ * @param {{ ticker?: string, side?: string, qty?: number, fillPrice?: number, source?: string }} order
  */
 export async function placeMarketOrder(username, order = {}) {
   const u = normalizeUsername(username)
@@ -214,15 +214,24 @@ export async function placeMarketOrder(username, order = {}) {
     return { ok: false, status: 400, error: 'Quantity must be a positive number' }
   }
 
-  const fill = await resolveFillPrice(ticker)
-  if (!fill) {
-    return {
-      ok: false,
-      status: 400,
-      error: `No price available for ${ticker}. Try again when the desk has a live or last price.`,
+  const forced = Number(order.fillPrice)
+  let price
+  let priceSource
+  if (Number.isFinite(forced) && forced > 0) {
+    price = roundMoney(forced)
+    priceSource = String(order.source || 'replay').slice(0, 32)
+  } else {
+    const fill = await resolveFillPrice(ticker)
+    if (!fill) {
+      return {
+        ok: false,
+        status: 400,
+        error: `No price available for ${ticker}. Try again when the desk has a live or last price.`,
+      }
     }
+    price = roundMoney(fill.price)
+    priceSource = String(order.source || fill.source || 'desk').slice(0, 32)
   }
-  const price = roundMoney(fill.price)
   const notional = roundMoney(price * qty)
 
   await ensureAccount(u)
@@ -291,9 +300,9 @@ export async function placeMarketOrder(username, order = {}) {
 
       const id = crypto.randomUUID()
       await tx.sqlRun(
-        `INSERT INTO paper_trades (id, username, ticker, side, qty, price, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [id, u, ticker, side, qty, price, now],
+        `INSERT INTO paper_trades (id, username, ticker, side, qty, price, created_at, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, u, ticker, side, qty, price, now, priceSource],
       )
     })
   } catch (err) {
@@ -308,7 +317,7 @@ export async function placeMarketOrder(username, order = {}) {
   const portfolio = await getOrCreatePortfolio(u)
   return {
     ok: true,
-    fill: { ticker, side, qty, price, source: fill.source, notional },
+    fill: { ticker, side, qty, price, source: priceSource, notional },
     portfolio,
   }
 }

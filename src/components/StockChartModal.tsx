@@ -33,6 +33,7 @@ import { usePatternPrefs } from './patterns/usePatternPrefs'
 import type { DrawnTool } from '../lib/patterns/drawnPattern'
 import { useAppNav } from '../lib/appPage'
 import { DirectorFilingsPanel } from './DirectorFilingsPanel'
+import { PaperOrderTicket } from './PaperOrderTicket'
 
 /** Open chart zoomed/annotated to a special (or other) pattern hit. */
 export type ChartPatternFocus = {
@@ -425,6 +426,17 @@ export function StockChartModal({ ticker, name, onClose, initialFocus = null, on
             </p>
           )}
           <DirectorFilingsPanel ticker={ticker} />
+          <div className="mt-2 max-w-md">
+            <PaperOrderTicket
+              ticker={ticker}
+              hintPrice={
+                dailyBars?.length
+                  ? Number(dailyBars[dailyBars.length - 1]?.c) || null
+                  : null
+              }
+              compact
+            />
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-lg border border-[var(--color-border)] text-[10px] font-bold">

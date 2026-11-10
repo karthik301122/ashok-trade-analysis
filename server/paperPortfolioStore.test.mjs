@@ -90,4 +90,17 @@ describe('paperPortfolioStore', () => {
     expect(reset.positions).toEqual([])
     expect(await listTrades('learner@example.com')).toEqual([])
   })
+
+  it('accepts an explicit replay fill price', async () => {
+    const buy = await placeMarketOrder('learner@example.com', {
+      ticker: 'BHP',
+      side: 'buy',
+      qty: 10,
+      fillPrice: 55.5,
+      source: 'replay',
+    })
+    expect(buy.ok).toBe(true)
+    expect(buy.fill.price).toBe(55.5)
+    expect(buy.fill.source).toBe('replay')
+  })
 })
